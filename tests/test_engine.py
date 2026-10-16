@@ -143,3 +143,13 @@ def test_ai_too_large_is_not_retried():
     with pytest.raises(recipe_builder.RecipeBuildError, match="too large"):
         recipe_builder._with_retries(big)
     assert calls["n"] == 1
+
+
+def test_pagination_hints_include_load_more_buttons():
+    html = """<a class="btn ecomerce-items-scroll-more">More</a>
+              <button id="lm" class="x">Load more products</button>
+              <a href="/about">Read more about our company history and values</a>"""
+    hints = recipe_builder._pagination_hints(html)
+    assert any('ecomerce-items-scroll-more' in h and '>More<' in h for h in hints)
+    assert any('id="lm"' in h for h in hints)
+    assert not any("company history" in h for h in hints)

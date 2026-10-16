@@ -1,6 +1,6 @@
 {
   "site": "dir.indiamart.com",
-  "notes": "Category pages like https://dir.indiamart.com/impcat/pvc-pipes.html. Search pages (/search.mp) are disallowed by robots.txt.",
+  "notes": "Category pages like https://dir.indiamart.com/impcat/pvc-pipes.html. Search pages (/search.mp) are disallowed by robots.txt. The page shows 28 products and loads more on scrolling, so jobs render it in the browser and scroll 'max pages' times; previews use the plain page.",
   "item_selector": "article.template7-product-card",
   "fields": [
     {"name": "name", "selector": "a.template7-product-name", "attr": "text"},
@@ -14,5 +14,5 @@
     {"name": "specs", "kind": "kv", "label_selector": "dt.template7-isq-label", "value_selector": "dd.template7-isq-value"},
     {"name": "years_in_business", "selector": ".seller-addr-msn", "attr": "text", "regex": "(\\d+)\\s*yrs?"}
   ],
-  "pagination": {"type": "none"}
+  "pagination": {"type": "scroll"}
 }

@@ -134,9 +134,20 @@ def _pagination_hints(html: str) -> list[str]:
         txt = extractor.clean_text(a.text())
         cls = a.attributes.get("class") or ""
         rel = a.attributes.get("rel") or ""
-        if re.fullmatch(r"(next|next ›|›|»|>|\d{1,3})", txt, re.I) or "next" in (cls + rel).lower():
+        # "Next", "Next →", "›", "»", page numbers, or rel/class containing "next"
+        is_next = ("next" in txt.lower() and len(txt) <= 12) or re.fullmatch(r"[›»>]|\d{1,3}", txt)
+        if is_next or "next" in (cls + rel).lower():
             hints.append(f'<a class="{cls}" rel="{rel}" href="{a.attributes.get("href")}">{txt}</a>')
         if len(hints) >= 12:
+            break
+    for b in tree.css("button, a, div[role=button]"):
+        txt = extractor.clean_text(b.text())
+        # "Load more", "Show more products", "More", "View more…": short labels with "more" in them
+        if re.search(r"\bmore\b", txt, re.I) and len(txt.split()) <= 4:
+            ident = b.attributes.get("id") or ""
+            cls = b.attributes.get("class") or ""
+            hints.append(f'<{b.tag} id="{ident}" class="{cls}">{txt}</{b.tag}>')
+        if len(hints) >= 16:
             break
     return hints
 
@@ -158,8 +169,10 @@ split values like "Price: 150 INR/Piece" into price "150" and unit "Piece".
 labels and values inside the item, label picks one pair by its label text (e.g. "MOQ"). Leave label "" \
 to return all pairs. For kind "text", leave label_selector, value_selector and label as "".
 - If a requested field does not exist in the HTML, still include it with selector "" and attr "none".
-- pagination: "next_link" with a selector for the next-page anchor, "url_param" with the query \
-parameter name, or "none" if you cannot see pagination.
+- pagination: "next_link" with a selector for the next-page anchor; "url_param" with the query \
+parameter name; "click" with the selector of a "Load more" / "Show more" button (the scraper will \
+press it in a real browser); "scroll" if the page clearly loads more items on scrolling and has no \
+links or button; "none" if you cannot see any pagination.
 - Only use selectors that you can see in the provided HTML."""
 
 
@@ -187,7 +200,8 @@ def _schema(field_names: list[str]) -> dict:
             "pagination": {
                 "type": "object",
                 "properties": {
-                    "type": {"type": "string", "enum": ["none", "next_link", "url_param"]},
+                    "type": {"type": "string",
+                             "enum": ["none", "next_link", "url_param", "click", "scroll"]},
                     "selector": s, "param": s, "start": {"type": "integer"},
                 },
                 "required": ["type", "selector", "param", "start"],
@@ -360,7 +374,7 @@ def _drop_missing(recipe: dict) -> dict:
     return recipe
 
 
-def build_recipe(html: str, url: str, field_names: list[str]) -> dict:
+def build_recipe(html: str, url: str, field_names: list[str], rendered: bool = False) -> dict:
     """Return {"recipe", "rows", "report", "notes"} or raise RecipeBuildError."""
     if not config.ai_enabled():
         key = "GROQ_API_KEY" if config.AI_PROVIDER == "groq" else "ANTHROPIC_API_KEY"
@@ -373,6 +387,8 @@ def build_recipe(html: str, url: str, field_names: list[str]) -> dict:
     samples = _fit_samples(candidates, config.ai_prompt_budget())
     parts = [f"Page URL: {url}",
              f"Fields to extract: {', '.join(field_names)}",
+             ("This HTML was captured from a real browser after the page's scripts ran."
+              if rendered else "This HTML is the server's plain response (no scripts were run)."),
              "",
              "Below are the groups of repeated elements found on the page (most likely listings first). "
              "Each shows a CSS path hint, how many siblings matched, and samples of cleaned HTML "

@@ -10,8 +10,10 @@ Recipe format:
     {"name": "moq",   "kind": "kv", "label_selector": ".spec-title",
      "value_selector": ".spec-value", "label": "MOQ"}
   ],
-  "pagination": {"type": "none" | "next_link" | "url_param",
+  "pagination": {"type": "none" | "next_link" | "url_param" | "click" | "scroll",
                  "selector": "a.next", "param": "page", "start": 1}
+                 # click: press the "load more" button (selector) in a browser until no new items
+                 # scroll: scroll to the bottom in a browser until no new items
 }
 
 Field options:
@@ -95,8 +97,10 @@ def normalize_recipe(recipe: dict) -> dict:
         "param": pag.get("param") or "",
         "start": int(pag.get("start") or 1),
     }
-    if pagination["type"] not in ("none", "next_link", "url_param"):
-        raise RecipeError("pagination.type must be none, next_link or url_param")
+    if pagination["type"] not in ("none", "next_link", "url_param", "click", "scroll"):
+        raise RecipeError("pagination.type must be none, next_link, url_param, click or scroll")
+    if pagination["type"] == "click" and not pagination["selector"]:
+        raise RecipeError("pagination.type 'click' needs a selector for the load-more button")
     out = {"item_selector": item, "fields": fields, "pagination": pagination}
     for key in ("site", "notes"):
         if recipe.get(key):

@@ -4,6 +4,7 @@ httpx>=0.28
 selectolax>=1.0
 anthropic>=1.15
 groq>=1.7
+playwright>=1.64        # optional: browser rendering; then run  python -m playwright install chromium
 pandas>=3.0
 openpyxl>=3.1
 python-dotenv>=1.0

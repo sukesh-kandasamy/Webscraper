@@ -2,6 +2,7 @@
 
 Run:  uvicorn app.main:app --reload     then open http://localhost:8000
 """
+import functools
 import json
 from contextlib import asynccontextmanager
 
@@ -10,7 +11,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, db, export, extractor, fetcher, jobs, recipe_builder
+from . import browser, config, db, export, extractor, fetcher, jobs, recipe_builder
 
 PREVIEW_ROWS = 20
 
@@ -84,9 +85,9 @@ def _clean_urls(urls: list[str]) -> list[str]:
     return out
 
 
-def _fetch_or_http_error(url: str) -> fetcher.Page:
+def _fetch_or_http_error(url: str, recipe: dict | None = None) -> fetcher.Page:
     try:
-        return fetcher.fetch(url)
+        return fetcher.fetch_smart(url, recipe)
     except fetcher.BlockedError as e:
         raise HTTPException(403, str(e))
     except fetcher.FetchError as e:
@@ -113,7 +114,7 @@ def _result(domain: str, page: fetcher.Page, recipe: dict, source: str, rows: li
             notes: str = "") -> dict:
     return {"domain": domain, "url": page.final_url, "from_cache": page.from_cache,
             "source": source, "recipe": recipe, "notes": notes,
-            "settings": db.get_site_settings(domain),
+            "settings": db.get_site_settings(domain), "rendered": page.rendered,
             "row_count": len(rows), "rows": rows[:PREVIEW_ROWS],
             "report": extractor.field_report(rows, recipe)}
 
@@ -130,7 +131,22 @@ def status():
     return {"ai_enabled": config.ai_enabled(), "model": config.ai_model(), "provider": config.AI_PROVIDER,
             "default_fields": config.DEFAULT_FIELDS, "respect_robots": config.RESPECT_ROBOTS,
             "delay": [config.MIN_DELAY, config.MAX_DELAY], "max_pages": config.MAX_PAGES_PER_URL,
-            "max_jobs": config.MAX_CONCURRENT_JOBS}
+            "max_jobs": config.MAX_CONCURRENT_JOBS, "browser_available": _browser_available()}
+
+
+@functools.lru_cache(maxsize=1)
+def _browser_available() -> bool:
+    return browser.available()
+
+
+def _remember_render(domain: str, page: fetcher.Page) -> str:
+    """When auto mode had to use the browser, save that so later fetches go straight to it."""
+    settings = db.get_site_settings(domain)
+    if page.rendered and settings.get("render", "auto") == "auto":
+        db.save_site_settings(domain, {**settings, "render": "always"})
+        fetcher.forget_settings(domain)
+        return " This site needed browser rendering; saved that in its settings."
+    return ""
 
 
 @app.post("/api/analyse")
@@ -138,17 +154,21 @@ def analyse(body: AnalyseIn):
     """Get a recipe for the page: the saved one if it still works, otherwise ask Claude."""
     url = _clean_urls([body.url])[0]
     fields = [f.strip() for f in body.fields if f.strip()] or list(config.DEFAULT_FIELDS)
-    page = _fetch_or_http_error(url)
-    domain = fetcher.domain_of(page.final_url)
-
+    domain = fetcher.domain_of(url)
     saved = db.get_recipe(domain)
-    if saved and not body.force_ai:
-        recipe = extractor.normalize_recipe(saved["recipe"])
-        rows = extractor.extract(page.html, recipe, page.final_url)
+    saved_recipe = None
+    if saved and saved["recipe"].get("item_selector") and not body.force_ai:
+        saved_recipe = extractor.normalize_recipe(saved["recipe"])
+    page = _fetch_or_http_error(url, saved_recipe)
+    domain = fetcher.domain_of(page.final_url)
+    render_note = _remember_render(domain, page)
+
+    if saved_recipe:
+        rows = extractor.extract(page.html, saved_recipe, page.final_url)
         if rows:
-            return _result(domain, page, recipe, saved["source"], rows,
+            return _result(domain, page, saved_recipe, saved["source"], rows,
                            "Using the saved recipe for this site. Click 'Re-analyse with AI' "
-                           "to build a new one for your fields.")
+                           "to build a new one for your fields." + render_note)
 
     if not config.ai_enabled():
         starter = _starter_recipe(page.html, fields)
@@ -158,20 +178,22 @@ def analyse(body: AnalyseIn):
             "starter_recipe": starter, "domain": domain})
 
     try:
-        built = recipe_builder.build_recipe(page.html, page.final_url, fields)
+        built = recipe_builder.build_recipe(page.html, page.final_url, fields, page.rendered)
     except recipe_builder.RecipeBuildError as e:
         raise HTTPException(422, {"message": str(e), "domain": domain,
                                   "starter_recipe": _starter_recipe(page.html, fields)})
     except Exception as e:  # API/network errors from the Anthropic SDK
         raise HTTPException(502, f"AI request failed: {type(e).__name__}: {e}")
-    return _result(domain, page, built["recipe"], "ai", built["rows"], built["notes"])
+    return _result(domain, page, built["recipe"], "ai", built["rows"],
+                   built["notes"] + render_note)
 
 
 @app.post("/api/preview")
 def preview(body: PreviewIn):
     url = _clean_urls([body.url])[0]
     recipe = _normalize_or_http_error(body.recipe)
-    page = _fetch_or_http_error(url)
+    page = _fetch_or_http_error(url, recipe)
+    _remember_render(fetcher.domain_of(page.final_url), page)
     try:
         rows = extractor.extract(page.html, recipe, page.final_url)
     except extractor.RecipeError as e:

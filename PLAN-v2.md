@@ -1,5 +1,14 @@
 # Universal Scraper: v2 Plan
 
+> **Status (2026-10-16):**
+> - **Phase 0 done:** git repo, AI-call retries with the provider's wait hint, job queue
+>   (`SCRAPER_MAX_JOBS`) with resume after restart, per-site settings (delay, page rendering).
+> - **Phase 1 partly done:** 1.1 Playwright fallback (auto / never / always per site, auto-saved when
+>   needed), 1.2 load-more clicks and infinite scroll (`pagination.type: click | scroll`), 1.5 challenge
+>   page detection in the browser. IndiaMART jobs now scroll for more products.
+>   **Still open:** 1.3 table pages, 1.4 embedded JSON data.
+> - Phases 2–4: not started.
+
 The draft (v0.1) proved the idea: URL in, AI-built recipe, preview, crawl, table, export. This plan
 takes it from a draft to a tool you can rely on every day. It is split into five phases. Each phase is
 useful on its own and can be built in one sitting, so the app keeps working between phases.

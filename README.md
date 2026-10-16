@@ -13,6 +13,7 @@ Without a key you can edit the starter recipe by hand.
 ```bash
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m playwright install chromium   # optional: browser rendering (~150 MB)
 copy .env.example .env        # then add GROQ_API_KEY=... (optional, enables AI recipes)
 ```
 
@@ -59,14 +60,35 @@ A recipe is plain JSON. See [app/extractor.py](app/extractor.py) for every optio
 }
 ```
 
-Pagination types: `none`, `next_link` (follow a "next" anchor), `url_param` (e.g. `?page=2`).
+Pagination types: `none`, `next_link` (follow a "next" anchor), `url_param` (e.g. `?page=2`),
+`click` (press a "Load more" button, `selector` required) and `scroll` (infinite scroll). The last two
+run in the browser; *Max pages per URL* is then the number of clicks / scrolls.
+
+## Browser rendering (JavaScript sites)
+
+Plain HTTP is always tried first. If the page comes back without listings, the app renders it in
+headless Chromium (Playwright) and tries again; when that works, the site's **Page rendering** setting
+is switched to *Always* so later fetches go straight to the browser. You can set it to *Plain HTTP only*
+or *Always* yourself under *Site settings*. The browser follows the same rules as plain fetching:
+robots.txt, the per-site delay, and stopping on CAPTCHA / challenge pages.
+
+Tested on: `quotes.toscrape.com/js/` (JavaScript-only), `quotes.toscrape.com/scroll` (infinite scroll),
+`webscraper.io/test-sites/e-commerce/more/...` (Load more button) and IndiaMART category pages (load
+more products on scroll).
+
+## Jobs
+
+At most `SCRAPER_MAX_JOBS` (default 2) jobs crawl at the same time; others wait as *queued* and can be
+stopped while waiting. Every fetched page is recorded, so a job interrupted by a restart resumes where
+it stopped without duplicating rows.
 
 ## Project layout
 
 | Path | What it does |
 |---|---|
 | `app/main.py` | FastAPI routes + serves the UI |
-| `app/fetcher.py` | HTTP client: robots.txt, throttling, retries, cache, block detection |
+| `app/fetcher.py` | HTTP client: robots.txt, per-site throttling, retries, cache, block detection; `fetch_smart` picks HTTP or browser |
+| `app/browser.py` | Headless Chromium rendering (Playwright): wait for the page, click "load more" / scroll, detect challenge pages |
 | `app/robots.py` | robots.txt parser with `*` / `$` wildcard support |
 | `app/extractor.py` | Applies a recipe to HTML; pagination; field fill-rate report |
 | `app/recipe_builder.py` | Finds repeated listing blocks, asks the AI (Groq or Claude) for a recipe, tests it, retries once with feedback |
@@ -85,7 +107,8 @@ Pagination types: `none`, `next_link` (follow a "next" anchor), `url_param` (e.g
 | `ANTHROPIC_API_KEY` / `SCRAPER_CLAUDE_MODEL` | — / `claude-opus-5-5` | |
 | `SCRAPER_AI_PROMPT_CHARS` | 11000 (Groq), 60000 (Claude) | Groq's free tier allows 8,000 tokens per minute, so large pages are trimmed to fit |
 | `SCRAPER_MIN_DELAY` / `SCRAPER_MAX_DELAY` | 2 / 5 s | Wait between requests to the same site |
-| `SCRAPER_MAX_PAGES` | 10 | Per start URL |
+| `SCRAPER_MAX_PAGES` | 10 | Per start URL (or scroll / click rounds) |
+| `SCRAPER_MAX_JOBS` | 2 | Jobs crawling at the same time |
 | `SCRAPER_CACHE_TTL_HOURS` | 24 | Page cache |
 
 ## What's next

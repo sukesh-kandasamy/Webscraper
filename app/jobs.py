@@ -84,7 +84,7 @@ def _run(job_id: int) -> None:
                 already = url in done_pages
                 db.update_job(job_id, message=("Re-reading " if already else "Fetching ") + url)
                 try:
-                    page = fetcher.fetch(url)
+                    page = fetcher.fetch_smart(url, recipe, max_rounds=job["max_pages"])
                 except fetcher.BlockedError:
                     raise
                 except fetcher.FetchError as e:

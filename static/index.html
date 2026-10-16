@@ -18,6 +18,9 @@
     <span class="chip" :class="status?.ai_enabled ? 'ok' : 'warn'"
           x-text="status?.ai_enabled ? 'AI on · ' + status.provider + ' · ' + status.model : 'AI off · manual recipes'"></span>
     <span class="chip" x-show="status?.respect_robots">robots.txt respected</span>
+    <span class="chip" :class="status?.browser_available ? 'ok' : 'warn'"
+          :title="status?.browser_available ? '' : 'pip install playwright && python -m playwright install chromium'"
+          x-text="status?.browser_available ? 'browser rendering ready' : 'browser rendering not installed'"></span>
     <span class="chip" x-text="'delay ' + (status?.delay||[]).join('–') + 's'"></span>
   </div>
 </header>
@@ -66,6 +69,7 @@
       · recipe source: <span class="chip" x-text="analysis?.source"></span>
       · <span x-text="analysis?.row_count"></span> rows found on this page
       <template x-if="analysis?.from_cache"><span> · page from cache</span></template>
+      <template x-if="analysis?.rendered"><span class="chip ok">rendered in browser</span></template>
     </p>
     <p class="note" x-show="analysis?.notes" x-text="analysis?.notes"></p>
 
