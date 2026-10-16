@@ -29,6 +29,7 @@ function scraper() {
     error: "",
     analysis: null,
     recipeText: "",
+    settings: { min_delay: null, max_delay: null, render: "auto" },
     jobs: [],
     selectedJob: null,
     records: [],
@@ -68,6 +69,7 @@ function scraper() {
         this.analysis = await api("POST", "/api/analyse",
           { url: this.urls()[0], fields: this.fields(), force_ai: forceAi });
         this.recipeText = JSON.stringify(this.analysis.recipe, null, 2);
+        this.applySettings(this.analysis.settings);
       } catch (e) {
         this.error = e.message;
         if (e.detail?.starter_recipe) {
@@ -82,8 +84,30 @@ function scraper() {
       try {
         this.analysis = await api("POST", "/api/preview", { url: this.urls()[0], recipe: this.parseRecipe() });
         this.recipeText = JSON.stringify(this.analysis.recipe, null, 2);
+        this.applySettings(this.analysis.settings);
       } catch (e) { this.error = e.message; }
       finally { this.busy = ""; }
+    },
+
+    settingsSummary() {
+      const s = this.settings, d = this.status?.delay || [];
+      const lo = s.min_delay ?? d[0], hi = s.max_delay ?? d[1];
+      return `· delay ${lo}–${hi}s · rendering: ${s.render || "auto"}`;
+    },
+
+    applySettings(s) {
+      this.settings = { min_delay: s?.min_delay ?? null, max_delay: s?.max_delay ?? null,
+                        render: s?.render || "auto" };
+    },
+
+    async saveSettings() {
+      this.error = "";
+      try {
+        const body = { render: this.settings.render };
+        if (this.settings.min_delay !== null && this.settings.min_delay !== "") body.min_delay = this.settings.min_delay;
+        if (this.settings.max_delay !== null && this.settings.max_delay !== "") body.max_delay = this.settings.max_delay;
+        this.applySettings(await api("PUT", `/api/sites/${this.analysis.domain}/settings`, body));
+      } catch (e) { this.error = e.message; }
     },
 
     async saveRecipe() {

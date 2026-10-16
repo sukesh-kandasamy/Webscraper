@@ -33,6 +33,10 @@ input, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border
 textarea.code { font: 12.5px/1.45 ui-monospace, Consolas, monospace; background: var(--code-bg); margin-top: 8px; }
 input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .narrow { width: 120px; }
+select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card);
+  color: var(--text); font: inherit; }
+.settings-row { margin: 6px 0 10px; }
+details summary small { margin-left: 6px; }
 .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .grow { flex: 1; min-width: 200px; }
 .examples { margin-top: 6px; color: var(--muted); font-size: 13px; }

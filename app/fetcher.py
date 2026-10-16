@@ -75,8 +75,33 @@ def robots_allows(url: str) -> bool:
     return robots.is_allowed(robots_rules(url), url)
 
 
+_settings_cache: dict[str, tuple[float, dict]] = {}
+SETTINGS_TTL_S = 60
+
+
+def site_settings(domain: str) -> dict:
+    """Per-site overrides saved in the UI (min_delay, max_delay, render), cached briefly."""
+    hit = _settings_cache.get(domain)
+    if hit and time.time() - hit[0] < SETTINGS_TTL_S:
+        return hit[1]
+    settings = db.get_site_settings(domain)
+    _settings_cache[domain] = (time.time(), settings)
+    return settings
+
+
+def forget_settings(domain: str) -> None:
+    _settings_cache.pop(domain, None)
+
+
+def delay_range(domain: str) -> tuple[float, float]:
+    s = site_settings(domain)
+    lo = float(s.get("min_delay") or config.MIN_DELAY)
+    hi = float(s.get("max_delay") or config.MAX_DELAY)
+    return (lo, max(lo, hi))
+
+
 def _throttle(domain: str) -> None:
-    wait = random.uniform(config.MIN_DELAY, config.MAX_DELAY)
+    wait = random.uniform(*delay_range(domain))
     elapsed = time.time() - _last_hit.get(domain, 0)
     if elapsed < wait:
         time.sleep(wait - elapsed)

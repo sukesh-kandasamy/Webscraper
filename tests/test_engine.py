@@ -97,3 +97,49 @@ def test_prompt_samples_fit_budget():
     chosen = recipe_builder._fit_samples(cands, 11000)
     assert sum(len(s) for group in chosen for s in group) <= 11000 + 50
     assert chosen[0] and chosen[1]
+
+
+class _FakeRateLimit(Exception):
+    status_code = 429
+
+    def __init__(self, msg, headers=None):
+        super().__init__(msg)
+        self.response = type("R", (), {"headers": headers or {}})()
+
+
+def test_ai_retry_waits_for_server_hint(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(recipe_builder.time, "sleep", sleeps.append)
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise _FakeRateLimit("Rate limit reached. Please try again in 1.5s.")
+        return "ok"
+
+    assert recipe_builder._with_retries(flaky) == "ok"
+    assert calls["n"] == 3 and sleeps == [2.0, 2.0]
+
+
+def test_ai_retry_gives_up_on_long_waits(monkeypatch):
+    monkeypatch.setattr(recipe_builder.time, "sleep", lambda s: None)
+
+    def always():
+        raise _FakeRateLimit("slow down", headers={"retry-after": "120"})
+
+    with pytest.raises(recipe_builder.RecipeBuildError, match="rate-limited"):
+        recipe_builder._with_retries(always)
+
+
+def test_ai_too_large_is_not_retried():
+    calls = {"n": 0}
+
+    def big():
+        calls["n"] += 1
+        e = _FakeRateLimit("Request too large for model"); e.status_code = 413
+        raise e
+
+    with pytest.raises(recipe_builder.RecipeBuildError, match="too large"):
+        recipe_builder._with_retries(big)
+    assert calls["n"] == 1

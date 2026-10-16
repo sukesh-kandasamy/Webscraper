@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS sites (
     domain     TEXT PRIMARY KEY,
     recipe     TEXT NOT NULL,
     source     TEXT NOT NULL,          -- builtin | ai | manual
+    settings   TEXT NOT NULL DEFAULT '{}',   -- per-site: min_delay, max_delay, render
     updated_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS jobs (
@@ -36,6 +37,13 @@ CREATE TABLE IF NOT EXISTS records (
     data    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_records_job ON records(job_id);
+CREATE TABLE IF NOT EXISTS job_pages (          -- every page a job has fetched, for resume/retry
+    job_id     INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    url        TEXT NOT NULL,
+    rows       INTEGER NOT NULL,
+    fetched_at REAL NOT NULL,
+    PRIMARY KEY (job_id, url)
+);
 CREATE TABLE IF NOT EXISTS page_cache (
     url        TEXT PRIMARY KEY,
     status     INTEGER NOT NULL,
@@ -65,14 +73,22 @@ def tx():
             conn.close()
 
 
+MIGRATIONS = [
+    ("sites", "settings", "ALTER TABLE sites ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'"),
+]
+
+
 def init() -> None:
     with tx() as c:
         c.executescript(SCHEMA)
-        # Jobs left running by a previous server process can never finish.
-        c.execute(
-            "UPDATE jobs SET status='stopped', message='Server restarted' "
-            "WHERE status IN ('queued','running')"
-        )
+        for table, column, ddl in MIGRATIONS:
+            cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                c.execute(ddl)
+        # Jobs left running by a previous server process are re-queued; jobs.resume_pending()
+        # picks them up and continues from the pages they had not fetched yet.
+        c.execute("UPDATE jobs SET status='queued', message='Resuming after restart' "
+                  "WHERE status='running'")
 
 
 # ---- recipes -------------------------------------------------------------
@@ -83,7 +99,8 @@ def get_recipe(domain: str) -> dict | None:
     if not row:
         return None
     return {"domain": row["domain"], "source": row["source"],
-            "updated_at": row["updated_at"], "recipe": json.loads(row["recipe"])}
+            "updated_at": row["updated_at"], "recipe": json.loads(row["recipe"]),
+            "settings": json.loads(row["settings"] or "{}")}
 
 
 def save_recipe(domain: str, recipe: dict, source: str) -> None:
@@ -98,8 +115,29 @@ def save_recipe(domain: str, recipe: dict, source: str) -> None:
 
 def list_sites() -> list[dict]:
     with tx() as c:
-        rows = c.execute("SELECT domain, source, updated_at FROM sites ORDER BY domain").fetchall()
-    return [dict(r) for r in rows]
+        rows = c.execute("SELECT domain, source, settings, updated_at FROM sites ORDER BY domain").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["settings"] = json.loads(d["settings"] or "{}")
+        out.append(d)
+    return out
+
+
+def get_site_settings(domain: str) -> dict:
+    with tx() as c:
+        row = c.execute("SELECT settings FROM sites WHERE domain=?", (domain,)).fetchone()
+    return json.loads(row["settings"] or "{}") if row else {}
+
+
+def save_site_settings(domain: str, settings: dict) -> None:
+    """Store settings for a domain; creates the site row (with an empty recipe) if needed."""
+    with tx() as c:
+        c.execute(
+            "INSERT INTO sites(domain, recipe, source, settings, updated_at) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(domain) DO UPDATE SET settings=excluded.settings",
+            (domain, "{}", "manual", json.dumps(settings), time.time()),
+        )
 
 
 # ---- jobs ----------------------------------------------------------------
@@ -127,6 +165,12 @@ def get_job(job_id: int) -> dict | None:
     return _job_dict(row) if row else None
 
 
+def pending_jobs() -> list[int]:
+    with tx() as c:
+        rows = c.execute("SELECT id FROM jobs WHERE status='queued' ORDER BY id").fetchall()
+    return [r["id"] for r in rows]
+
+
 def list_jobs(limit: int = 50) -> list[dict]:
     with tx() as c:
         rows = c.execute("SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
@@ -151,6 +195,19 @@ def add_records(job_id: int, page: str, rows: list[dict]) -> None:
             "INSERT INTO records(job_id, page, data) VALUES(?,?,?)",
             [(job_id, page, json.dumps(r, ensure_ascii=False)) for r in rows],
         )
+
+
+def add_job_page(job_id: int, url: str, rows: int) -> None:
+    with tx() as c:
+        c.execute("INSERT OR REPLACE INTO job_pages(job_id, url, rows, fetched_at) VALUES(?,?,?,?)",
+                  (job_id, url, rows, time.time()))
+
+
+def job_pages(job_id: int) -> dict[str, int]:
+    """URLs this job has already fetched, with the number of rows each one gave."""
+    with tx() as c:
+        rows = c.execute("SELECT url, rows FROM job_pages WHERE job_id=?", (job_id,)).fetchall()
+    return {r["url"]: r["rows"] for r in rows}
 
 
 def get_records(job_id: int) -> list[dict]:

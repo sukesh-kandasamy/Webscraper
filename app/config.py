@@ -16,6 +16,7 @@ BUILTIN_RECIPES_DIR = ROOT / "app" / "recipes"
 MIN_DELAY = float(os.getenv("SCRAPER_MIN_DELAY", "2"))
 MAX_DELAY = float(os.getenv("SCRAPER_MAX_DELAY", "5"))
 MAX_PAGES_PER_URL = int(os.getenv("SCRAPER_MAX_PAGES", "10"))
+MAX_CONCURRENT_JOBS = int(os.getenv("SCRAPER_MAX_JOBS", "2"))
 CACHE_TTL_HOURS = float(os.getenv("SCRAPER_CACHE_TTL_HOURS", "24"))
 RESPECT_ROBOTS = os.getenv("SCRAPER_RESPECT_ROBOTS", "1") != "0"
 REQUEST_TIMEOUT = float(os.getenv("SCRAPER_TIMEOUT", "30"))

@@ -28,6 +28,7 @@ def _seed_builtin_recipes() -> None:
 async def lifespan(_: FastAPI):
     db.init()
     _seed_builtin_recipes()
+    jobs.resume_pending()
     yield
 
 
@@ -50,6 +51,12 @@ class PreviewIn(BaseModel):
 
 class RecipeIn(BaseModel):
     recipe: dict
+
+
+class SettingsIn(BaseModel):
+    min_delay: float | None = Field(default=None, ge=0, le=120)
+    max_delay: float | None = Field(default=None, ge=0, le=120)
+    render: str = Field(default="auto", pattern="^(auto|never|always)$")
 
 
 class JobIn(BaseModel):
@@ -106,6 +113,7 @@ def _result(domain: str, page: fetcher.Page, recipe: dict, source: str, rows: li
             notes: str = "") -> dict:
     return {"domain": domain, "url": page.final_url, "from_cache": page.from_cache,
             "source": source, "recipe": recipe, "notes": notes,
+            "settings": db.get_site_settings(domain),
             "row_count": len(rows), "rows": rows[:PREVIEW_ROWS],
             "report": extractor.field_report(rows, recipe)}
 
@@ -121,7 +129,8 @@ def index():
 def status():
     return {"ai_enabled": config.ai_enabled(), "model": config.ai_model(), "provider": config.AI_PROVIDER,
             "default_fields": config.DEFAULT_FIELDS, "respect_robots": config.RESPECT_ROBOTS,
-            "delay": [config.MIN_DELAY, config.MAX_DELAY], "max_pages": config.MAX_PAGES_PER_URL}
+            "delay": [config.MIN_DELAY, config.MAX_DELAY], "max_pages": config.MAX_PAGES_PER_URL,
+            "max_jobs": config.MAX_CONCURRENT_JOBS}
 
 
 @app.post("/api/analyse")
@@ -188,6 +197,21 @@ def put_site_recipe(domain: str, body: RecipeIn):
     recipe = _normalize_or_http_error(body.recipe)
     db.save_recipe(domain, recipe, "manual")
     return {"ok": True}
+
+
+@app.get("/api/sites/{domain}/settings")
+def get_site_settings(domain: str):
+    return db.get_site_settings(domain)
+
+
+@app.put("/api/sites/{domain}/settings")
+def put_site_settings(domain: str, body: SettingsIn):
+    settings = {k: v for k, v in body.model_dump().items() if v is not None}
+    if settings.get("min_delay") is not None and settings.get("max_delay") is not None             and settings["min_delay"] > settings["max_delay"]:
+        raise HTTPException(400, "min_delay must not be larger than max_delay")
+    db.save_site_settings(domain, settings)
+    fetcher.forget_settings(domain)
+    return settings
 
 
 @app.post("/api/jobs")

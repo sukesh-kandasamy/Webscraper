@@ -93,6 +93,29 @@
       </table>
     </div>
 
+    <details>
+      <summary>Site settings <small class="meta" x-text="settingsSummary()"></small></summary>
+      <div class="row settings-row">
+        <div>
+          <label class="lbl">Min delay (s)</label>
+          <input type="number" min="0" step="0.5" x-model.number="settings.min_delay" class="narrow" :placeholder="status?.delay?.[0]">
+        </div>
+        <div>
+          <label class="lbl">Max delay (s)</label>
+          <input type="number" min="0" step="0.5" x-model.number="settings.max_delay" class="narrow" :placeholder="status?.delay?.[1]">
+        </div>
+        <div>
+          <label class="lbl">Page rendering</label>
+          <select x-model="settings.render">
+            <option value="auto">Auto (browser only if needed)</option>
+            <option value="never">Plain HTTP only</option>
+            <option value="always">Always use the browser</option>
+          </select>
+        </div>
+        <button @click="saveSettings()" :disabled="!!busy || !analysis?.domain">Save settings</button>
+      </div>
+    </details>
+
     <details :open="!analysis || !analysis.rows?.length">
       <summary>Edit recipe (JSON)</summary>
       <textarea x-model="recipeText" rows="14" class="code" spellcheck="false"></textarea>

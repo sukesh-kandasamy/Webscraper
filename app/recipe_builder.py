@@ -4,6 +4,7 @@ The model is only called once per new site. The saved recipe is reused for every
 """
 import json
 import re
+import time
 from collections import defaultdict
 
 import anthropic
@@ -203,6 +204,63 @@ class _Refused(Exception):
     pass
 
 
+_RETRY_HINT = re.compile(r"try again in\s*([\d.]+)\s*(ms|s|m)", re.I)
+MAX_AI_ATTEMPTS = 4
+MAX_AI_WAIT_S = 90.0
+
+
+def _retry_delay(exc: Exception, attempt: int) -> float:
+    """How long to wait before retrying an AI call, from the server's hint if it gave one."""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) or {}
+    for key in ("retry-after", "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens"):
+        value = headers.get(key)
+        if value:
+            m = _RETRY_HINT.search(f"try again in {value}") or re.match(r"^\s*([\d.]+)\s*$", value)
+            if m:
+                return _hint_seconds(m)
+    m = _RETRY_HINT.search(str(exc))
+    if m:
+        return _hint_seconds(m)
+    return min(2.0 * 2 ** attempt, 30.0)
+
+
+def _hint_seconds(m: re.Match) -> float:
+    n = float(m.group(1))
+    unit = m.group(2).lower() if m.lastindex and m.lastindex >= 2 and m.group(2) else "s"
+    return n / 1000 if unit == "ms" else n * 60 if unit == "m" else n
+
+
+def _is_retryable(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None)
+    if status in (429, 500, 502, 503, 504, 529):
+        return True
+    return isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)) or \
+        type(exc).__name__ in ("APIConnectionError", "APITimeoutError")
+
+
+def _with_retries(call, *args):
+    """Run an AI call, waiting and retrying on rate limits and transient server errors."""
+    waited = 0.0
+    for attempt in range(MAX_AI_ATTEMPTS):
+        try:
+            return call(*args)
+        except Exception as e:  # SDK-specific classes differ between providers
+            if getattr(e, "status_code", None) == 413 or "request too large" in str(e).lower():
+                raise RecipeBuildError(
+                    "The page sample is too large for the AI provider's limit. Lower "
+                    "SCRAPER_AI_PROMPT_CHARS in .env (or upgrade the provider plan).") from e
+            if not _is_retryable(e) or attempt == MAX_AI_ATTEMPTS - 1:
+                raise
+            delay = _retry_delay(e, attempt) + 0.5
+            if waited + delay > MAX_AI_WAIT_S:
+                raise RecipeBuildError(
+                    f"The AI provider is rate-limited (asked to wait {delay:.0f}s). "
+                    "Try again in a minute.") from e
+            time.sleep(delay)
+            waited += delay
+
+
 def _ask_claude(messages: list[dict], schema: dict) -> str:
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     kwargs = dict(
@@ -243,7 +301,7 @@ def _ask_groq(messages: list[dict], schema: dict) -> str:
 def _ask_model(messages: list[dict], field_names: list[str]) -> str:
     """Send the conversation to the configured provider and return its JSON text."""
     ask = _ask_groq if config.AI_PROVIDER == "groq" else _ask_claude
-    return ask(messages, _schema(field_names))
+    return _with_retries(ask, messages, _schema(field_names))
 
 
 def _fit_samples(candidates: list[dict], budget: int) -> list[list[str]]:
