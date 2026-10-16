@@ -4,133 +4,252 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Universal Scraper</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%234f46e5'/%3E%3Cpath fill='white' d='M6 7h12v2H6zm0 4h8v2H6zm0 4h12v2H6z'/%3E%3C/svg%3E">
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'] },
+        },
+      },
+    };
+  </script>
+  <style type="text/tailwindcss">
+    @layer components {
+      .card        { @apply rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900; }
+      .card-head   { @apply flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800; }
+      .card-body   { @apply p-5; }
+      .step        { @apply grid h-7 w-7 shrink-0 place-items-center rounded-full bg-indigo-600 text-xs font-semibold text-white; }
+      .card-title  { @apply text-base font-semibold text-slate-900 dark:text-slate-100; }
+      .label       { @apply mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300; }
+      .hint        { @apply font-normal text-slate-400 dark:text-slate-500; }
+      .input       { @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm
+                            placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20
+                            dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600; }
+      .btn         { @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white
+                            px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50
+                            focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50
+                            dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700; }
+      .btn-primary { @apply border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-500 dark:border-indigo-500 dark:bg-indigo-500 dark:text-white dark:hover:bg-indigo-400; }
+      .btn-ghost   { @apply rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200; }
+      .chip        { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset; }
+      .chip-gray   { @apply bg-slate-50 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700; }
+      .chip-green  { @apply bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30; }
+      .chip-amber  { @apply bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30; }
+      .chip-red    { @apply bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30; }
+      .chip-blue   { @apply bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-500/30; }
+      .dot         { @apply h-1.5 w-1.5 rounded-full bg-current; }
+      .table-wrap  { @apply overflow-auto rounded-xl border border-slate-200 dark:border-slate-800; }
+      .tbl         { @apply min-w-full text-left text-sm; }
+      .tbl th      { @apply sticky top-0 z-10 whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold uppercase
+                            tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400; }
+      .tbl td      { @apply min-w-[7rem] max-w-[22rem] border-b border-slate-100 px-3 py-2 align-top text-slate-700 dark:border-slate-800/70 dark:text-slate-300; }
+      .tbl tbody tr { @apply hover:bg-indigo-50/40 dark:hover:bg-slate-800/40; }
+      .link        { @apply font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300; }
+      details > summary { @apply flex cursor-pointer select-none list-none items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300; }
+      details > summary::-webkit-details-marker { display: none; }
+      details[open] > summary .chev { @apply rotate-90; }
+      .spinner     { @apply h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-r-transparent; }
+    }
+    [x-cloak] { display: none !important; }
+  </style>
   <script defer src="/static/app.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 </head>
-<body x-data="scraper()" x-init="init()">
-<header class="topbar">
-  <div class="brand">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 5h18v2H3zm0 6h12v2H3zm0 6h18v2H3z"/></svg>
-    <span>Universal Scraper</span><span class="ver">draft v0.1</span>
-  </div>
-  <div class="status" x-show="status">
-    <span class="chip" :class="status?.ai_enabled ? 'ok' : 'warn'"
-          x-text="status?.ai_enabled ? 'AI on · ' + status.provider + ' · ' + status.model : 'AI off · manual recipes'"></span>
-    <span class="chip" x-show="status?.respect_robots">robots.txt respected</span>
-    <span class="chip" :class="status?.browser_available ? 'ok' : 'warn'"
-          :title="status?.browser_available ? '' : 'pip install playwright && python -m playwright install chromium'"
-          x-text="status?.browser_available ? 'browser rendering ready' : 'browser rendering not installed'"></span>
-    <span class="chip" x-text="'delay ' + (status?.delay||[]).join('–') + 's'"></span>
+<body class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-200"
+      x-data="scraper()" x-init="init()">
+
+<!-- Header -->
+<header class="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+    <div class="flex items-center gap-3">
+      <div class="grid h-9 w-9 place-items-center rounded-xl bg-indigo-600 text-white shadow-sm">
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor" aria-hidden="true"><path d="M5 6h14v2H5zm0 5h9v2H5zm0 5h14v2H5z"/></svg>
+      </div>
+      <div class="leading-tight">
+        <div class="font-semibold text-slate-900 dark:text-white">Universal Scraper</div>
+        <div class="text-xs text-slate-500 dark:text-slate-400">AI-built recipes · polite crawling</div>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-1.5" x-show="status" x-cloak>
+      <span class="chip" :class="status?.ai_enabled ? 'chip-green' : 'chip-amber'">
+        <span class="dot"></span>
+        <span x-text="status?.ai_enabled ? 'AI · ' + status.model : 'AI off'"></span>
+      </span>
+      <span class="chip" :class="status?.browser_available ? 'chip-green' : 'chip-amber'"
+            :title="status?.browser_available ? 'Headless Chromium is installed' : 'pip install playwright && python -m playwright install chromium'">
+        <span class="dot"></span>
+        <span x-text="status?.browser_available ? 'Browser ready' : 'No browser'"></span>
+      </span>
+      <span class="chip chip-gray hidden sm:inline-flex" x-show="status?.respect_robots">robots.txt on</span>
+      <span class="chip chip-gray hidden sm:inline-flex" x-text="'Delay ' + (status?.delay||[]).join('–') + 's'"></span>
+    </div>
   </div>
 </header>
 
-<main>
-  <div class="banner error" x-show="error" x-cloak>
-    <span x-text="error"></span><button class="link" @click="error=''">dismiss</button>
+<main class="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+
+  <!-- Error banner -->
+  <div x-show="error" x-cloak x-transition
+       class="flex items-start justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
+    <div class="flex gap-2">
+      <svg class="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>
+      <span x-text="error"></span>
+    </div>
+    <button class="btn-ghost text-rose-700 dark:text-rose-200" @click="error=''">Dismiss</button>
   </div>
 
   <!-- 1. Input -->
   <section class="card">
-    <h2><span class="num">1</span> What to scrape</h2>
-    <label class="lbl">Listing / category page URLs <small>(one per line; the first is used to analyse the site)</small></label>
-    <textarea x-model="urlsText" rows="3" placeholder="https://dir.indiamart.com/impcat/pvc-pipes.html"></textarea>
-    <div class="examples">
-      Try:
-      <button class="link" @click="useExample('indiamart')">IndiaMART · PVC pipes</button>
-      <button class="link" @click="useExample('tradeindia')">TradeIndia · UPVC fittings</button>
-    </div>
-    <div class="row">
-      <div class="grow">
-        <label class="lbl">Fields you want <small>(comma separated)</small></label>
-        <input type="text" x-model="fieldsText">
-      </div>
-      <div>
-        <label class="lbl">Max pages per URL</label>
-        <input type="number" min="1" max="100" x-model.number="maxPages" class="narrow">
+    <div class="card-head">
+      <span class="step">1</span>
+      <div class="min-w-0 flex-1">
+        <h2 class="card-title">What to scrape</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400">Paste listing or category pages. The first URL is used to analyse the site.</p>
       </div>
     </div>
-    <div class="actions">
-      <button class="primary" @click="analyse(false)" :disabled="!!busy">
-        <span x-show="busy==='analyse'" class="spinner"></span> Analyse page
-      </button>
-      <button @click="analyse(true)" :disabled="!!busy || !status?.ai_enabled"
-              :title="status?.ai_enabled ? '' : 'Add ANTHROPIC_API_KEY to .env to enable'">
-        <span x-show="busy==='ai'" class="spinner"></span> Re-analyse with AI
-      </button>
+    <div class="card-body grid gap-5 lg:grid-cols-5">
+      <div class="lg:col-span-3">
+        <label class="label">Page URLs <span class="hint">· one per line</span></label>
+        <textarea x-model="urlsText" rows="5" class="input font-mono text-[13px]"
+                  placeholder="https://dir.indiamart.com/impcat/pvc-pipes.html"></textarea>
+        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <span>Try:</span>
+          <button class="chip chip-gray hover:bg-slate-100 dark:hover:bg-slate-700" @click="useExample('indiamart')">IndiaMART · PVC pipes</button>
+          <button class="chip chip-gray hover:bg-slate-100 dark:hover:bg-slate-700" @click="useExample('tradeindia')">TradeIndia · UPVC fittings</button>
+        </div>
+      </div>
+      <div class="flex flex-col gap-4 lg:col-span-2">
+        <div>
+          <label class="label">Fields you want <span class="hint">· comma separated</span></label>
+          <input type="text" x-model="fieldsText" class="input">
+        </div>
+        <div>
+          <label class="label">Max pages per URL <span class="hint">· or scroll / load-more rounds</span></label>
+          <input type="number" min="1" max="100" x-model.number="maxPages" class="input w-32">
+        </div>
+        <div class="mt-auto flex flex-wrap gap-2 pt-1">
+          <button class="btn btn-primary" @click="analyse(false)" :disabled="!!busy">
+            <span x-show="busy==='analyse'" class="spinner"></span>
+            <svg x-show="busy!=='analyse'" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.45 4.39l3.08 3.08a.75.75 0 1 1-1.06 1.06l-3.08-3.08A7 7 0 0 1 2 9Z" clip-rule="evenodd"/></svg>
+            Analyse page
+          </button>
+          <button class="btn" @click="analyse(true)" :disabled="!!busy || !status?.ai_enabled"
+                  :title="status?.ai_enabled ? 'Ignore the saved recipe and build a new one' : 'Add an AI API key to .env to enable'">
+            <span x-show="busy==='ai'" class="spinner"></span>
+            <svg x-show="busy!=='ai'" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 1.5l1.6 4.3 4.4 1.7-4.4 1.6L10 13.5 8.4 9.1 4 7.5l4.4-1.7L10 1.5Zm5 10 .8 2.2 2.2.8-2.2.8L15 17.5l-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/></svg>
+            Re-analyse with AI
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 
   <!-- 2. Recipe + preview -->
   <section class="card" x-show="recipeText" x-cloak>
-    <h2><span class="num">2</span> Check the preview</h2>
-    <p class="meta" x-show="analysis">
-      <b x-text="analysis?.domain"></b>
-      · recipe source: <span class="chip" x-text="analysis?.source"></span>
-      · <span x-text="analysis?.row_count"></span> rows found on this page
-      <template x-if="analysis?.from_cache"><span> · page from cache</span></template>
-      <template x-if="analysis?.rendered"><span class="chip ok">rendered in browser</span></template>
-    </p>
-    <p class="note" x-show="analysis?.notes" x-text="analysis?.notes"></p>
-
-    <div class="fill" x-show="analysis">
-      <template x-for="[name, v] in Object.entries(analysis?.report || {})" :key="name">
-        <div class="fill-item" :class="v < 0.5 ? 'low' : ''">
-          <span class="fname" x-text="name"></span>
-          <span class="bar"><span :style="`width:${Math.round(v*100)}%`"></span></span>
-          <span class="pct" x-text="Math.round(v*100) + '%'"></span>
+    <div class="card-head">
+      <span class="step">2</span>
+      <div class="min-w-0 flex-1">
+        <h2 class="card-title">Check the preview</h2>
+        <div class="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400" x-show="analysis">
+          <span class="font-medium text-slate-700 dark:text-slate-200" x-text="analysis?.domain"></span>
+          <span class="chip chip-blue" x-text="'recipe: ' + (analysis?.source || '')"></span>
+          <span class="chip chip-gray" x-text="(analysis?.row_count ?? 0) + ' rows on this page'"></span>
+          <span class="chip chip-gray" x-show="analysis?.from_cache">from cache</span>
+          <span class="chip chip-green" x-show="analysis?.rendered">rendered in browser</span>
         </div>
-      </template>
+      </div>
     </div>
 
-    <div class="table-wrap" x-show="analysis?.rows?.length">
-      <table>
-        <thead><tr><template x-for="c in columns(analysis?.rows)" :key="c"><th x-text="c"></th></template></tr></thead>
-        <tbody>
-          <template x-for="(r, i) in analysis?.rows || []" :key="i">
-            <tr><template x-for="c in columns(analysis?.rows)" :key="c">
-              <td><template x-if="isUrl(r[c])"><a :href="r[c]" target="_blank" rel="noopener">open ↗</a></template>
-                  <template x-if="!isUrl(r[c])"><span x-text="r[c]"></span></template></td>
-            </template></tr>
+    <div class="card-body space-y-5">
+      <p x-show="analysis?.notes" x-text="analysis?.notes"
+         class="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3.5 py-2.5 text-sm text-indigo-900 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-200"></p>
+
+      <!-- Field fill rates -->
+      <div x-show="Object.keys(analysis?.report || {}).length">
+        <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">How often each field was found</div>
+        <div class="grid gap-x-6 gap-y-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          <template x-for="[name, v] in Object.entries(analysis?.report || {})" :key="name">
+            <div class="grid grid-cols-[7.5rem_1fr_2.5rem] items-center gap-3 text-sm">
+              <span class="truncate" :class="v < 0.5 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300'" x-text="name"></span>
+              <span class="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                <span class="block h-full rounded-full" :class="v < 0.5 ? 'bg-amber-400' : 'bg-emerald-500'"
+                      :style="`width:${Math.round(v*100)}%`"></span>
+              </span>
+              <span class="text-right text-xs tabular-nums text-slate-500" x-text="Math.round(v*100) + '%'"></span>
+            </div>
           </template>
-        </tbody>
-      </table>
+        </div>
+      </div>
+
+      <!-- Preview table -->
+      <div class="table-wrap max-h-[26rem]" x-show="analysis?.rows?.length">
+        <table class="tbl">
+          <thead><tr><template x-for="c in columns(analysis?.rows)" :key="c"><th x-text="c"></th></template></tr></thead>
+          <tbody>
+            <template x-for="(r, i) in analysis?.rows || []" :key="i">
+              <tr><template x-for="c in columns(analysis?.rows)" :key="c">
+                <td>
+                  <template x-if="isUrl(r[c])"><a class="link" :href="r[c]" target="_blank" rel="noopener">Open ↗</a></template>
+                  <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :title="r[c]" x-text="r[c]"></span></template>
+                </td>
+              </template></tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Settings + recipe editors -->
+      <div class="divide-y divide-slate-100 rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+        <details class="group px-4 py-3">
+          <summary>
+            <svg class="chev h-4 w-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 0 1 0-1.06L10.94 10 7.2 6.27a.75.75 0 1 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0Z" clip-rule="evenodd"/></svg>
+            Site settings
+            <span class="ml-1 text-xs font-normal text-slate-400" x-text="settingsSummary()"></span>
+          </summary>
+          <div class="mt-4 flex flex-wrap items-end gap-4">
+            <div>
+              <label class="label">Min delay (s)</label>
+              <input type="number" min="0" step="0.5" x-model.number="settings.min_delay" class="input w-28" :placeholder="status?.delay?.[0]">
+            </div>
+            <div>
+              <label class="label">Max delay (s)</label>
+              <input type="number" min="0" step="0.5" x-model.number="settings.max_delay" class="input w-28" :placeholder="status?.delay?.[1]">
+            </div>
+            <div>
+              <label class="label">Page rendering</label>
+              <select x-model="settings.render" class="input w-64">
+                <option value="auto">Auto (browser only if needed)</option>
+                <option value="never">Plain HTTP only</option>
+                <option value="always">Always use the browser</option>
+              </select>
+            </div>
+            <button class="btn" @click="saveSettings()" :disabled="!!busy || !analysis?.domain">Save settings</button>
+          </div>
+        </details>
+
+        <details class="group px-4 py-3" :open="!analysis || !analysis.rows?.length">
+          <summary>
+            <svg class="chev h-4 w-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 0 1 0-1.06L10.94 10 7.2 6.27a.75.75 0 1 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0Z" clip-rule="evenodd"/></svg>
+            Edit recipe <span class="ml-1 text-xs font-normal text-slate-400">· JSON</span>
+          </summary>
+          <textarea x-model="recipeText" rows="14" spellcheck="false"
+                    class="input mt-4 bg-slate-50 font-mono text-xs leading-relaxed dark:bg-slate-950"></textarea>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button class="btn" @click="previewRecipe()" :disabled="!!busy">
+              <span x-show="busy==='preview'" class="spinner"></span> Preview again
+            </button>
+            <button class="btn" @click="saveRecipe()" :disabled="!!busy || !analysis?.domain">Save recipe for this site</button>
+          </div>
+        </details>
+      </div>
     </div>
 
-    <details>
-      <summary>Site settings <small class="meta" x-text="settingsSummary()"></small></summary>
-      <div class="row settings-row">
-        <div>
-          <label class="lbl">Min delay (s)</label>
-          <input type="number" min="0" step="0.5" x-model.number="settings.min_delay" class="narrow" :placeholder="status?.delay?.[0]">
-        </div>
-        <div>
-          <label class="lbl">Max delay (s)</label>
-          <input type="number" min="0" step="0.5" x-model.number="settings.max_delay" class="narrow" :placeholder="status?.delay?.[1]">
-        </div>
-        <div>
-          <label class="lbl">Page rendering</label>
-          <select x-model="settings.render">
-            <option value="auto">Auto (browser only if needed)</option>
-            <option value="never">Plain HTTP only</option>
-            <option value="always">Always use the browser</option>
-          </select>
-        </div>
-        <button @click="saveSettings()" :disabled="!!busy || !analysis?.domain">Save settings</button>
-      </div>
-    </details>
-
-    <details :open="!analysis || !analysis.rows?.length">
-      <summary>Edit recipe (JSON)</summary>
-      <textarea x-model="recipeText" rows="14" class="code" spellcheck="false"></textarea>
-      <div class="actions">
-        <button @click="previewRecipe()" :disabled="!!busy"><span x-show="busy==='preview'" class="spinner"></span> Preview again</button>
-        <button @click="saveRecipe()" :disabled="!!busy || !analysis?.domain">Save recipe for this site</button>
-      </div>
-    </details>
-
-    <div class="actions run">
-      <button class="primary" @click="runJob()" :disabled="!!busy || !analysis?.row_count">
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-b-2xl border-t border-slate-100 bg-slate-50/70 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+      <p class="text-sm text-slate-500 dark:text-slate-400">Looks right? Run the full crawl in the background.</p>
+      <button class="btn btn-primary" @click="runJob()" :disabled="!!busy || !analysis?.row_count">
+        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.34-5.89a1.5 1.5 0 0 0 0-2.54L6.3 2.84Z"/></svg>
         Approve &amp; scrape <span x-text="urls().length"></span> URL(s)
       </button>
     </div>
@@ -138,60 +257,100 @@
 
   <!-- 3. Jobs -->
   <section class="card">
-    <h2><span class="num">3</span> Jobs</h2>
-    <p class="meta" x-show="!jobs.length">No jobs yet.</p>
-    <ul class="jobs">
-      <template x-for="j in jobs" :key="j.id">
-        <li :class="{active: selectedJob && selectedJob.id===j.id}">
-          <div class="job-head" @click="openJob(j)">
-            <span class="jid" x-text="'#' + j.id"></span>
-            <span class="chip" :class="j.status" x-text="j.status"></span>
-            <span class="jurl" x-text="j.urls[0] + (j.urls.length>1 ? `  (+${j.urls.length-1})` : '')"></span>
-            <span class="jrows" x-text="j.rows + ' rows'"></span>
-          </div>
-          <div class="progress" x-show="['queued','running'].includes(j.status)">
-            <span :style="`width:${j.pages_total ? Math.round(100*j.pages_done/j.pages_total) : 5}%`"></span>
-          </div>
-          <div class="job-msg" x-text="j.message"></div>
-          <div class="job-actions">
-            <button class="link" x-show="['queued','running'].includes(j.status)" @click="stopJob(j)">stop</button>
-            <button class="link" x-show="!['queued','running'].includes(j.status)" @click="deleteJob(j)">delete</button>
-          </div>
-        </li>
-      </template>
-    </ul>
+    <div class="card-head">
+      <span class="step">3</span>
+      <h2 class="card-title">Jobs</h2>
+      <span class="chip chip-gray ml-auto" x-show="jobs.length" x-text="jobs.length + ' total'"></span>
+    </div>
+    <div class="card-body">
+      <div x-show="!jobs.length" class="rounded-xl border border-dashed border-slate-300 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700">
+        No jobs yet. Analyse a page, check the preview, then press <span class="font-medium">Approve &amp; scrape</span>.
+      </div>
+      <ul class="space-y-2.5" x-show="jobs.length">
+        <template x-for="j in jobs" :key="j.id">
+          <li class="rounded-xl border px-4 py-3 transition"
+              :class="selectedJob && selectedJob.id===j.id
+                      ? 'border-indigo-300 bg-indigo-50/50 ring-1 ring-indigo-200 dark:border-indigo-500/50 dark:bg-indigo-500/5 dark:ring-indigo-500/30'
+                      : 'border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700'">
+            <div class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1" @click="openJob(j)">
+              <span class="text-sm font-semibold text-slate-900 dark:text-white" x-text="'#' + j.id"></span>
+              <span class="chip" :class="statusChip(j.status)">
+                <span class="dot" :class="['queued','running'].includes(j.status) ? 'animate-pulse' : ''"></span>
+                <span x-text="j.status"></span>
+              </span>
+              <span class="min-w-0 flex-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400"
+                    x-text="j.urls[0] + (j.urls.length>1 ? `  (+${j.urls.length-1} more)` : '')"></span>
+              <span class="text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200" x-text="j.rows + ' rows'"></span>
+            </div>
+            <div class="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" x-show="['queued','running'].includes(j.status)">
+              <div class="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                   :style="`width:${j.pages_total ? Math.max(5, Math.round(100*j.pages_done/j.pages_total)) : 5}%`"></div>
+            </div>
+            <div class="mt-1.5 flex items-start justify-between gap-3">
+              <p class="min-w-0 break-words text-xs text-slate-500 dark:text-slate-400" x-text="j.message"></p>
+              <div class="flex shrink-0 gap-1">
+                <button class="btn-ghost" @click="openJob(j)">View</button>
+                <button class="btn-ghost" x-show="['queued','running'].includes(j.status)" @click="stopJob(j)">Stop</button>
+                <button class="btn-ghost hover:text-rose-600" x-show="!['queued','running'].includes(j.status)" @click="deleteJob(j)">Delete</button>
+              </div>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
   </section>
 
   <!-- 4. Results -->
   <section class="card" x-show="selectedJob" x-cloak>
-    <h2><span class="num">4</span> Results <span class="meta" x-text="selectedJob ? '· job #' + selectedJob.id : ''"></span></h2>
-    <div class="row results-bar">
-      <input type="search" x-model="search" placeholder="Search results…" class="grow">
-      <span class="meta" x-text="filtered().length + ' of ' + records.length + ' rows'"></span>
-      <a class="btn" :href="`/api/jobs/${selectedJob?.id}/export?fmt=csv`">Download CSV</a>
-      <a class="btn" :href="`/api/jobs/${selectedJob?.id}/export?fmt=xlsx`">Download Excel</a>
+    <div class="card-head">
+      <span class="step">4</span>
+      <h2 class="card-title">Results</h2>
+      <span class="chip chip-gray" x-text="selectedJob ? 'job #' + selectedJob.id : ''"></span>
     </div>
-    <div class="table-wrap tall">
-      <table>
-        <thead><tr>
-          <template x-for="c in columns(records)" :key="c">
-            <th class="sortable" @click="sortBy(c)">
-              <span x-text="c"></span><span x-text="sortKey===c ? (sortAsc ? ' ▲' : ' ▼') : ''"></span>
-            </th>
-          </template>
-        </tr></thead>
-        <tbody>
-          <template x-for="(r, i) in filtered()" :key="i">
-            <tr><template x-for="c in columns(records)" :key="c">
-              <td><template x-if="isUrl(r[c])"><a :href="r[c]" target="_blank" rel="noopener">open ↗</a></template>
-                  <template x-if="!isUrl(r[c])"><span x-text="r[c]"></span></template></td>
-            </template></tr>
-          </template>
-        </tbody>
-      </table>
+    <div class="card-body space-y-4">
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="relative min-w-[14rem] flex-1">
+          <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.45 4.39l3.08 3.08a.75.75 0 1 1-1.06 1.06l-3.08-3.08A7 7 0 0 1 2 9Z" clip-rule="evenodd"/></svg>
+          <input type="search" x-model="search" placeholder="Search results…" class="input pl-9">
+        </div>
+        <span class="px-1 text-sm tabular-nums text-slate-500" x-text="filtered().length + ' of ' + records.length + ' rows'"></span>
+        <a class="btn" :href="`/api/jobs/${selectedJob?.id}/export?fmt=csv`">
+          <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.6L6.3 8.24a.75.75 0 1 0-1.1 1.02l4.25 4.5a.75.75 0 0 0 1.1 0l4.25-4.5a.75.75 0 0 0-1.1-1.02l-2.95 3.11v-8.6Z"/><path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z"/></svg>
+          CSV
+        </a>
+        <a class="btn" :href="`/api/jobs/${selectedJob?.id}/export?fmt=xlsx`">
+          <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.6L6.3 8.24a.75.75 0 1 0-1.1 1.02l4.25 4.5a.75.75 0 0 0 1.1 0l4.25-4.5a.75.75 0 0 0-1.1-1.02l-2.95 3.11v-8.6Z"/><path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z"/></svg>
+          Excel
+        </a>
+      </div>
+      <div class="table-wrap max-h-[40rem]">
+        <table class="tbl">
+          <thead><tr>
+            <template x-for="c in columns(records)" :key="c">
+              <th class="cursor-pointer select-none hover:text-slate-800 dark:hover:text-slate-200" @click="sortBy(c)">
+                <span x-text="c"></span><span class="text-indigo-500" x-text="sortKey===c ? (sortAsc ? ' ▲' : ' ▼') : ''"></span>
+              </th>
+            </template>
+          </tr></thead>
+          <tbody>
+            <template x-for="(r, i) in filtered()" :key="i">
+              <tr><template x-for="c in columns(records)" :key="c">
+                <td>
+                  <template x-if="isUrl(r[c])"><a class="link" :href="r[c]" target="_blank" rel="noopener">Open ↗</a></template>
+                  <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :title="r[c]" x-text="r[c]"></span></template>
+                </td>
+              </template></tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="records.length && !filtered().length" class="px-4 py-8 text-center text-sm text-slate-500">No rows match your search.</div>
+      </div>
     </div>
   </section>
 </main>
-<footer>Local use only · collects public listing data · stops on login walls, CAPTCHAs and robots.txt rules</footer>
+
+<footer class="mx-auto max-w-6xl px-4 pb-8 text-center text-xs text-slate-400 sm:px-6">
+  Local use only · collects public listing data · stops on login walls, CAPTCHAs and robots.txt rules
+</footer>
 </body>
 </html>

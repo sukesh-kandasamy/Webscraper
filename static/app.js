@@ -51,6 +51,10 @@ function scraper() {
     fields() { return this.fieldsText.split(",").map(s => s.trim()).filter(Boolean); },
     useExample(k) { this.urlsText = EXAMPLES[k]; },
     isUrl(v) { return typeof v === "string" && /^https?:\/\//.test(v); },
+    statusChip(s) {
+      return { done: "chip-green", running: "chip-blue", queued: "chip-amber", stopped: "chip-gray",
+               blocked: "chip-red", error: "chip-red" }[s] || "chip-gray";
+    },
     columns(rows) {
       const cols = [];
       for (const r of rows || []) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
