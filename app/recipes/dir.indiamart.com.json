@@ -1,0 +1,18 @@
+{
+  "site": "dir.indiamart.com",
+  "notes": "Category pages like https://dir.indiamart.com/impcat/pvc-pipes.html. Search pages (/search.mp) are disallowed by robots.txt.",
+  "item_selector": "article.template7-product-card",
+  "fields": [
+    {"name": "name", "selector": "a.template7-product-name", "attr": "text"},
+    {"name": "price", "selector": "span.prc", "attr": "text", "regex": "([\\d,]+(?:\\.\\d+)?)"},
+    {"name": "unit", "selector": "span.prcut", "attr": "text"},
+    {"name": "min_order", "kind": "kv", "label_selector": "dt.template7-isq-label", "value_selector": "dd.template7-isq-value", "label": "Minimum Order Quantity"},
+    {"name": "seller", "selector": ".template7-seller-name", "attr": "text"},
+    {"name": "city", "selector": "[itemprop=addressLocality]", "attr": "text"},
+    {"name": "rating", "selector": ".dag5 .b", "attr": "text"},
+    {"name": "url", "selector": "a.template7-product-name", "attr": "href"},
+    {"name": "specs", "kind": "kv", "label_selector": "dt.template7-isq-label", "value_selector": "dd.template7-isq-value"},
+    {"name": "years_in_business", "selector": ".seller-addr-msn", "attr": "text", "regex": "(\\d+)\\s*yrs?"}
+  ],
+  "pagination": {"type": "none"}
+}

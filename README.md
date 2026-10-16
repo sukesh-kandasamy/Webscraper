@@ -1,0 +1,101 @@
+# Universal Scraper (draft v0.1)
+
+A local web app that extracts listings from websites. You give it a page URL and the fields you
+want. It finds the right CSS selectors (a **recipe**), shows you a preview, then crawls and lists
+the results with CSV / Excel export.
+
+Built-in recipes: **IndiaMART** and **TradeIndia** category pages. On any other site an AI model
+writes the recipe for you, once per site: **Groq `openai/gpt-oss-120b`** by default, or Claude.
+Without a key you can edit the starter recipe by hand.
+
+## Setup
+
+```bash
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+copy .env.example .env        # then add GROQ_API_KEY=... (optional, enables AI recipes)
+```
+
+## Run
+
+```bash
+python run.py
+```
+
+It starts the server and opens http://localhost:8000 in your browser. It uses the project's `.venv`
+automatically, whichever Python you start it with. Options: `--port 8080`, `--reload` (restart when code
+changes), `--no-browser`.
+
+## How to use
+
+1. **Paste URLs**, one per line. Use *listing/category* pages, e.g.
+   - `https://dir.indiamart.com/impcat/pvc-pipes.html`
+   - `https://www.tradeindia.com/manufacturers/upvc-pipe-fittings.html`
+
+   Both sites block their **search** pages in robots.txt, so the app refuses them. Category pages
+   are allowed. Add several category URLs to one job to cover more products.
+2. **Analyse page.** The app uses the saved recipe for that site if one works. Otherwise it asks
+   the AI model to write one (once per site). *Re-analyse with AI* ignores the saved recipe.
+3. **Check the preview.** The fill-rate bars show how often each field was found. Fix the recipe JSON if
+   needed and click *Preview again*.
+4. **Approve & scrape.** The job runs in the background (2–5 s between requests) and the results
+   appear as they arrive. Search, sort, and download CSV or Excel.
+
+## Recipes
+
+A recipe is plain JSON. See [app/extractor.py](app/extractor.py) for every option.
+
+```json
+{
+  "item_selector": "div.product-info-cnt",
+  "fields": [
+    {"name": "name",  "selector": "a.title-url", "attr": "text"},
+    {"name": "url",   "selector": "a.title-url", "attr": "href"},
+    {"name": "price", "selector": "p.price-text", "regex": "([\\d,.]+)\\s*INR"},
+    {"name": "min_order", "kind": "kv", "label_selector": ".spec-title",
+     "value_selector": ".spec-value", "label": "MOQ"}
+  ],
+  "pagination": {"type": "next_link", "selector": "li.next a"}
+}
+```
+
+Pagination types: `none`, `next_link` (follow a "next" anchor), `url_param` (e.g. `?page=2`).
+
+## Project layout
+
+| Path | What it does |
+|---|---|
+| `app/main.py` | FastAPI routes + serves the UI |
+| `app/fetcher.py` | HTTP client: robots.txt, throttling, retries, cache, block detection |
+| `app/robots.py` | robots.txt parser with `*` / `$` wildcard support |
+| `app/extractor.py` | Applies a recipe to HTML; pagination; field fill-rate report |
+| `app/recipe_builder.py` | Finds repeated listing blocks, asks the AI (Groq or Claude) for a recipe, tests it, retries once with feedback |
+| `app/jobs.py` | Background crawl jobs |
+| `app/db.py` | SQLite: recipes, jobs, records, page cache (`data/scraper.db`) |
+| `app/recipes/*.json` | Built-in recipes, loaded at startup |
+| `static/` | Single-page UI (Alpine.js) |
+| `tests/` | `python -m pytest tests` (runs offline on saved pages) |
+
+## Settings (`.env`)
+
+| Setting | Default | Notes |
+|---|---|---|
+| `SCRAPER_AI_PROVIDER` | `groq` if `GROQ_API_KEY` is set, else `anthropic` | |
+| `GROQ_API_KEY` / `SCRAPER_GROQ_MODEL` | — / `openai/gpt-oss-120b` | |
+| `ANTHROPIC_API_KEY` / `SCRAPER_CLAUDE_MODEL` | — / `claude-opus-5-5` | |
+| `SCRAPER_AI_PROMPT_CHARS` | 11000 (Groq), 60000 (Claude) | Groq's free tier allows 8,000 tokens per minute, so large pages are trimmed to fit |
+| `SCRAPER_MIN_DELAY` / `SCRAPER_MAX_DELAY` | 2 / 5 s | Wait between requests to the same site |
+| `SCRAPER_MAX_PAGES` | 10 | Per start URL |
+| `SCRAPER_CACHE_TTL_HOURS` | 24 | Page cache |
+
+## What's next
+
+See [PLAN-v2.md](PLAN-v2.md): browser rendering for JavaScript sites, detail-page crawling, clean numeric
+output, recipe auto-repair, scheduled re-runs with price history, a point-and-click field picker.
+
+## Ground rules built in
+
+- robots.txt is checked before every fetch, and disallowed pages are refused.
+- On HTTP 401/403/429 or a CAPTCHA page, the job stops instead of trying to get around it.
+- Only public listing data is collected. Phone numbers and emails behind login are not.
+- For local, personal use. Don't expose this server publicly.

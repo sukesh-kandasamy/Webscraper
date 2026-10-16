@@ -1,0 +1,18 @@
+{
+  "site": "www.tradeindia.com",
+  "notes": "Category pages like https://www.tradeindia.com/manufacturers/upvc-pipe-fittings.html. Search pages and ?page= URLs are disallowed by robots.txt. Listings show no star rating, so 'rating' is replaced by seller badges.",
+  "item_selector": "div.product-info-cnt",
+  "fields": [
+    {"name": "name", "selector": "a.title-url", "attr": "text"},
+    {"name": "price", "selector": "p.price-text", "attr": "text", "regex": "([\\d,]+(?:\\.\\d+)?)\\s*INR"},
+    {"name": "unit", "selector": "p.price-text", "attr": "text", "regex": "INR\\s*/\\s*(.+)$"},
+    {"name": "min_order", "kind": "kv", "label_selector": ".spec-title", "value_selector": ".spec-value", "label": "MOQ"},
+    {"name": "seller", "selector": "a.company-url", "attr": "text"},
+    {"name": "city", "selector": ".supplier-details .top-cont > h3:nth-of-type(2)", "attr": "text"},
+    {"name": "badges", "selector": ".stamps-status", "attr": "text", "regex": "^(.*?)(?:\\s*\\d+\\s*Years)?$"},
+    {"name": "url", "selector": "a.title-url", "attr": "href"},
+    {"name": "specs", "kind": "kv", "label_selector": ".spec-title", "value_selector": ".spec-value"},
+    {"name": "years_in_business", "selector": ".member-since", "attr": "text", "regex": "(\\d+)"}
+  ],
+  "pagination": {"type": "none"}
+}

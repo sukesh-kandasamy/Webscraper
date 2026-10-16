@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Universal Scraper</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+</head>
+<body x-data="scraper()" x-init="init()">
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 5h18v2H3zm0 6h12v2H3zm0 6h18v2H3z"/></svg>
+    <span>Universal Scraper</span><span class="ver">draft v0.1</span>
+  </div>
+  <div class="status" x-show="status">
+    <span class="chip" :class="status?.ai_enabled ? 'ok' : 'warn'"
+          x-text="status?.ai_enabled ? 'AI on · ' + status.provider + ' · ' + status.model : 'AI off · manual recipes'"></span>
+    <span class="chip" x-show="status?.respect_robots">robots.txt respected</span>
+    <span class="chip" x-text="'delay ' + (status?.delay||[]).join('–') + 's'"></span>
+  </div>
+</header>
+
+<main>
+  <div class="banner error" x-show="error" x-cloak>
+    <span x-text="error"></span><button class="link" @click="error=''">dismiss</button>
+  </div>
+
+  <!-- 1. Input -->
+  <section class="card">
+    <h2><span class="num">1</span> What to scrape</h2>
+    <label class="lbl">Listing / category page URLs <small>(one per line; the first is used to analyse the site)</small></label>
+    <textarea x-model="urlsText" rows="3" placeholder="https://dir.indiamart.com/impcat/pvc-pipes.html"></textarea>
+    <div class="examples">
+      Try:
+      <button class="link" @click="useExample('indiamart')">IndiaMART · PVC pipes</button>
+      <button class="link" @click="useExample('tradeindia')">TradeIndia · UPVC fittings</button>
+    </div>
+    <div class="row">
+      <div class="grow">
+        <label class="lbl">Fields you want <small>(comma separated)</small></label>
+        <input type="text" x-model="fieldsText">
+      </div>
+      <div>
+        <label class="lbl">Max pages per URL</label>
+        <input type="number" min="1" max="100" x-model.number="maxPages" class="narrow">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" @click="analyse(false)" :disabled="!!busy">
+        <span x-show="busy==='analyse'" class="spinner"></span> Analyse page
+      </button>
+      <button @click="analyse(true)" :disabled="!!busy || !status?.ai_enabled"
+              :title="status?.ai_enabled ? '' : 'Add ANTHROPIC_API_KEY to .env to enable'">
+        <span x-show="busy==='ai'" class="spinner"></span> Re-analyse with AI
+      </button>
+    </div>
+  </section>
+
+  <!-- 2. Recipe + preview -->
+  <section class="card" x-show="recipeText" x-cloak>
+    <h2><span class="num">2</span> Check the preview</h2>
+    <p class="meta" x-show="analysis">
+      <b x-text="analysis?.domain"></b>
+      · recipe source: <span class="chip" x-text="analysis?.source"></span>
+      · <span x-text="analysis?.row_count"></span> rows found on this page
+      <template x-if="analysis?.from_cache"><span> · page from cache</span></template>
+    </p>
+    <p class="note" x-show="analysis?.notes" x-text="analysis?.notes"></p>
+
+    <div class="fill" x-show="analysis">
+      <template x-for="[name, v] in Object.entries(analysis?.report || {})" :key="name">
+        <div class="fill-item" :class="v < 0.5 ? 'low' : ''">
+          <span class="fname" x-text="name"></span>
+          <span class="bar"><span :style="`width:${Math.round(v*100)}%`"></span></span>
+          <span class="pct" x-text="Math.round(v*100) + '%'"></span>
+        </div>
+      </template>
+    </div>
+
+    <div class="table-wrap" x-show="analysis?.rows?.length">
+      <table>
+        <thead><tr><template x-for="c in columns(analysis?.rows)" :key="c"><th x-text="c"></th></template></tr></thead>
+        <tbody>
+          <template x-for="(r, i) in analysis?.rows || []" :key="i">
+            <tr><template x-for="c in columns(analysis?.rows)" :key="c">
+              <td><template x-if="isUrl(r[c])"><a :href="r[c]" target="_blank" rel="noopener">open ↗</a></template>
+                  <template x-if="!isUrl(r[c])"><span x-text="r[c]"></span></template></td>
+            </template></tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <details :open="!analysis || !analysis.rows?.length">
+      <summary>Edit recipe (JSON)</summary>
+      <textarea x-model="recipeText" rows="14" class="code" spellcheck="false"></textarea>
+      <div class="actions">
+        <button @click="previewRecipe()" :disabled="!!busy"><span x-show="busy==='preview'" class="spinner"></span> Preview again</button>
+        <button @click="saveRecipe()" :disabled="!!busy || !analysis?.domain">Save recipe for this site</button>
+      </div>
+    </details>
+
+    <div class="actions run">
+      <button class="primary" @click="runJob()" :disabled="!!busy || !analysis?.row_count">
+        Approve &amp; scrape <span x-text="urls().length"></span> URL(s)
+      </button>
+    </div>
+  </section>
+
+  <!-- 3. Jobs -->
+  <section class="card">
+    <h2><span class="num">3</span> Jobs</h2>
+    <p class="meta" x-show="!jobs.length">No jobs yet.</p>
+    <ul class="jobs">
+      <template x-for="j in jobs" :key="j.id">
+        <li :class="{active: selectedJob && selectedJob.id===j.id}">
+          <div class="job-head" @click="openJob(j)">
+            <span class="jid" x-text="'#' + j.id"></span>
+            <span class="chip" :class="j.status" x-text="j.status"></span>
+            <span class="jurl" x-text="j.urls[0] + (j.urls.length>1 ? `  (+${j.urls.length-1})` : '')"></span>
+            <span class="jrows" x-text="j.rows + ' rows'"></span>
+          </div>
+          <div class="progress" x-show="['queued','running'].includes(j.status)">
+            <span :style="`width:${j.pages_total ? Math.round(100*j.pages_done/j.pages_total) : 5}%`"></span>
+          </div>
+          <div class="job-msg" x-text="j.message"></div>
+          <div class="job-actions">
+            <button class="link" x-show="['queued','running'].includes(j.status)" @click="stopJob(j)">stop</button>
+            <button class="link" x-show="!['queued','running'].includes(j.status)" @click="deleteJob(j)">delete</button>
+          </div>
+        </li>
+      </template>
+    </ul>
+  </section>
+
+  <!-- 4. Results -->
+  <section class="card" x-show="selectedJob" x-cloak>
+    <h2><span class="num">4</span> Results <span class="meta" x-text="selectedJob ? '· job #' + selectedJob.id : ''"></span></h2>
+    <div class="row results-bar">
+      <input type="search" x-model="search" placeholder="Search results…" class="grow">
+      <span class="meta" x-text="filtered().length + ' of ' + records.length + ' rows'"></span>
+      <a class="btn" :href="`/api/jobs/${selectedJob?.id}/export?fmt=csv`">Download CSV</a>
+      <a class="btn" :href="`/api/jobs/${selectedJob?.id}/export?fmt=xlsx`">Download Excel</a>
+    </div>
+    <div class="table-wrap tall">
+      <table>
+        <thead><tr>
+          <template x-for="c in columns(records)" :key="c">
+            <th class="sortable" @click="sortBy(c)">
+              <span x-text="c"></span><span x-text="sortKey===c ? (sortAsc ? ' ▲' : ' ▼') : ''"></span>
+            </th>
+          </template>
+        </tr></thead>
+        <tbody>
+          <template x-for="(r, i) in filtered()" :key="i">
+            <tr><template x-for="c in columns(records)" :key="c">
+              <td><template x-if="isUrl(r[c])"><a :href="r[c]" target="_blank" rel="noopener">open ↗</a></template>
+                  <template x-if="!isUrl(r[c])"><span x-text="r[c]"></span></template></td>
+            </template></tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<footer>Local use only · collects public listing data · stops on login walls, CAPTCHAs and robots.txt rules</footer>
+</body>
+</html>
