@@ -113,7 +113,9 @@ it stopped without duplicating rows.
 
 ## What's next
 
-See [PLAN-v2.md](PLAN-v2.md): browser rendering for JavaScript sites, detail-page crawling, clean numeric
+- Security and logged-in scraping: [PLAN-security.md](PLAN-security.md) (SSRF guard, safe exports,
+  encrypted login sessions, pause-and-resume on CAPTCHAs, personal-data protection).
+- Features: [PLAN-v2.md](PLAN-v2.md): browser rendering for JavaScript sites, detail-page crawling, clean numeric
 output, recipe auto-repair, scheduled re-runs with price history, a point-and-click field picker.
 
 ## Ground rules built in
