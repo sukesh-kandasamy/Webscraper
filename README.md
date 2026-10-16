@@ -29,6 +29,8 @@ changes), `--no-browser`.
 
 ## How to use
 
+0. **Confirm the site's rules** the first time you use a site: its Terms page, how you are allowed
+   to scrape it, and your purpose. robots.txt for the page is shown next to it.
 1. **Paste URLs**, one per line. Use *listing/category* pages, e.g.
    - `https://dir.indiamart.com/impcat/pvc-pipes.html`
    - `https://www.tradeindia.com/manufacturers/upvc-pipe-fittings.html`
@@ -41,6 +43,21 @@ changes), `--no-browser`.
    needed and click *Preview again*.
 4. **Approve & scrape.** The job runs in the background (2–5 s between requests) and the results
    appear as they arrive. Search, sort, and download CSV or Excel.
+
+## Logged-in pages, CAPTCHAs and personal data
+
+- **Logging in:** *Sites & sessions → Log in* opens a real browser window. You log in yourself
+  (password, OTP, 2-step); the app only keeps the session cookie, encrypted with a key held in Windows
+  Credential Manager, for that site only. Sessions expire after 7 days; *Forget session* deletes one.
+  Jobs that use a session store their results encrypted and have a lower daily page budget.
+- **CAPTCHAs and bot checks** are never solved automatically. A job that meets one pauses as
+  **needs you**: click *Open to solve*, solve it in the window, and the job continues. If a second
+  check appears within 10 minutes the job stops and the site cools down for an hour.
+- **Personal data** (phone numbers, emails) is masked by default, in what is stored, shown and sent
+  to the AI. To collect a field unmasked, tick it before starting the job and say why.
+- **Activity log** lists every fetch, export, login and settings change.
+
+Details: [SECURITY.md](SECURITY.md). Check everything with `python check.py`.
 
 ## Recipes
 
@@ -86,7 +103,13 @@ it stopped without duplicating rows.
 
 | Path | What it does |
 |---|---|
-| `app/main.py` | FastAPI routes + serves the UI |
+| `app/main.py` | FastAPI routes + serves the UI; Host / Origin checks, security headers, site-rules gate |
+| `app/netguard.py` | Refuses local / private network targets (SSRF guard) |
+| `app/sessions.py` | Encrypted login sessions; visible browser windows for logging in / solving checks |
+| `app/vault.py` | Encryption with a key from the OS credential store |
+| `app/blockdetect.py` | Recognises CAPTCHA, challenge, access-denied and login pages |
+| `app/privacy.py` | Detects and masks phones / emails; redacts page text before AI calls |
+| `app/audit.py`, `app/logsafe.py` | Activity log; secret redaction in logs |
 | `app/fetcher.py` | HTTP client: robots.txt, per-site throttling, retries, cache, block detection; `fetch_smart` picks HTTP or browser |
 | `app/browser.py` | Headless Chromium rendering (Playwright): wait for the page, click "load more" / scroll, detect challenge pages |
 | `app/robots.py` | robots.txt parser with `*` / `$` wildcard support |
@@ -96,7 +119,8 @@ it stopped without duplicating rows.
 | `app/db.py` | SQLite: recipes, jobs, records, page cache (`data/scraper.db`) |
 | `app/recipes/*.json` | Built-in recipes, loaded at startup |
 | `static/` | Single-page UI (Alpine.js) |
-| `tests/` | `python -m pytest tests` (runs offline on saved pages) |
+| `tests/` | `python -m pytest tests` (runs offline on saved pages; `test_security.py` covers each threat) |
+| `check.py`, `tools/secret_scan.py`, `.githooks/` | Security report; secret scanning (also as a pre-commit hook) |
 
 ## Settings (`.env`)
 
@@ -109,6 +133,10 @@ it stopped without duplicating rows.
 | `SCRAPER_MIN_DELAY` / `SCRAPER_MAX_DELAY` | 2 / 5 s | Wait between requests to the same site |
 | `SCRAPER_MAX_PAGES` | 10 | Per start URL (or scroll / click rounds) |
 | `SCRAPER_MAX_JOBS` | 2 | Jobs crawling at the same time |
+| `SCRAPER_DAILY_BUDGET` / `_LOGGED_IN` | 500 / 200 | Pages per site per day |
+| `SCRAPER_SESSION_MAX_AGE_DAYS` | 7 | Saved logins expire after this |
+| `SCRAPER_JOB_RETENTION_DAYS` | 30 | Finished jobs are deleted after this unless kept |
+| `SCRAPER_ALLOW_HOSTS` / `SCRAPER_BLOCKED_DOMAINS` | — | Network-guard exceptions / do-not-scrape list |
 | `SCRAPER_CACHE_TTL_HOURS` | 24 | Page cache |
 
 ## What's next

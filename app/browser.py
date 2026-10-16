@@ -4,13 +4,16 @@ Used only when a site needs it: the fetcher tries plain HTTP first. Rendering fo
 as plain fetching (robots.txt, throttling, stop on CAPTCHA / challenge pages); it never tries to get
 past a block. Each call starts its own browser, because Playwright's sync API is tied to the thread
 that created it and jobs run in worker threads.
+
+Hardening: a fresh context per call (never your real Chrome profile), no downloads, no service
+workers, pop-ups closed, and every request (including sub-resources and redirects) checked by the
+network guard so a page cannot make the browser reach this computer or the local network.
 """
-import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config
+from . import blockdetect, config, netguard
 
 # Stylesheets are kept: some infinite-scroll pages decide what to load from the laid-out page height.
 SKIP_RESOURCES = {"image", "media", "font"}
@@ -21,8 +24,6 @@ GROWTH_TIMEOUT_MS = 8_000   # how long to wait for new items after a click / scr
 GROWTH_POLL_MS = 400
 MAX_ROUNDS_DEFAULT = 10
 
-_CHALLENGE = re.compile(
-    r"just a moment|cf-chl|challenge-platform|verify you are human|are you a robot|captcha", re.I)
 _lock = threading.Lock()
 
 
@@ -32,6 +33,10 @@ class BrowserUnavailable(RuntimeError):
 
 class RenderBlocked(RuntimeError):
     """The rendered page is a bot check or challenge page."""
+
+    def __init__(self, kind: str, message: str = ""):
+        self.kind = kind
+        super().__init__(message or f"The site showed {blockdetect.describe(kind)}; stopping.")
 
 
 @dataclass
@@ -60,8 +65,17 @@ def install_hint() -> str:
             f"{Path(config.ROOT, '.venv', 'Scripts', 'python')} -m playwright install chromium")
 
 
+def _route(route) -> None:
+    req = route.request
+    if req.resource_type in SKIP_RESOURCES or not netguard.is_safe(req.url):
+        route.abort()
+    else:
+        route.continue_()
+
+
 def render(url: str, item_selector: str = "", load_more: str = "", scroll: bool = False,
-           max_rounds: int = MAX_ROUNDS_DEFAULT) -> Rendered:
+           max_rounds: int = MAX_ROUNDS_DEFAULT, storage_state: dict | None = None,
+           user_agent: str | None = None) -> Rendered:
     """Load the page, wait for it to settle, optionally keep clicking / scrolling for more items.
 
     load_more  CSS selector of a "Load more" button to click until it disappears
@@ -74,16 +88,25 @@ def render(url: str, item_selector: str = "", load_more: str = "", scroll: bool 
         raise BrowserUnavailable(install_hint()) from e
 
     with _lock, sync_playwright() as p:
+        browser = None
+        for channel in (None, "msedge", "chrome"):     # bundled first, then installed browsers
+            try:
+                browser = p.chromium.launch(headless=True, channel=channel) if channel \
+                    else p.chromium.launch(headless=True)
+                break
+            except PwError as e:
+                last = e
+        if browser is None:
+            raise BrowserUnavailable(install_hint() + f"\n({last})")
         try:
-            browser = p.chromium.launch(headless=True)
-        except PwError as e:
-            raise BrowserUnavailable(install_hint() + f"\n({e})") from e
-        try:
-            context = browser.new_context(user_agent=config.USER_AGENT, locale="en-IN",
-                                          viewport={"width": 1366, "height": 900})
+            context = browser.new_context(user_agent=user_agent or config.USER_AGENT, locale="en-IN",
+                                          viewport={"width": 1366, "height": 900},
+                                          accept_downloads=False, service_workers="block",
+                                          storage_state=storage_state)
+            context.route("**/*", _route)
             page = context.new_page()
-            page.route("**/*", lambda route: route.abort()
-                       if route.request.resource_type in SKIP_RESOURCES else route.continue_())
+            # Pop-ups and new tabs opened by the page are closed straight away.
+            context.on("page", lambda new: new.close() if new != page else None)
             page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
             _settle(page, PwTimeout)
             _check_block(page)
@@ -152,7 +175,6 @@ def _count(page, selector: str) -> int:
 
 
 def _check_block(page) -> None:
-    title = page.title() or ""
-    body = page.content()
-    if _CHALLENGE.search(title) or (len(body) < 30000 and _CHALLENGE.search(body)):
-        raise RenderBlocked("The site showed a bot check / challenge page; stopping.")
+    kind = blockdetect.detect(page.content(), 200, page.url)
+    if kind in ("captcha", "challenge", "denied"):
+        raise RenderBlocked(kind)

@@ -26,7 +26,10 @@ Field options:
 import re
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
+import regex as safe_regex   # same syntax as re, plus a timeout
 from selectolax.lexbor import LexborHTMLParser, LexborNode
+
+from . import config
 
 _WS = re.compile(r"\s+")
 URL_ATTRS = {"href", "src", "data-src", "data-href"}
@@ -90,6 +93,9 @@ def normalize_recipe(recipe: dict) -> dict:
         })
     if not fields:
         raise RecipeError("Recipe needs at least one field")
+    for f in fields:
+        if f["regex"]:
+            check_regex(f["regex"])
     pag = recipe.get("pagination") or {}
     pagination = {
         "type": pag.get("type") or "none",
@@ -115,6 +121,23 @@ def normalize_recipe(recipe: dict) -> dict:
     return out
 
 
+# Patterns like (a+)+ or (\w*)* can take exponential time on some inputs (ReDoS).
+_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*[+*{]")
+MAX_REGEX_LENGTH = 300
+
+
+def check_regex(pattern: str) -> None:
+    if len(pattern) > MAX_REGEX_LENGTH:
+        raise RecipeError(f"Regex too long (max {MAX_REGEX_LENGTH} characters)")
+    if _NESTED_QUANTIFIER.search(pattern):
+        raise RecipeError(f"Regex {pattern!r} has a nested quantifier like (a+)+, which can hang; "
+                          "simplify it")
+    try:
+        safe_regex.compile(pattern)
+    except safe_regex.error as e:
+        raise RecipeError(f"Invalid regex {pattern!r}: {e}") from e
+
+
 _OVER_ESCAPED = re.compile(r"\\\\(?=[dDwWsSbB.$()\[\]+*?{}|^/-])")
 
 
@@ -127,8 +150,10 @@ def _apply_regex(value: str, pattern: str) -> str:
     if not pattern or not value:
         return value
     try:
-        m = re.search(pattern, value, re.I)
-    except re.error as e:
+        m = safe_regex.search(pattern, value, safe_regex.I, timeout=config.REGEX_TIMEOUT_S)
+    except TimeoutError:
+        return ""          # pathological input: drop this value rather than hang the job
+    except safe_regex.error as e:
         raise RecipeError(f"Invalid regex {pattern!r}: {e}") from e
     if not m:
         return ""
@@ -170,7 +195,7 @@ def extract(html: str, recipe: dict, base_url: str) -> list[dict]:
     """Return one dict per item. Rows where every field is empty are dropped."""
     tree = parse_html(html)
     rows = []
-    for item in tree.css(recipe["item_selector"]):
+    for item in tree.css(recipe["item_selector"])[:config.MAX_ITEMS_PER_PAGE]:
         row = {f["name"]: _extract_field(item, f, base_url) for f in recipe["fields"]}
         if any(row.values()):
             rows.append(row)

@@ -10,7 +10,7 @@ from collections import defaultdict
 import anthropic
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
-from . import config, extractor
+from . import config, extractor, privacy
 
 DROP_TAGS = ["script", "style", "svg", "noscript", "iframe", "link", "meta", "head", "template"]
 KEEP_ATTRS = {"class", "id", "href", "src", "itemprop", "title", "aria-label", "role", "data-src"}
@@ -374,7 +374,13 @@ def _drop_missing(recipe: dict) -> dict:
     return recipe
 
 
-def build_recipe(html: str, url: str, field_names: list[str], rendered: bool = False) -> dict:
+def build_recipe(html: str, url: str, field_names: list[str], rendered: bool = False,
+                 redact: bool = False) -> dict:
+    """redact=True (pages fetched with a login session): the AI sees only the shape of the text."""
+    return _build(html, url, field_names, rendered, redact)
+
+
+def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: bool) -> dict:
     """Return {"recipe", "rows", "report", "notes"} or raise RecipeBuildError."""
     if not config.ai_enabled():
         key = "GROQ_API_KEY" if config.AI_PROVIDER == "groq" else "ANTHROPIC_API_KEY"
@@ -406,7 +412,11 @@ def build_recipe(html: str, url: str, field_names: list[str], rendered: bool = F
             parts.append(f"Sample {j}:\n```html\n{sample}\n```")
     pag = _pagination_hints(html)
     parts.append("\n### Possible pagination links\n" + ("\n".join(pag) if pag else "(none found)"))
-    prompt = "\n".join(parts)
+    if redact:
+        parts.insert(3, "Text content has been replaced by its shape (letters shown as x) for "
+                        "privacy; write selectors from the structure and class names.")
+    # Phones / emails are always masked; logged-in pages are reduced to text shape.
+    prompt = privacy.redact_html("\n".join(parts), full=redact)
 
     # Each attempt is one self-contained message, so a retry costs about the same as the first
     # call. That keeps it under per-request token limits such as Groq's free tier.
@@ -435,6 +445,7 @@ def build_recipe(html: str, url: str, field_names: list[str], rendered: bool = F
                             f"Fields filled in fewer than half the rows: {weak or 'none'}. "
                             f"First rows: {json.dumps(rows[:2], ensure_ascii=False)[:1500]}"
                             + _field_debug(html, recipe, weak))
+            last_problem = privacy.shape(last_problem) if redact else privacy.mask_text(last_problem)
             if attempt == 0:
                 messages = [{"role": "user", "content": _retry_prompt(prompt, text, last_problem)}]
                 continue

@@ -36,6 +36,43 @@ AI_PROVIDER = os.getenv("SCRAPER_AI_PROVIDER", "groq" if GROQ_API_KEY else "anth
 DEFAULT_FIELDS = ["name", "price", "unit", "min_order", "seller", "city", "rating", "url"]
 
 
+def _csv(name: str, default: str = "") -> set[str]:
+    return {x.strip().lower() for x in os.getenv(name, default).split(",") if x.strip()}
+
+
+# ---- Security ---------------------------------------------------------------
+# Hosts the scraper may fetch even though they resolve to a local / private address.
+NET_ALLOW_HOSTS = _csv("SCRAPER_ALLOW_HOSTS")
+# Host headers the web UI answers to (blocks DNS-rebinding attacks from other websites).
+ALLOWED_HOSTS = sorted(_csv("SCRAPER_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]"))
+# Domains that must never be fetched (opt-out list), in addition to per-site "blocked".
+BLOCKED_DOMAINS = _csv("SCRAPER_BLOCKED_DOMAINS")
+MAX_PAGE_BYTES = int(os.getenv("SCRAPER_MAX_PAGE_BYTES", str(10 * 1024 * 1024)))
+MAX_ITEMS_PER_PAGE = int(os.getenv("SCRAPER_MAX_ITEMS_PER_PAGE", "2000"))
+REGEX_TIMEOUT_S = float(os.getenv("SCRAPER_REGEX_TIMEOUT", "0.05"))
+MAX_REDIRECTS = 5
+MAX_RETRY_AFTER_S = float(os.getenv("SCRAPER_MAX_RETRY_AFTER", "120"))
+
+# Per-site daily page budgets and cool-downs
+DAILY_BUDGET = int(os.getenv("SCRAPER_DAILY_BUDGET", "500"))
+DAILY_BUDGET_LOGGED_IN = int(os.getenv("SCRAPER_DAILY_BUDGET_LOGGED_IN", "200"))
+COOLDOWN_MINUTES = float(os.getenv("SCRAPER_COOLDOWN_MINUTES", "60"))
+CHALLENGE_REPEAT_MINUTES = float(os.getenv("SCRAPER_CHALLENGE_REPEAT_MINUTES", "10"))
+
+# Login sessions
+SESSIONS_DIR = DATA_DIR / "sessions"
+SESSION_MAX_AGE_DAYS = float(os.getenv("SCRAPER_SESSION_MAX_AGE_DAYS", "7"))
+INTERACTIVE_TIMEOUT_S = int(os.getenv("SCRAPER_INTERACTIVE_TIMEOUT", "900"))
+
+# Data retention
+JOB_RETENTION_DAYS = float(os.getenv("SCRAPER_JOB_RETENTION_DAYS", "30"))
+PURGE_INTERVAL_S = 3600
+
+# Optional honest identification, e.g. "you@example.com" -> "UniversalScraper/0.2 (+you@example.com)"
+CONTACT = os.getenv("SCRAPER_CONTACT", "")
+HONEST_USER_AGENT = f"UniversalScraper/0.2 (+{CONTACT})" if CONTACT else "UniversalScraper/0.2"
+
+
 def ai_prompt_budget() -> int:
     """Max characters of page HTML sent to the model. Groq's free tier allows 8,000 tokens/minute."""
     default = 11000 if AI_PROVIDER == "groq" else 60000

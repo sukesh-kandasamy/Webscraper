@@ -45,7 +45,17 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--reload", action="store_true", help="restart when code changes")
     parser.add_argument("--no-browser", action="store_true", help="don't open the browser")
+    parser.add_argument("--i-understand-this-exposes-the-app", dest="expose", action="store_true",
+                        help="required with a --host other than 127.0.0.1 / localhost")
     args = parser.parse_args()
+
+    if args.host not in ("127.0.0.1", "localhost", "::1") and not args.expose:
+        sys.exit(f"Refusing to listen on {args.host}: anyone on your network could use the app, "
+                 "your login sessions and your scraped data. The app is built for local use only.\n"
+                 "If you really mean it, add --i-understand-this-exposes-the-app and set "
+                 "SCRAPER_ALLOWED_HOSTS in .env.")
+    if args.expose:
+        print("  WARNING: the app is reachable from other computers. Protect it (firewall / VPN).")
 
     try:
         import uvicorn

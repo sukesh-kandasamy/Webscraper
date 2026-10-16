@@ -14,10 +14,21 @@ async function api(method, path, body) {
     const err = new Error(typeof data.detail === "string" ? data.detail
       : data.detail?.message || `Request failed (${res.status})`);
     err.detail = data.detail;
+    err.status = res.status;
     throw err;
   }
   return data;
 }
+
+const EVENT_LABELS = {
+  fetch: "Fetched", job_started: "Job started", job_paused: "Job paused", job_blocked: "Job blocked",
+  job_deleted: "Job deleted", export: "Exported", session_saved: "Session saved",
+  session_forgotten: "Session forgotten", policy_confirmed: "Site rules confirmed",
+  settings_changed: "Settings changed", cooldown: "Cool-down started", cooldown_cleared: "Cool-down cleared",
+  challenge_solved: "Check solved by you", window_opened: "Browser window opened",
+  recipe_built: "Recipe built by AI", recipe_saved: "Recipe saved", retention_purge: "Old data removed",
+  site_data_deleted: "Site data deleted", retry_after: "Waited (Retry-After)",
+};
 
 function scraper() {
   return {
@@ -27,16 +38,29 @@ function scraper() {
     maxPages: 3,
     busy: "",
     error: "",
+    notice: "",
     analysis: null,
     recipeText: "",
-    settings: { min_delay: null, max_delay: null, render: "auto" },
+    settings: {},
     jobs: [],
     selectedJob: null,
     records: [],
+    showPersonal: false,
     search: "",
     sortKey: "",
     sortAsc: true,
     pollTimer: null,
+    sites: [],
+    activity: [],
+    activityOpen: false,
+    personalChoice: {},          // field -> collect raw?
+    personalPurpose: "",
+    blockedPage: null,           // {domain, url, kind, message} when analyse hit a challenge
+    // Site rules (policy) dialog
+    policy: null,                // {domain, url, robots, needLogin, form, retry}
+    // Visible browser window dialog
+    win: null,                   // {mode: login|site|job, domain, jobId, url, status, message, account, started}
+    winTimer: null,
 
     async init() {
       try {
@@ -44,73 +68,139 @@ function scraper() {
         this.fieldsText = this.status.default_fields.join(", ");
         this.maxPages = Math.min(3, this.status.max_pages);
       } catch (e) { this.error = e.message; }
-      await this.loadJobs();
+      await Promise.all([this.loadJobs(), this.loadSites()]);
     },
 
+    // ---- small helpers -------------------------------------------------------------
     urls() { return this.urlsText.split("\n").map(s => s.trim()).filter(Boolean); },
     fields() { return this.fieldsText.split(",").map(s => s.trim()).filter(Boolean); },
     useExample(k) { this.urlsText = EXAMPLES[k]; },
     isUrl(v) { return typeof v === "string" && /^https?:\/\//.test(v); },
+    hostOf(u) { try { return new URL(u).hostname; } catch { return ""; } },
     statusChip(s) {
       return { done: "chip-green", running: "chip-blue", queued: "chip-amber", stopped: "chip-gray",
-               blocked: "chip-red", error: "chip-red" }[s] || "chip-gray";
+               blocked: "chip-red", error: "chip-red", needs_you: "chip-amber" }[s] || "chip-gray";
     },
+    statusLabel(s) { return s === "needs_you" ? "needs you" : s; },
     columns(rows) {
       const cols = [];
       for (const r of rows || []) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
       return cols;
     },
+    timeAgo(ts) {
+      const s = Math.max(0, Date.now() / 1000 - ts);
+      if (s < 60) return Math.round(s) + "s ago";
+      if (s < 3600) return Math.round(s / 60) + "m ago";
+      if (s < 86400) return Math.round(s / 3600) + "h ago";
+      return Math.round(s / 86400) + "d ago";
+    },
+    eventLabel(e) { return EVENT_LABELS[e] || e; },
+    eventDetail(a) {
+      const parts = [];
+      if (a.job_id) parts.push("job #" + a.job_id);
+      if (a.url) parts.push(a.url);
+      else if (a.domain) parts.push(a.domain);
+      if (a.status) parts.push("HTTP " + a.status);
+      if (a.logged_in) parts.push("logged in");
+      if (a.rendered) parts.push("browser");
+      if (a.kind) parts.push(a.kind);
+      if (a.fmt) parts.push(a.fmt.toUpperCase() + ", " + a.rows + " rows" + (a.personal ? ", with personal data" : ""));
+      if (a.reason) parts.push(a.reason);
+      if (a.minutes) parts.push(a.minutes + " min");
+      if (a.account) parts.push(a.account);
+      return parts.join(" · ");
+    },
+    needsYouJobs() { return this.jobs.filter(j => j.status === "needs_you"); },
 
     parseRecipe() {
       try { return JSON.parse(this.recipeText); }
       catch (e) { throw new Error("Recipe JSON is invalid: " + e.message); }
     },
 
+    // Central error handling: site-rules prompts and "needs a person" pages.
+    handleError(e, retry) {
+      const d = e.detail || {};
+      if (e.status === 428 && (d.code === "policy_required" || d.code === "policy_login_required")) {
+        this.openPolicy(d, retry);
+        return;
+      }
+      if (e.status === 409 && d.code === "needs_human") {
+        this.blockedPage = d;
+        this.error = "";
+        return;
+      }
+      this.error = e.message;
+    },
+
+    // ---- analyse / preview ------------------------------------------------------------
     async analyse(forceAi) {
       if (!this.urls().length) { this.error = "Enter at least one URL"; return; }
-      this.error = ""; this.busy = forceAi ? "ai" : "analyse";
+      this.error = ""; this.notice = ""; this.blockedPage = null; this.busy = forceAi ? "ai" : "analyse";
       try {
         this.analysis = await api("POST", "/api/analyse",
           { url: this.urls()[0], fields: this.fields(), force_ai: forceAi });
-        this.recipeText = JSON.stringify(this.analysis.recipe, null, 2);
-        this.applySettings(this.analysis.settings);
+        this.afterAnalysis();
       } catch (e) {
-        this.error = e.message;
         if (e.detail?.starter_recipe) {
-          this.analysis = { domain: e.detail.domain, source: "starter", rows: [], row_count: 0, report: {} };
+          this.error = e.message;
+          this.analysis = { domain: e.detail.domain, source: "starter", rows: [], row_count: 0, report: {},
+                            personal_fields: [], settings: {} };
           this.recipeText = JSON.stringify(e.detail.starter_recipe, null, 2);
+        } else {
+          this.handleError(e, () => this.analyse(forceAi));
         }
       } finally { this.busy = ""; }
+    },
+
+    afterAnalysis() {
+      this.recipeText = JSON.stringify(this.analysis.recipe, null, 2);
+      this.applySettings(this.analysis.settings);
+      this.personalChoice = Object.fromEntries((this.analysis.personal_fields || []).map(f => [f, false]));
+      this.personalPurpose = "";
+      this.loadSites();
     },
 
     async previewRecipe() {
       this.error = ""; this.busy = "preview";
       try {
         this.analysis = await api("POST", "/api/preview", { url: this.urls()[0], recipe: this.parseRecipe() });
-        this.recipeText = JSON.stringify(this.analysis.recipe, null, 2);
-        this.applySettings(this.analysis.settings);
-      } catch (e) { this.error = e.message; }
+        this.afterAnalysis();
+      } catch (e) { this.handleError(e, () => this.previewRecipe()); }
       finally { this.busy = ""; }
     },
 
+    // ---- site settings ----------------------------------------------------------------
     settingsSummary() {
       const s = this.settings, d = this.status?.delay || [];
       const lo = s.min_delay ?? d[0], hi = s.max_delay ?? d[1];
-      return `· delay ${lo}–${hi}s · rendering: ${s.render || "auto"}`;
+      const bits = [`delay ${lo}–${hi}s`, `rendering: ${s.render || "auto"}`];
+      if (s.daily_budget) bits.push(`budget ${s.daily_budget}/day`);
+      if (s.ai_allowed === false) bits.push("no AI");
+      if (s.blocked) bits.push("blocked");
+      return "· " + bits.join(" · ");
     },
 
     applySettings(s) {
-      this.settings = { min_delay: s?.min_delay ?? null, max_delay: s?.max_delay ?? null,
-                        render: s?.render || "auto" };
+      s = s || {};
+      this.settings = {
+        min_delay: s.min_delay ?? null, max_delay: s.max_delay ?? null, render: s.render || "auto",
+        daily_budget: s.daily_budget ?? null, honest_ua: !!s.honest_ua,
+        ai_allowed: s.ai_allowed !== false, use_session: s.use_session !== false, blocked: !!s.blocked,
+      };
     },
 
     async saveSettings() {
       this.error = "";
       try {
-        const body = { render: this.settings.render };
-        if (this.settings.min_delay !== null && this.settings.min_delay !== "") body.min_delay = this.settings.min_delay;
-        if (this.settings.max_delay !== null && this.settings.max_delay !== "") body.max_delay = this.settings.max_delay;
+        const s = this.settings;
+        const body = { render: s.render, honest_ua: s.honest_ua, ai_allowed: s.ai_allowed,
+                       use_session: s.use_session, blocked: s.blocked };
+        for (const k of ["min_delay", "max_delay", "daily_budget"]) {
+          if (s[k] !== null && s[k] !== "") body[k] = s[k];
+        }
         this.applySettings(await api("PUT", `/api/sites/${this.analysis.domain}/settings`, body));
+        this.notice = "Site settings saved.";
+        this.loadSites();
       } catch (e) { this.error = e.message; }
     },
 
@@ -119,27 +209,36 @@ function scraper() {
       try {
         await api("PUT", `/api/sites/${this.analysis.domain}/recipe`, { recipe: this.parseRecipe() });
         this.analysis.source = "manual";
+        this.notice = "Recipe saved for " + this.analysis.domain + ".";
       } catch (e) { this.error = e.message; }
     },
+
+    // ---- jobs -------------------------------------------------------------------------
+    personalFieldsChosen() { return Object.entries(this.personalChoice).filter(([, v]) => v).map(([k]) => k); },
 
     async runJob() {
       this.error = ""; this.busy = "run";
       try {
+        const chosen = this.personalFieldsChosen();
+        if (chosen.length && this.personalPurpose.trim().length < 10) {
+          throw new Error("Say why you need the personal data (at least 10 characters), or untick it.");
+        }
         const { job_id } = await api("POST", "/api/jobs", {
           urls: this.urls(), recipe: this.parseRecipe(), max_pages: this.maxPages,
           recipe_source: this.analysis?.source === "ai" ? "ai" : "manual",
+          personal_fields: chosen, personal_purpose: this.personalPurpose,
         });
         await this.loadJobs();
         this.openJob(this.jobs.find(j => j.id === job_id));
-      } catch (e) { this.error = e.message; }
+      } catch (e) { this.handleError(e, () => this.runJob()); }
       finally { this.busy = ""; }
     },
 
     async loadJobs() {
       try { this.jobs = await api("GET", "/api/jobs"); } catch (e) { this.error = e.message; }
-      const running = this.jobs.some(j => ["queued", "running"].includes(j.status));
+      const active = this.jobs.some(j => ["queued", "running"].includes(j.status));
       clearTimeout(this.pollTimer);
-      if (running) this.pollTimer = setTimeout(() => this.loadJobs(), 2000);
+      this.pollTimer = setTimeout(() => this.loadJobs(), active ? 2000 : 8000);
       if (this.selectedJob) {
         const fresh = this.jobs.find(j => j.id === this.selectedJob.id);
         if (fresh && (fresh.rows !== this.selectedJob.rows || fresh.status !== this.selectedJob.status)) {
@@ -151,16 +250,34 @@ function scraper() {
 
     async openJob(j) {
       if (!j) return;
-      this.selectedJob = j; this.search = ""; this.sortKey = "";
+      this.selectedJob = j; this.search = ""; this.sortKey = ""; this.showPersonal = false;
       await this.loadRecords();
     },
 
     async loadRecords() {
-      try { this.records = await api("GET", `/api/jobs/${this.selectedJob.id}/records`); }
+      try {
+        this.records = await api("GET", `/api/jobs/${this.selectedJob.id}/records?show_personal=${this.showPersonal}`);
+      } catch (e) { this.error = e.message; }
+    },
+
+    exportUrl(fmt) {
+      return `/api/jobs/${this.selectedJob?.id}/export?fmt=${fmt}&show_personal=${this.showPersonal}`;
+    },
+
+    async stopJob(j) {
+      await api("POST", `/api/jobs/${j.id}/stop`).catch(e => this.error = e.message);
+      this.loadJobs();
+    },
+
+    async resumeJob(j) {
+      try { await api("POST", `/api/jobs/${j.id}/resume`); this.loadJobs(); }
       catch (e) { this.error = e.message; }
     },
 
-    async stopJob(j) { await api("POST", `/api/jobs/${j.id}/stop`).catch(e => this.error = e.message); },
+    async toggleKeep(j) {
+      try { await api("POST", `/api/jobs/${j.id}/keep`, { keep: !j.keep }); j.keep = !j.keep; }
+      catch (e) { this.error = e.message; }
+    },
 
     async deleteJob(j) {
       if (!confirm(`Delete job #${j.id} and its ${j.rows} rows?`)) return;
@@ -189,6 +306,156 @@ function scraper() {
         });
       }
       return rows;
+    },
+
+    // ---- sites & sessions -----------------------------------------------------------
+    async loadSites() {
+      try { this.sites = await api("GET", "/api/sites"); } catch (e) { /* not fatal */ }
+    },
+
+    async forgetSession(site) {
+      if (!confirm(`Forget the saved session for ${site.session.domain}? You will need to log in again.`)) return;
+      try { await api("DELETE", `/api/sessions/${site.session.domain}`); this.loadSites(); }
+      catch (e) { this.error = e.message; }
+    },
+
+    async clearCooldown(site) {
+      try { await api("DELETE", `/api/sites/${site.domain}/cooldown`); this.loadSites(); }
+      catch (e) { this.error = e.message; }
+    },
+
+    async toggleBlocked(site) {
+      try {
+        await api("PUT", `/api/sites/${site.domain}/settings`, { blocked: !site.settings?.blocked });
+        this.loadSites();
+      } catch (e) { this.error = e.message; }
+    },
+
+    async deleteSiteData(site) {
+      if (!confirm(`Delete all jobs, results, cached pages and the saved session for ${site.domain}?`)) return;
+      try {
+        const r = await api("DELETE", `/api/sites/${site.domain}/data`);
+        this.notice = `Deleted ${r.jobs} job(s), ${r.cache_pages} cached page(s)` + (r.session ? " and the session." : ".");
+        if (this.selectedJob && !this.jobs.find(j => j.id === this.selectedJob.id)) this.selectedJob = null;
+        await Promise.all([this.loadSites(), this.loadJobs()]);
+      } catch (e) { this.error = e.message; }
+    },
+
+    // ---- site rules (policy) dialog -------------------------------------------------
+    openPolicy(d, retry) {
+      const site = this.sites.find(s => s.domain === d.domain);
+      const p = site?.policy || {};
+      this.policy = {
+        domain: d.domain, url: d.url, robots: d.robots, needLogin: d.code === "policy_login_required",
+        message: d.message, retry,
+        form: { basis: p.basis || "", terms_url: p.terms_url || "", purpose: p.purpose || "",
+                login_ok: !!p.login_ok, own_account: !!p.own_account },
+      };
+    },
+
+    async editPolicy(site) {
+      let robots = null;
+      try { robots = await api("GET", `/api/robots?url=${encodeURIComponent("https://" + site.domain + "/")}`); } catch {}
+      this.openPolicy({ domain: site.domain, url: "https://" + site.domain + "/", robots, code: "policy_required",
+                        message: "Review how you are allowed to use " + site.domain + "." }, null);
+    },
+
+    policyValid() {
+      const f = this.policy?.form;
+      if (!f || !f.basis || f.purpose.trim().length < 5) return false;
+      if (this.policy.needLogin && !(f.login_ok && f.own_account)) return false;
+      return true;
+    },
+
+    async savePolicy() {
+      try {
+        await api("PUT", `/api/sites/${this.policy.domain}/policy`, this.policy.form);
+        const retry = this.policy.retry;
+        this.policy = null;
+        await this.loadSites();
+        if (retry) retry();
+      } catch (e) { this.error = e.message; }
+    },
+
+    // ---- visible browser windows (log in / solve a check) ---------------------------
+    async startLogin(site) {
+      const url = prompt(`Login page for ${site.domain}:`, `https://${site.domain}/`);
+      if (!url) return;
+      this.win = { mode: "login", domain: site.domain, url, status: "starting", message: "", account: site.session?.account || "" };
+      try {
+        const w = await api("POST", `/api/sites/${site.domain}/login`, { url });
+        this.trackWindow(`login:${site.domain}`, w);
+      } catch (e) {
+        this.win = null;
+        this.handleError(e, () => this.startLogin(site));
+      }
+    },
+
+    async startSiteSolve() {
+      const d = this.blockedPage;
+      this.win = { mode: "site", domain: d.domain, url: d.url, status: "starting", message: "", account: "" };
+      try {
+        const w = await api("POST", `/api/sites/${d.domain}/solve`, { url: d.url });
+        this.trackWindow(`site:${d.domain}`, w);
+      } catch (e) { this.win = null; this.handleError(e, () => this.startSiteSolve()); }
+    },
+
+    async startJobSolve(j) {
+      this.win = { mode: "job", jobId: j.id, domain: this.hostOf(j.paused_url), url: j.paused_url,
+                   kind: j.paused_kind, status: "starting", message: "", account: "" };
+      try {
+        const w = await api("POST", `/api/jobs/${j.id}/solve`);
+        this.trackWindow(`job:${j.id}`, w);
+      } catch (e) { this.win = null; this.handleError(e, () => this.startJobSolve(j)); }
+    },
+
+    trackWindow(key, w) {
+      Object.assign(this.win, { key, status: w.status, message: w.message });
+      clearTimeout(this.winTimer);
+      const poll = async () => {
+        if (!this.win || this.win.key !== key) return;
+        try {
+          const s = await api("GET", `/api/windows/${encodeURIComponent(key)}`);
+          Object.assign(this.win, { status: s.status, message: s.message, title: s.title });
+          if (["starting", "open"].includes(s.status)) this.winTimer = setTimeout(poll, 1500);
+        } catch { /* window gone */ }
+      };
+      this.winTimer = setTimeout(poll, 1200);
+    },
+
+    async finishWindow() {
+      const w = this.win;
+      this.busy = "window";
+      try {
+        if (w.mode === "login") {
+          const r = await api("POST", `/api/sites/${w.domain}/login/finish`, { account: w.account });
+          this.notice = `Logged-in session saved for ${r.domain}` + (r.account ? ` (${r.account})` : "") +
+                        `. It is encrypted and expires in ${Math.round(r.expires_in_hours / 24)} days.` +
+                        (r.warning ? " " + r.warning : "");
+        } else if (w.mode === "site") {
+          await api("POST", `/api/sites/${w.domain}/solve/finish`, { account: w.account });
+          this.notice = `Thanks. The check on ${w.domain} is passed; try Analyse again.`;
+          this.blockedPage = null;
+        } else {
+          await api("POST", `/api/jobs/${w.jobId}/solve/finish`, { account: w.account });
+          this.notice = `Job #${w.jobId} resumed.`;
+        }
+        this.win = null;
+        await Promise.all([this.loadSites(), this.loadJobs()]);
+      } catch (e) { this.error = e.message; }
+      finally { this.busy = ""; }
+    },
+
+    async cancelWindow() {
+      const w = this.win;
+      this.win = null;
+      clearTimeout(this.winTimer);
+      if (w?.mode === "login") await api("POST", `/api/sites/${w.domain}/login/cancel`).catch(() => {});
+    },
+
+    // ---- activity log -----------------------------------------------------------------
+    async loadActivity() {
+      try { this.activity = await api("GET", "/api/audit?limit=150"); } catch (e) { this.error = e.message; }
     },
   };
 }

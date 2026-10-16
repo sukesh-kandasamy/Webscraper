@@ -1,5 +1,10 @@
 # Universal Scraper: Safe Scraping Plan
 
+> **Status (2026-10-16): implemented** (S1–S6), see [SECURITY.md](SECURITY.md). Still yours to do:
+> S0.1 rotate the Groq key, S0.3 turn on BitLocker (the check needs an administrator).
+> Not built: the optional access token in S1.2 (Host / Origin / Sec-Fetch-Site checks cover the same
+> attacks for a localhost-only app).
+
 How to scrape, including pages behind your own login, **without putting your machine, your accounts,
 your data or the websites at risk**. This plan adds security features to the existing app in six
 phases. Each phase can be built and used on its own.

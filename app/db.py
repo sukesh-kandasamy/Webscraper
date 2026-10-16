@@ -1,4 +1,7 @@
-"""SQLite storage: saved site recipes, jobs, extracted records and the page cache."""
+"""SQLite storage: saved site recipes, jobs, extracted records, the page cache, usage counters.
+
+Records of jobs that used a login session are encrypted with the vault key.
+"""
 import json
 import sqlite3
 import threading
@@ -44,6 +47,12 @@ CREATE TABLE IF NOT EXISTS job_pages (          -- every page a job has fetched,
     fetched_at REAL NOT NULL,
     PRIMARY KEY (job_id, url)
 );
+CREATE TABLE IF NOT EXISTS site_usage (         -- pages fetched per site per day (budgets)
+    domain TEXT NOT NULL,
+    day    TEXT NOT NULL,
+    pages  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (domain, day)
+);
 CREATE TABLE IF NOT EXISTS page_cache (
     url        TEXT PRIMARY KEY,
     status     INTEGER NOT NULL,
@@ -75,6 +84,12 @@ def tx():
 
 MIGRATIONS = [
     ("sites", "settings", "ALTER TABLE sites ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'"),
+    ("jobs", "logged_in", "ALTER TABLE jobs ADD COLUMN logged_in INTEGER NOT NULL DEFAULT 0"),
+    ("jobs", "encrypted", "ALTER TABLE jobs ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0"),
+    ("jobs", "keep", "ALTER TABLE jobs ADD COLUMN keep INTEGER NOT NULL DEFAULT 0"),
+    ("jobs", "personal", "ALTER TABLE jobs ADD COLUMN personal TEXT NOT NULL DEFAULT '{}'"),
+    ("jobs", "paused_url", "ALTER TABLE jobs ADD COLUMN paused_url TEXT NOT NULL DEFAULT ''"),
+    ("jobs", "paused_kind", "ALTER TABLE jobs ADD COLUMN paused_kind TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -130,6 +145,24 @@ def get_site_settings(domain: str) -> dict:
     return json.loads(row["settings"] or "{}") if row else {}
 
 
+def update_site_settings(domain: str, patch: dict) -> dict:
+    """Merge keys into a site's settings (None removes a key). Returns the new settings."""
+    with tx() as c:
+        row = c.execute("SELECT settings FROM sites WHERE domain=?", (domain,)).fetchone()
+        current = json.loads(row["settings"] or "{}") if row else {}
+        for k, v in patch.items():
+            if v is None:
+                current.pop(k, None)
+            else:
+                current[k] = v
+        c.execute(
+            "INSERT INTO sites(domain, recipe, source, settings, updated_at) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(domain) DO UPDATE SET settings=excluded.settings",
+            (domain, "{}", "manual", json.dumps(current), time.time()),
+        )
+    return current
+
+
 def save_site_settings(domain: str, settings: dict) -> None:
     """Store settings for a domain; creates the site row (with an empty recipe) if needed."""
     with tx() as c:
@@ -142,11 +175,14 @@ def save_site_settings(domain: str, settings: dict) -> None:
 
 # ---- jobs ----------------------------------------------------------------
 
-def create_job(urls: list[str], recipe: dict, max_pages: int) -> int:
+def create_job(urls: list[str], recipe: dict, max_pages: int, logged_in: bool = False,
+               personal: dict | None = None) -> int:
     with tx() as c:
         cur = c.execute(
-            "INSERT INTO jobs(urls, recipe, max_pages, status, created_at) VALUES(?,?,?,?,?)",
-            (json.dumps(urls), json.dumps(recipe), max_pages, "queued", time.time()),
+            "INSERT INTO jobs(urls, recipe, max_pages, status, created_at, logged_in, encrypted, personal) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (json.dumps(urls), json.dumps(recipe), max_pages, "queued", time.time(),
+             int(logged_in), int(logged_in), json.dumps(personal or {})),
         )
         return cur.lastrowid
 
@@ -186,14 +222,26 @@ def _job_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["urls"] = json.loads(d["urls"])
     d["recipe"] = json.loads(d["recipe"])
+    d["personal"] = json.loads(d.get("personal") or "{}")
+    for k in ("logged_in", "encrypted", "keep"):
+        d[k] = bool(d.get(k))
     return d
 
 
+def _job_encrypted(c: sqlite3.Connection, job_id: int) -> bool:
+    row = c.execute("SELECT encrypted FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return bool(row and row["encrypted"])
+
+
 def add_records(job_id: int, page: str, rows: list[dict]) -> None:
+    from . import vault  # lazy: only needed for logged-in jobs
+
     with tx() as c:
+        enc = _job_encrypted(c, job_id)
         c.executemany(
             "INSERT INTO records(job_id, page, data) VALUES(?,?,?)",
-            [(job_id, page, json.dumps(r, ensure_ascii=False)) for r in rows],
+            [(job_id, page, ("enc:" + vault.encrypt_json(r)) if enc else json.dumps(r, ensure_ascii=False))
+             for r in rows],
         )
 
 
@@ -213,7 +261,82 @@ def job_pages(job_id: int) -> dict[str, int]:
 def get_records(job_id: int) -> list[dict]:
     with tx() as c:
         rows = c.execute("SELECT data FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
-    return [json.loads(r["data"]) for r in rows]
+    out = []
+    for r in rows:
+        data = r["data"]
+        if data.startswith("enc:"):
+            from . import vault
+            out.append(vault.decrypt_json(data[4:]))
+        else:
+            out.append(json.loads(data))
+    return out
+
+
+# ---- usage budgets ---------------------------------------------------------
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%d")
+
+
+def usage_today(domain: str) -> int:
+    with tx() as c:
+        row = c.execute("SELECT pages FROM site_usage WHERE domain=? AND day=?",
+                        (domain, _today())).fetchone()
+    return row["pages"] if row else 0
+
+
+def consume_page(domain: str, budget: int) -> bool:
+    """Count one page against today's budget. False (and nothing counted) if the budget is used up."""
+    with tx() as c:
+        row = c.execute("SELECT pages FROM site_usage WHERE domain=? AND day=?",
+                        (domain, _today())).fetchone()
+        used = row["pages"] if row else 0
+        if used >= budget:
+            return False
+        c.execute("INSERT INTO site_usage(domain, day, pages) VALUES(?,?,1) "
+                  "ON CONFLICT(domain, day) DO UPDATE SET pages=pages+1", (domain, _today()))
+    return True
+
+
+# ---- retention -------------------------------------------------------------
+
+def purge(cache_max_age_s: float, job_max_age_days: float) -> dict:
+    """Delete expired cache pages and old finished jobs (unless marked keep)."""
+    now = time.time()
+    month_ago = time.strftime("%Y-%m-%d", time.localtime(now - 31 * 86400))
+    with tx() as c:
+        cache = c.execute("DELETE FROM page_cache WHERE fetched_at < ?",
+                          (now - cache_max_age_s,)).rowcount
+        old = now - job_max_age_days * 86400
+        jobs = c.execute(
+            "DELETE FROM jobs WHERE keep=0 AND status NOT IN ('queued','running','needs_you') "
+            "AND COALESCE(finished_at, created_at) < ?", (old,)).rowcount
+        c.execute("DELETE FROM site_usage WHERE day < ?", (month_ago,))
+    return {"cache_pages": cache, "jobs": jobs}
+
+
+def _url_on_domain(url: str, domain: str) -> bool:
+    from urllib.parse import urlsplit
+    host = (urlsplit(url.removeprefix("render:")).hostname or "").lower()
+    return host == domain or host.endswith("." + domain)
+
+
+def delete_site_data(domain: str) -> dict:
+    """Remove jobs, records, cached pages and usage for a domain (and its subdomains)."""
+    domain = domain.lower()
+    with tx() as c:
+        ids = [r["id"] for r in c.execute("SELECT id, urls FROM jobs").fetchall()
+               if any(_url_on_domain(u, domain) for u in json.loads(r["urls"]))]
+        for job_id in ids:
+            c.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+        urls = [r["url"] for r in c.execute("SELECT url FROM page_cache").fetchall()
+                if _url_on_domain(r["url"], domain)]
+        for u in urls:
+            c.execute("DELETE FROM page_cache WHERE url=?", (u,))
+        for r in c.execute("SELECT DISTINCT domain FROM site_usage").fetchall():
+            if r["domain"] == domain or r["domain"].endswith("." + domain):
+                c.execute("DELETE FROM site_usage WHERE domain=?", (r["domain"],))
+    return {"jobs": len(ids), "cache_pages": len(urls)}
 
 
 # ---- page cache ----------------------------------------------------------

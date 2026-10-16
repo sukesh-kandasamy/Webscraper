@@ -82,6 +82,9 @@
         <span class="dot"></span>
         <span x-text="status?.browser_available ? 'Browser ready' : 'No browser'"></span>
       </span>
+      <span class="chip chip-amber" x-show="needsYouJobs().length" x-cloak>
+        <span class="dot animate-pulse"></span><span x-text="needsYouJobs().length + ' need you'"></span>
+      </span>
       <span class="chip chip-gray hidden sm:inline-flex" x-show="status?.respect_robots">robots.txt on</span>
       <span class="chip chip-gray hidden sm:inline-flex" x-text="'Delay ' + (status?.delay||[]).join('–') + 's'"></span>
     </div>
@@ -98,6 +101,43 @@
       <span x-text="error"></span>
     </div>
     <button class="btn-ghost text-rose-700 dark:text-rose-200" @click="error=''">Dismiss</button>
+  </div>
+
+  <!-- Notice banner -->
+  <div x-show="notice" x-cloak x-transition
+       class="flex items-start justify-between gap-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+    <span x-text="notice"></span>
+    <button class="btn-ghost text-emerald-700 dark:text-emerald-200" @click="notice=''">Dismiss</button>
+  </div>
+
+  <!-- Jobs waiting for a person -->
+  <template x-for="j in needsYouJobs()" :key="'ny' + j.id">
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+      <div class="flex min-w-0 items-start gap-2">
+        <svg class="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.49 2.86a1.75 1.75 0 0 1 3.02 0l6.28 10.88A1.75 1.75 0 0 1 16.28 16.4H3.72a1.75 1.75 0 0 1-1.51-2.66L8.49 2.86ZM10 7a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 10 7Zm0 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>
+        <div class="min-w-0">
+          <div class="font-semibold" x-text="`Job #${j.id} needs you: ` + (j.paused_kind === 'login' ? 'log in again' : 'solve a check on the site')"></div>
+          <div class="truncate text-xs opacity-80" x-text="j.paused_url"></div>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-primary" @click="startJobSolve(j)" x-text="j.paused_kind === 'login' ? 'Open to log in' : 'Open to solve'"></button>
+        <button class="btn" @click="stopJob(j)">Stop job</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Analyse hit a challenge page -->
+  <div x-show="blockedPage" x-cloak
+       class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+    <div class="min-w-0">
+      <div class="font-semibold" x-text="(blockedPage?.domain || '') + ' showed a CAPTCHA / bot check'"></div>
+      <div class="text-xs opacity-80">The app never solves these automatically. You can solve it yourself in a browser window, then try again. If it keeps appearing, the site does not want automated access: stop there.</div>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-primary" @click="startSiteSolve()" :disabled="!status?.browser_available">Open to solve</button>
+      <button class="btn" @click="blockedPage=null">Dismiss</button>
+    </div>
   </div>
 
   <!-- 1. Input -->
@@ -158,6 +198,8 @@
           <span class="chip chip-gray" x-text="(analysis?.row_count ?? 0) + ' rows on this page'"></span>
           <span class="chip chip-gray" x-show="analysis?.from_cache">from cache</span>
           <span class="chip chip-green" x-show="analysis?.rendered">rendered in browser</span>
+          <span class="chip chip-blue" x-show="analysis?.logged_in"
+                x-text="'logged in' + (analysis?.session?.account ? ' as ' + analysis.session.account : '')"></span>
         </div>
       </div>
     </div>
@@ -165,6 +207,13 @@
     <div class="card-body space-y-5">
       <p x-show="analysis?.notes" x-text="analysis?.notes"
          class="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3.5 py-2.5 text-sm text-indigo-900 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-200"></p>
+
+      <div x-show="analysis?.personal_fields?.length"
+           class="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+        <span class="font-semibold">Personal data detected:</span>
+        <span x-text="(analysis?.personal_fields || []).join(', ')"></span>.
+        Phone numbers and emails are masked unless you choose to collect them below, with a reason.
+      </div>
 
       <!-- Field fill rates -->
       <div x-show="Object.keys(analysis?.report || {}).length">
@@ -210,6 +259,11 @@
           </summary>
           <div class="mt-4 flex flex-wrap items-end gap-4">
             <div>
+              <label class="label">Daily page budget</label>
+              <input type="number" min="1" x-model.number="settings.daily_budget" class="input w-28"
+                     :placeholder="analysis?.logged_in ? status?.budget?.[1] : status?.budget?.[0]">
+            </div>
+            <div>
               <label class="label">Min delay (s)</label>
               <input type="number" min="0" step="0.5" x-model.number="settings.min_delay" class="input w-28" :placeholder="status?.delay?.[0]">
             </div>
@@ -225,8 +279,14 @@
                 <option value="always">Always use the browser</option>
               </select>
             </div>
-            <button class="btn" @click="saveSettings()" :disabled="!!busy || !analysis?.domain">Save settings</button>
           </div>
+          <div class="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.ai_allowed" class="rounded border-slate-300"> Allow the AI to analyse this site</label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.use_session" class="rounded border-slate-300"> Use my saved login session for this site</label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.honest_ua" class="rounded border-slate-300"> Identify as UniversalScraper (honest user agent)</label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.blocked" class="rounded border-slate-300"> Do not scrape this site</label>
+          </div>
+          <div class="mt-4"><button class="btn" @click="saveSettings()" :disabled="!!busy || !analysis?.domain">Save settings</button></div>
         </details>
 
         <details class="group px-4 py-3" :open="!analysis || !analysis.rows?.length">
@@ -244,6 +304,18 @@
           </div>
         </details>
       </div>
+    </div>
+
+    <div x-show="analysis?.personal_fields?.length" class="border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+      <div class="text-sm font-medium text-slate-700 dark:text-slate-200">Collect personal data?</div>
+      <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Only tick a field if you have a lawful reason (for example, contacting suppliers you already work with). Unticked fields keep phones and emails masked.</p>
+      <div class="mt-3 flex flex-wrap gap-4 text-sm">
+        <template x-for="f in analysis?.personal_fields || []" :key="f">
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="personalChoice[f]" class="rounded border-slate-300"> <span x-text="f"></span></label>
+        </template>
+      </div>
+      <input type="text" x-show="personalFieldsChosen().length" x-model="personalPurpose" class="input mt-3"
+             placeholder="Why do you need this personal data? (stored with the job)">
     </div>
 
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-b-2xl border-t border-slate-100 bg-slate-50/70 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/60">
@@ -275,9 +347,12 @@
             <div class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1" @click="openJob(j)">
               <span class="text-sm font-semibold text-slate-900 dark:text-white" x-text="'#' + j.id"></span>
               <span class="chip" :class="statusChip(j.status)">
-                <span class="dot" :class="['queued','running'].includes(j.status) ? 'animate-pulse' : ''"></span>
-                <span x-text="j.status"></span>
+                <span class="dot" :class="['queued','running','needs_you'].includes(j.status) ? 'animate-pulse' : ''"></span>
+                <span x-text="statusLabel(j.status)"></span>
               </span>
+              <span class="chip chip-blue" x-show="j.logged_in" title="Used a login session; results are stored encrypted">logged in · encrypted</span>
+              <span class="chip chip-amber" x-show="j.personal?.fields?.length" :title="'Purpose: ' + (j.personal?.purpose || '')">personal data</span>
+              <span class="chip chip-gray" x-show="j.keep" title="Kept: not removed by automatic clean-up">kept</span>
               <span class="min-w-0 flex-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400"
                     x-text="j.urls[0] + (j.urls.length>1 ? `  (+${j.urls.length-1} more)` : '')"></span>
               <span class="text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200" x-text="j.rows + ' rows'"></span>
@@ -290,7 +365,10 @@
               <p class="min-w-0 break-words text-xs text-slate-500 dark:text-slate-400" x-text="j.message"></p>
               <div class="flex shrink-0 gap-1">
                 <button class="btn-ghost" @click="openJob(j)">View</button>
-                <button class="btn-ghost" x-show="['queued','running'].includes(j.status)" @click="stopJob(j)">Stop</button>
+                <button class="btn-ghost" x-show="j.status === 'needs_you'" @click="startJobSolve(j)">Solve</button>
+                <button class="btn-ghost" x-show="['stopped','blocked','error'].includes(j.status) && j.pages_done < j.pages_total" @click="resumeJob(j)">Resume</button>
+                <button class="btn-ghost" @click="toggleKeep(j)" x-text="j.keep ? 'Unkeep' : 'Keep'"></button>
+                <button class="btn-ghost" x-show="['queued','running','needs_you'].includes(j.status)" @click="stopJob(j)">Stop</button>
                 <button class="btn-ghost hover:text-rose-600" x-show="!['queued','running'].includes(j.status)" @click="deleteJob(j)">Delete</button>
               </div>
             </div>
@@ -314,11 +392,14 @@
           <input type="search" x-model="search" placeholder="Search results…" class="input pl-9">
         </div>
         <span class="px-1 text-sm tabular-nums text-slate-500" x-text="filtered().length + ' of ' + records.length + ' rows'"></span>
-        <a class="btn" :href="`/api/jobs/${selectedJob?.id}/export?fmt=csv`">
+        <label class="flex items-center gap-2 px-1 text-sm text-slate-600 dark:text-slate-300" x-show="selectedJob?.personal?.fields?.length">
+          <input type="checkbox" x-model="showPersonal" @change="loadRecords()" class="rounded border-slate-300"> Show personal data
+        </label>
+        <a class="btn" :href="exportUrl('csv')">
           <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.6L6.3 8.24a.75.75 0 1 0-1.1 1.02l4.25 4.5a.75.75 0 0 0 1.1 0l4.25-4.5a.75.75 0 0 0-1.1-1.02l-2.95 3.11v-8.6Z"/><path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z"/></svg>
           CSV
         </a>
-        <a class="btn" :href="`/api/jobs/${selectedJob?.id}/export?fmt=xlsx`">
+        <a class="btn" :href="exportUrl('xlsx')">
           <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.6L6.3 8.24a.75.75 0 1 0-1.1 1.02l4.25 4.5a.75.75 0 0 0 1.1 0l4.25-4.5a.75.75 0 0 0-1.1-1.02l-2.95 3.11v-8.6Z"/><path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z"/></svg>
           Excel
         </a>
@@ -347,10 +428,165 @@
       </div>
     </div>
   </section>
+  <!-- 5. Sites & sessions -->
+  <section class="card">
+    <div class="card-head">
+      <span class="step">5</span>
+      <div class="min-w-0 flex-1">
+        <h2 class="card-title">Sites &amp; sessions</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400">Site rules you confirmed, login sessions (encrypted, never your password), daily budgets and cool-downs.</p>
+      </div>
+      <button class="btn-ghost" @click="loadSites()">Refresh</button>
+    </div>
+    <div class="card-body">
+      <div x-show="!sites.length" class="text-sm text-slate-500">No sites yet.</div>
+      <ul class="divide-y divide-slate-100 dark:divide-slate-800" x-show="sites.length">
+        <template x-for="s in sites" :key="s.domain">
+          <li class="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+            <div class="min-w-[12rem] flex-1">
+              <div class="font-medium text-slate-900 dark:text-slate-100" x-text="s.domain"></div>
+              <div class="mt-1 flex flex-wrap gap-1.5">
+                <span class="chip" :class="s.policy ? 'chip-green' : 'chip-amber'"
+                      x-text="s.policy ? 'rules: ' + ({allowed: 'terms allow', permission: 'permission', personal: 'personal use'}[s.policy.basis] || s.policy.basis) : 'rules not confirmed'"></span>
+                <span class="chip chip-blue" x-show="s.session"
+                      x-text="(s.session?.kind === 'login' ? 'logged in' + (s.session?.account ? ' as ' + s.session.account : '') : 'browser check passed') + ' · ' + Math.max(0, Math.round((s.session?.expires_in_hours || 0) / 24)) + 'd left'"></span>
+                <span class="chip chip-gray" x-text="s.usage_today + ' / ' + s.budget + ' pages today'"></span>
+                <span class="chip chip-red" x-show="s.cooldown_left_min > 0" x-text="'cooling down ' + s.cooldown_left_min + ' min'"></span>
+                <span class="chip chip-red" x-show="s.settings?.blocked">do not scrape</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button class="btn-ghost" @click="editPolicy(s)">Rules</button>
+              <button class="btn-ghost" @click="startLogin(s)" :disabled="!status?.browser_available"
+                      x-text="s.session?.kind === 'login' ? 'Log in again' : 'Log in'"></button>
+              <button class="btn-ghost" x-show="s.session" @click="forgetSession(s)">Forget session</button>
+              <button class="btn-ghost" x-show="s.cooldown_left_min > 0" @click="clearCooldown(s)">End cool-down</button>
+              <button class="btn-ghost" @click="toggleBlocked(s)" x-text="s.settings?.blocked ? 'Allow' : 'Block'"></button>
+              <button class="btn-ghost hover:text-rose-600" @click="deleteSiteData(s)">Delete data</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 6. Activity log -->
+  <section class="card">
+    <details class="group" @toggle="if ($event.target.open) loadActivity()">
+      <summary class="card-head !border-b-0">
+        <span class="step">6</span>
+        <span class="card-title">Activity log</span>
+        <span class="text-xs font-normal text-slate-400">· what was fetched, exported and changed</span>
+        <span class="ml-auto"><svg class="chev h-4 w-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 0 1 0-1.06L10.94 10 7.2 6.27a.75.75 0 1 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0Z" clip-rule="evenodd"/></svg></span>
+      </summary>
+      <div class="border-t border-slate-100 px-5 pb-5 pt-3 dark:border-slate-800">
+        <div class="mb-2 flex justify-end"><button class="btn-ghost" @click="loadActivity()">Refresh</button></div>
+        <div x-show="!activity.length" class="text-sm text-slate-500">Nothing logged yet.</div>
+        <ul class="max-h-96 space-y-1 overflow-auto text-sm">
+          <template x-for="(a, i) in activity" :key="i">
+            <li class="flex gap-3 rounded-md px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+              <span class="w-16 shrink-0 text-xs tabular-nums text-slate-400" x-text="timeAgo(a.ts)"></span>
+              <span class="w-44 shrink-0 font-medium text-slate-700 dark:text-slate-200" x-text="eventLabel(a.event)"></span>
+              <span class="min-w-0 truncate text-slate-500 dark:text-slate-400" :title="eventDetail(a)" x-text="eventDetail(a)"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </details>
+  </section>
 </main>
 
+<!-- Site rules dialog -->
+<template x-if="policy">
+<div class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" @keydown.escape.window="policy=null">
+  <div class="card max-h-[90vh] w-full max-w-xl overflow-auto" @click.outside="policy=null">
+    <div class="card-head">
+      <div class="min-w-0 flex-1">
+        <h2 class="card-title" x-text="'Rules for ' + (policy?.domain || '')"></h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400" x-text="policy?.message"></p>
+      </div>
+    </div>
+    <div class="card-body space-y-4 text-sm">
+      <div class="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60" x-show="policy?.robots">
+        <div class="font-medium" x-text="policy?.robots?.allowed ? 'robots.txt allows this page' : 'robots.txt blocks this page'"
+             :class="policy?.robots?.allowed ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'"></div>
+        <div class="mt-1 text-xs text-slate-500" x-show="policy?.robots?.disallow?.length">
+          Blocked paths: <span x-text="(policy?.robots?.disallow || []).slice(0, 12).join('  ')"></span>
+        </div>
+      </div>
+      <div>
+        <label class="label">Terms of use page <span class="hint">· read it before you continue</span></label>
+        <div class="flex gap-2">
+          <input type="url" x-model="policy.form.terms_url" class="input" placeholder="https://example.com/terms" >
+          <a class="btn" :href="'https://' + (policy?.domain || '') + '/'" target="_blank" rel="noopener noreferrer">Open site</a>
+        </div>
+      </div>
+      <div>
+        <label class="label">How are you allowed to scrape this site?</label>
+        <div class="space-y-1.5" >
+          <label class="flex items-start gap-2"><input type="radio" value="allowed" x-model="policy.form.basis" class="mt-0.5"> The terms allow automated access to these pages</label>
+          <label class="flex items-start gap-2"><input type="radio" value="permission" x-model="policy.form.basis" class="mt-0.5"> I have the site owner's permission</label>
+          <label class="flex items-start gap-2"><input type="radio" value="personal" x-model="policy.form.basis" class="mt-0.5"> Light personal use of public pages, within the terms</label>
+        </div>
+      </div>
+      <div>
+        <label class="label">Purpose</label>
+        <input type="text" x-model="policy.form.purpose" class="input" placeholder="e.g. compare PVC pipe prices for our purchase" >
+      </div>
+      <div class="space-y-1.5 rounded-lg border border-slate-200 p-3 dark:border-slate-700" >
+        <div class="font-medium">Logging in (optional)</div>
+        <label class="flex items-start gap-2"><input type="checkbox" x-model="policy.form.login_ok" class="mt-0.5 rounded border-slate-300"> The site allows automated access while logged in</label>
+        <label class="flex items-start gap-2"><input type="checkbox" x-model="policy.form.own_account" class="mt-0.5 rounded border-slate-300"> I will only log in with my own account, to data I am entitled to see</label>
+        <p class="text-xs text-rose-600 dark:text-rose-400" x-show="policy?.needLogin && !(policy.form.login_ok && policy.form.own_account)">Both are needed to use a login session on this site.</p>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+      <button class="btn" @click="policy=null">Cancel</button>
+      <button class="btn btn-primary" @click="savePolicy()" :disabled="!policyValid()">Confirm</button>
+    </div>
+  </div>
+</div>
+</template>
+
+<!-- Visible browser window dialog -->
+<template x-if="win">
+<div class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4">
+  <div class="card w-full max-w-lg">
+    <div class="card-head">
+      <div class="min-w-0 flex-1">
+        <h2 class="card-title" x-text="win?.mode === 'login' ? 'Log in to ' + win?.domain : 'Solve the check on ' + (win?.domain || '')"></h2>
+        <p class="truncate text-xs text-slate-500" x-text="win?.url"></p>
+      </div>
+      <span class="chip" :class="win?.status === 'open' ? 'chip-green' : (['error','timeout','cancelled'].includes(win?.status) ? 'chip-red' : 'chip-amber')" x-text="win?.status"></span>
+    </div>
+    <div class="card-body space-y-3 text-sm">
+      <p x-show="win?.status === 'starting'">Opening a browser window…</p>
+      <template x-if="win?.status === 'open'">
+        <div class="space-y-3">
+          <p x-show="win?.mode === 'login'">A browser window is open. <b>Log in there yourself</b> (password, OTP, 2-step verification). The app never sees your password: it only keeps the session cookie, encrypted, for this site.</p>
+          <p x-show="win?.mode !== 'login'">A browser window is open on the page. <b>Solve the check yourself</b>, wait until the normal page shows, then come back here.</p>
+          <div x-show="win?.mode === 'login' || win?.kind === 'login'">
+            <label class="label">Account name <span class="hint">· optional label, e.g. your email</span></label>
+            <input type="text" x-model="win.account" class="input" maxlength="120">
+          </div>
+          <p class="text-xs text-slate-500" x-show="win?.title" x-text="'Window shows: ' + win?.title"></p>
+        </div>
+      </template>
+      <p class="text-rose-600 dark:text-rose-400" x-show="['error','timeout'].includes(win?.status)" x-text="win?.message || 'The window closed.'"></p>
+    </div>
+    <div class="flex justify-end gap-2 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+      <button class="btn" @click="cancelWindow()">Cancel</button>
+      <button class="btn btn-primary" @click="finishWindow()" :disabled="win?.status !== 'open' || busy === 'window'">
+        <span x-show="busy === 'window'" class="spinner"></span>
+        <span x-text="win?.mode === 'login' ? 'I’m logged in' : 'I’ve solved it'"></span>
+      </button>
+    </div>
+  </div>
+</div>
+</template>
+
 <footer class="mx-auto max-w-6xl px-4 pb-8 text-center text-xs text-slate-400 sm:px-6">
-  Local use only · collects public listing data · stops on login walls, CAPTCHAs and robots.txt rules
+  Local use only · never solves CAPTCHAs or hides from sites · passwords never stored · personal data masked by default
 </footer>
 </body>
 </html>

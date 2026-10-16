@@ -4,8 +4,27 @@ import io
 import pandas as pd
 
 
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r", "\uff1d", "\uff0b", "\uff0d", "\uff20")
+
+
+def safe_cell(value):
+    """Stop spreadsheet formula injection: text starting with = + - @ (or tab / CR) is prefixed
+    with an apostrophe so Excel shows it as text instead of running it. Plain numbers stay numbers."""
+    if isinstance(value, str) and value.startswith(FORMULA_START):
+        try:
+            float(value.replace(",", ""))
+            return value          # "-12.5" is a number, not a formula
+        except ValueError:
+            return "'" + value
+    return value
+
+
 def to_frame(records: list[dict]) -> pd.DataFrame:
-    return pd.DataFrame.from_records(records)
+    df = pd.DataFrame.from_records(records)
+    if not df.empty:
+        df = df.map(safe_cell)
+        df.columns = [safe_cell(str(c)) for c in df.columns]
+    return df
 
 
 def to_csv(records: list[dict]) -> bytes:
