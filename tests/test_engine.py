@@ -191,6 +191,7 @@ def test_too_large_prompt_is_shrunk_and_retried(monkeypatch):
 
     monkeypatch.setattr(recipe_builder, "_ask_model", fake_ask)
     monkeypatch.setattr(recipe_builder.config, "ai_enabled", lambda: True)
+    monkeypatch.setattr(recipe_builder.config, "ai_prompt_budget", lambda: 11000)   # Groq-sized, whatever .env says
     out = recipe_builder.build_recipe(html, "https://dir.indiamart.com/impcat/pvc-pipes.html", ["name", "price"])
     assert len(sizes) == 2 and sizes[1] < sizes[0] * 0.7
     assert out["rows"] and "trimmed" in out["notes"]
@@ -285,3 +286,11 @@ def test_ai_is_asked_again_when_price_has_no_digits(monkeypatch):
     out = recipe_builder.build_recipe(html, "https://x.test/", ["name", "price"])
     assert len(prompts) == 2 and "should contain numbers" in prompts[1]
     assert out["rows"][0]["price"] == "01.50"
+
+
+def test_short_table_rows_are_candidates():
+    """Data tables of short values (film, nominations, awards) are records, not menus."""
+    rows = "".join(f"<tr class='film'><td class='t'>Film {i}</td><td>{i}</td><td>{i % 3}</td></tr>" for i in range(12))
+    html = ("<nav><a href='/2015'>2015</a><a href='/2014'>2014</a><a href='/2013'>2013</a><a href='/2012'>2012</a></nav>"
+            f"<table><tbody>{rows}</tbody></table>")
+    assert recipe_builder.find_candidates(html)[0]["selector_hint"].endswith("tr.film")

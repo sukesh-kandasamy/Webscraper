@@ -262,7 +262,9 @@ def typed_preview(rows: list[dict], recipe: dict) -> tuple[list[dict], dict[str,
     masked = privacy.mask_rows(rows)
     types = normalize.detect_types(masked, names, given)
     typed = normalize.normalize_rows(masked, types)
-    matched = request_parser.sort_and_limit(request_parser.filter_rows(typed, request, types), request)
+    usable, _ = request_parser.split_filters(typed, request.get("filters") or [])
+    matched = request_parser.sort_and_limit(
+        request_parser.filter_rows(typed, {**request, "filters": usable}, types), request)
     return typed, types, matched
 
 
@@ -284,6 +286,8 @@ def _result(domain: str, page: fetcher.Page, recipe: dict, source: str, rows: li
             "rows": (matched if filtered or (request.get("sort") or {}).get("column") else typed)[:PREVIEW_ROWS],
             "report": extractor.field_report(rows, recipe), "column_types": types,
             "request_labels": request_parser.describe(request),
+            "skipped_filters": [request_parser.filter_label(f) for f in
+                                request_parser.split_filters(typed, request.get("filters") or [])[1]],
             "url_field": jobs.url_field(recipe),
             "stated_total": quality.stated_total(page.html),
             "page_type": recipe.get("page_type") or "", "absent": absent or []}

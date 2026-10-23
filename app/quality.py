@@ -67,6 +67,7 @@ def build(rows: list[dict], names: list[str], types: dict[str, str], counters: d
         "expected_total": expected,
         "coverage": round(min(1.0, seen / expected), 3) if expected else None,
         "details": {k: counters.get(f"details_{k}", 0) for k in ("done", "failed", "skipped")},
+        "skipped_filters": counters.get("skipped_filters", []),
         "columns": column_stats(rows, names, types),
     }
     if counters.get("health"):
@@ -77,6 +78,9 @@ def build(rows: list[dict], names: list[str], types: dict[str, str], counters: d
 
 def warnings(report: dict) -> list[str]:
     out = []
+    if report.get("skipped_filters"):
+        out.append("Not applied, because that column is empty on the page (the site's own filter or the page "
+                   f"you chose already covers it): {', '.join(report['skipped_filters'])}.")
     if report["pages_failed"]:
         out.append(f"{len(report['pages_failed'])} page(s) could not be read.")
     if report["coverage"] is not None and report["coverage"] < 0.9:

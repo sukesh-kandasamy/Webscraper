@@ -27,6 +27,8 @@ Return:
   "filter: price up to 3000", "sort by newest". Only searching, choosing categories, filters, sorting. \
   Never logging in, contacting, buying, applying or filling personal forms. The last step is always \
   "stop on the results list". 2-8 steps.
+- filters are only for values each item shows itself (its price, rating, location). Conditions that choose \
+  which page or tab to look at (a year, a category, a city, a search term) go into navigation only, not filters.
 - columns, filters, sort, limit, auto, details_hint, question, summary: the data request, exactly as for a \
   scraper (columns: snake_case name, meaning with hints that avoid mistakes, type money|number|percent|\
   rating|date|url|image|text, required; filters on those columns with op lt|lte|gt|gte|eq|ne|contains|\

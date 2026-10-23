@@ -203,10 +203,13 @@ def find_candidates(html: str) -> list[dict]:
                 continue
             lens = [len(extractor.clean_text(n.text(separator=" "))) for n in nodes]
             avg = sum(lens) / len(lens)
-            if avg < 30:
+            # Table rows with several cells are records even when short ("Argo · 7 · 3"); other short
+            # repeated blocks are usually menus or tags.
+            table_rows = nodes[0].tag == "tr" and len(nodes[0].css("td")) >= 2
+            if avg < (6 if table_rows else 30):
                 continue
             links = sum(1 for n in nodes if n.css_first("a[href]"))
-            score = len(nodes) * min(avg, 400) * (1.5 if links >= len(nodes) / 2 else 1)
+            score = len(nodes) * min(avg, 400) * (1.5 if links >= len(nodes) / 2 else 1) * (4 if table_rows else 1)
             scored.append((score, nodes))
     scored.sort(key=lambda x: -x[0])
 

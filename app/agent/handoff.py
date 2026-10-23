@@ -64,6 +64,9 @@ def _handoff(run_id: int, url: str, html: str, note: str) -> None:
         raise RuntimeError(f"No list of items could be read on the page the agent reached ({e})") from e
     recipe = built["recipe"]
     agent_rows = built["rows"]
+    if not agent_rows:
+        raise RuntimeError("The columns the AI set up find no items on the page the agent reached, so nothing "
+                           "was collected. Try again, or set it up in Guided mode from that page: " + url)
     audit.log("recipe_built", domain=fetcher.domain_of(url), provider=config.AI_PROVIDER, rows=len(agent_rows),
               by="agent", run_id=run_id)
     _log(run_id, "info", f"Columns found: {', '.join(f['name'] for f in recipe['fields'])} "

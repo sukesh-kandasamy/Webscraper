@@ -283,3 +283,16 @@ def test_cut_off_text_uses_the_full_title_attribute():
     recipe = extractor.normalize_recipe({"item_selector": "li.c", "fields": [{"name": "title", "selector": "h3 a"}]})
     assert [r["title"] for r in extractor.extract(html, recipe, "https://x.test/")] == \
         ["Tastes Like Fear (DI Marnie Rome #3)", "Short one"]
+
+
+def test_condition_on_an_empty_column_is_skipped_not_applied(fake_site):
+    """"year = 2012" when no row carries a year (it's the page's selected tab) must not drop every row."""
+    req = request_parser.clean_request({"columns": ["name", "price", "year"],
+                                        "filters": [{"column": "year", "op": "eq", "value": "2012"},
+                                                    {"column": "price", "op": "lt", "value": "3000"}]})
+    recipe = {**RECIPE, "fields": RECIPE["fields"] + [{"name": "year", "selector": "span.year-not-here"}],
+              "request": req}
+    job = wait(jobs.start(["https://shop.test/list"], recipe, max_pages=1))
+    assert job["rows"] == 2                                   # price filter still applied (1,499 and 2,499)
+    assert job["quality"]["skipped_filters"] == ["year = 2012"]
+    assert any("Not applied" in w for w in job["quality"]["warnings"])

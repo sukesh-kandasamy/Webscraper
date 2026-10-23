@@ -218,6 +218,26 @@ def _match(value, op: str, target: str, kind: str) -> bool:
             "lt": text < t, "lte": text <= t, "gt": text > t, "gte": text >= t}[op]
 
 
+MIN_FILTER_FILL = 0.1
+
+
+def split_filters(rows: list[dict], filters: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(usable, skipped). A condition on a column that is empty on (almost) the whole page can't be
+    checked per row, e.g. "year = 2012" when the year is the page's selected tab, not part of each row.
+    Applying it would throw every row away, so it is skipped and reported instead."""
+    if not rows:
+        return list(filters), []
+    usable, skipped = [], []
+    for f in filters:
+        filled = sum(1 for r in rows if r.get(f["column"]) not in (None, ""))
+        (usable if filled >= max(1, len(rows) * MIN_FILTER_FILL) else skipped).append(f)
+    return usable, skipped
+
+
+def filter_label(f: dict) -> str:
+    return f"{f['column']} {OP_LABELS[f['op']]} {f['value']}"
+
+
 def filter_rows(rows: list[dict], request: dict | None, types: dict[str, str]) -> list[dict]:
     """Rows that match every filter of the request."""
     filters = (request or {}).get("filters") or []

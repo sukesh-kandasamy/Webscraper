@@ -176,6 +176,13 @@ class _Run:
             db.update_job(self.job_id, columns=_dumps(self.types))
         return normalize.normalize_rows(rows, self.types)
 
+    def _note_skipped(self, skipped: list[dict]) -> None:
+        notes = self.q.setdefault("skipped_filters", [])
+        for f in skipped:
+            label = request_parser.filter_label(f)
+            if label not in notes:
+                notes.append(label)
+
     # ---- pages -------------------------------------------------------------------------
     def process(self, page: fetcher.Page) -> int:
         """Store the new items of one listing page; returns how many new items it had."""
@@ -189,11 +196,15 @@ class _Run:
                 fresh.append(r)
         self.q["items_seen"] += len(fresh)
         self.q["duplicates"] += len(rows) - len(fresh)
-        matched = request_parser.filter_rows(fresh, {"filters": self.pre_filters}, self.types)
+        usable, skipped = request_parser.split_filters(fresh, self.pre_filters)
+        self._note_skipped(skipped)
+        matched = request_parser.filter_rows(fresh, {"filters": usable}, self.types)
         if self.recipe.get("detail") and matched:
             matched = self.add_details(matched)
         if self.post_filters:
-            matched = request_parser.filter_rows(matched, {"filters": self.post_filters}, self.types)
+            usable, skipped = request_parser.split_filters(matched, self.post_filters)
+            self._note_skipped(skipped)
+            matched = request_parser.filter_rows(matched, {"filters": usable}, self.types)
         self.q["excluded"] += len(fresh) - len(matched)
         if matched:
             db.add_records(self.job_id, page.final_url, matched)

@@ -420,8 +420,12 @@
 
               <div x-show="analysis?.request_labels?.length" x-cloak class="flex flex-wrap items-center gap-1.5 text-sm">
                 <span class="text-slate-500">Your request:</span>
-                <template x-for="l in analysis?.request_labels || []" :key="l"><span class="chip chip-amber" x-text="l"></span></template>
+                <template x-for="l in analysis?.request_labels || []" :key="l">
+                  <span class="chip" :class="(analysis?.skipped_filters || []).includes(l) ? 'chip-gray line-through' : 'chip-amber'"
+                        :title="(analysis?.skipped_filters || []).includes(l) ? 'Not applied: this column is empty on the page' : ''" x-text="l"></span></template>
               </div>
+              <p x-show="analysis?.skipped_filters?.length" x-cloak class="text-xs text-slate-500"
+                 x-text="'Not applied, because that column is empty on the page: ' + (analysis?.skipped_filters || []).join(', ') + '. If the page you chose already shows only those items, that is fine.'"></p>
 
               <div>
                 <div class="mb-2 flex flex-wrap items-baseline gap-2">
