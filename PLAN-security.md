@@ -2,6 +2,8 @@
 
 > **Status (2026-10-16): implemented** (S1–S6), see [SECURITY.md](SECURITY.md). Still yours to do:
 > S0.1 rotate the Groq key, S0.3 turn on BitLocker (the check needs an administrator).
+> Changed later: the S5.1 site-rules card was removed at your request; logging in still needs an
+> own-account confirmation (S5.3), and robots.txt / the do-not-scrape list still apply.
 > Not built: the optional access token in S1.2 (Host / Origin / Sec-Fetch-Site checks cover the same
 > attacks for a localhost-only app).
 

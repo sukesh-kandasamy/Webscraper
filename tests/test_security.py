@@ -154,26 +154,27 @@ def test_api_refuses_local_urls(client):
     assert r.status_code == 400 and "local" in r.json()["detail"]
 
 
-# ---- T12 / S5: site rules must be confirmed first -----------------------------------------
+# ---- No site-rules gate; logging in needs an explicit own-account confirmation -------------
 
-def test_policy_required_before_scraping(client, monkeypatch):
-    monkeypatch.setattr(fetcher, "robots_rules", lambda url: [(False, "/search")])
+def test_analyse_does_not_ask_for_site_rules(client, monkeypatch):
+    monkeypatch.setattr(fetcher, "fetch_smart", lambda url, recipe=None, max_rounds=0:
+                        fetcher.Page(url, url, 200, "<html><body><p>no listings</p></body></html>", False))
+    monkeypatch.setattr(config, "GROQ_API_KEY", "")
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "")
     r = client.post("/api/analyse", json={"url": PUBLIC + "/list"})
-    assert r.status_code == 428
-    body = r.json()["detail"]
-    assert body["code"] == "policy_required" and body["robots"]["disallow"] == ["/search"]
-    r = client.put("/api/sites/93.184.216.34/policy",
-                   json={"basis": "permission", "purpose": "testing the app", "terms_url": ""})
-    assert r.status_code == 200
-    assert client.get("/api/sites/93.184.216.34/settings").json()["policy"]["basis"] == "permission"
+    assert r.status_code == 422 and "starter_recipe" in r.json()["detail"]   # not 428
 
 
-def test_login_needs_explicit_confirmation(client, monkeypatch):
-    monkeypatch.setattr(fetcher, "robots_rules", lambda url: [])
+def test_login_needs_own_account_confirmation(client, monkeypatch):
     monkeypatch.setattr("app.main._browser_available", lambda: True)
-    client.put("/api/sites/93.184.216.34/policy", json={"basis": "permission", "purpose": "testing"})
+    opened = []
+    monkeypatch.setattr(sessions, "open_window",
+                        lambda key, url, purpose, state=None: opened.append(url) or
+                        type("W", (), {"public": lambda self: {"status": "starting"}})())
     r = client.post("/api/sites/93.184.216.34/login", json={"url": PUBLIC + "/login"})
-    assert r.status_code == 428 and r.json()["detail"]["code"] == "policy_login_required"
+    assert r.status_code == 400 and not opened
+    r = client.post("/api/sites/93.184.216.34/login", json={"url": PUBLIC + "/login", "own_account": True})
+    assert r.status_code == 200 and opened == [PUBLIC + "/login"]
 
 
 def test_opt_out_and_cooldown_refuse_fetches(tmp_env, monkeypatch):

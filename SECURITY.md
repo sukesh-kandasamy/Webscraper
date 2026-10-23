@@ -45,7 +45,7 @@ computer is lost.
 | Personal data sent to the AI | Phones and emails always masked in prompts; pages fetched with a login session are reduced to their text *shape*; AI can be turned off per site | `privacy.redact_html`, site setting *Allow the AI* |
 | Collecting personal data without a reason | Phones / emails masked before storing unless you tick the field and give a purpose; hidden in the UI and exports unless you choose to show them | `privacy`, `jobs._run`, `/api/jobs/{id}/records` |
 | Account bans | Per-site daily page budget (500, or 200 when logged in), adaptive backoff, `Retry-After` honoured, cool-down after 429 / repeated challenges | `fetcher` |
-| Scraping a site you are not allowed to | Site rules card (Terms URL, basis, purpose) must be confirmed before the first fetch; logging in needs two extra confirmations; do-not-scrape list | `main._require_policy`, `fetcher.is_opted_out` |
+| Scraping a site you are not allowed to | robots.txt is enforced; logging in needs your confirmation that it is your own account and the site allows automated access; do-not-scrape list. Checking a site's terms of use is up to you. | `main.start_login`, `fetcher.is_opted_out` |
 | Secrets in logs | Log filter redacts API keys, cookies, bearer tokens, `?token=` parameters | `app/logsafe.py` |
 | Secrets committed to git | `.githooks/pre-commit` runs `tools/secret_scan.py`; `.env`, `data/`, `*.db`, `*.bin` are ignored and refused | `tools/secret_scan.py` |
 | Vulnerable dependencies | Exact versions in `requirements.lock`; `pip-audit` in `check.py` | `check.py` |

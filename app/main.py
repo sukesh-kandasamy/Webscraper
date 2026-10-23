@@ -125,16 +125,13 @@ class SettingsIn(BaseModel):
     blocked: bool | None = None
 
 
-class PolicyIn(BaseModel):
-    basis: str = Field(pattern="^(allowed|permission|personal)$")
-    terms_url: str = Field(default="", max_length=500)
-    purpose: str = Field(min_length=5, max_length=500)
-    login_ok: bool = False
-    own_account: bool = False
-
-
 class WindowIn(BaseModel):
     url: str | None = None
+
+
+class LoginIn(BaseModel):
+    url: str | None = None
+    own_account: bool = False       # "this is my own account and the site allows automated access"
 
 
 class FinishIn(BaseModel):
@@ -177,36 +174,12 @@ def _clean_urls(urls: list[str]) -> list[str]:
     return out
 
 
-def _policy_for(host: str) -> dict | None:
-    for d in dict.fromkeys([host, sessions.base_domain(host)]):
-        p = db.get_site_settings(d).get("policy")
-        if p and p.get("basis") and p.get("purpose"):
-            return p
-    return None
-
-
 def _robots_summary(url: str) -> dict:
     rules = fetcher.robots_rules(url)
     return {"allowed": robots.is_allowed(rules, url),
             "disallow": [p for allow, p in rules if not allow][:40],
             "allow": [p for allow, p in rules if allow][:20],
             "robots_url": f"{urlsplit(url).scheme}://{urlsplit(url).netloc}/robots.txt"}
-
-
-def _require_policy(url: str, login: bool = False) -> dict:
-    host = fetcher.host_of(url)
-    policy = _policy_for(host)
-    if not policy:
-        raise HTTPException(428, {"code": "policy_required", "domain": host, "url": url,
-                                  "message": f"Before scraping {host}, confirm how you are allowed "
-                                             "to use it (Terms, purpose).",
-                                  "robots": _robots_summary(url)})
-    if login and not (policy.get("login_ok") and policy.get("own_account")):
-        raise HTTPException(428, {"code": "policy_login_required", "domain": host, "url": url,
-                                  "message": "Logging in to this site needs your confirmation that "
-                                             "it is your own account and automated access is allowed.",
-                                  "robots": _robots_summary(url)})
-    return policy
 
 
 def _fetch_or_http_error(url: str, recipe: dict | None = None) -> fetcher.Page:
@@ -292,7 +265,6 @@ def status():
 def analyse(body: AnalyseIn):
     """Get a recipe for the page: the saved one if it still works, otherwise ask the AI."""
     url = _clean_urls([body.url])[0]
-    _require_policy(url)
     fields = [f.strip() for f in body.fields if f.strip()] or list(config.DEFAULT_FIELDS)
     domain = fetcher.domain_of(url)
     saved = db.get_recipe(domain)
@@ -337,7 +309,6 @@ def analyse(body: AnalyseIn):
 @app.post("/api/preview")
 def preview(body: PreviewIn):
     url = _clean_urls([body.url])[0]
-    _require_policy(url)
     recipe = _normalize_or_http_error(body.recipe)
     page = _fetch_or_http_error(url, recipe)
     _remember_render(fetcher.domain_of(page.final_url), page)
@@ -359,7 +330,7 @@ def robots_view(url: str):
 def _site_view(domain: str, settings: dict) -> dict:
     session = sessions.info(domain) or (sessions.info(sessions.base_domain(domain))
                                         if sessions.base_domain(domain) != domain else None)
-    return {"domain": domain, "settings": settings, "policy": settings.get("policy"),
+    return {"domain": domain, "settings": settings,
             "session": session, "usage_today": db.usage_today(domain),
             "budget": fetcher.daily_budget(domain, bool(session and session["kind"] == "login")),
             "cooldown_left_min": round(fetcher.cooldown_left(domain) / 60, 1)}
@@ -412,20 +383,6 @@ def put_site_settings(domain: str, body: SettingsIn):
     return settings
 
 
-@app.put("/api/sites/{domain}/policy")
-def put_site_policy(domain: str, body: PolicyIn):
-    if body.terms_url:
-        try:
-            netguard.check_url(body.terms_url)
-        except netguard.UnsafeURL as e:
-            raise HTTPException(400, f"Terms URL: {e}")
-    policy = {**body.model_dump(), "confirmed_at": time.time()}
-    fetcher.update_settings(domain.lower(), {"policy": policy})
-    audit.log("policy_confirmed", domain=domain.lower(), basis=body.basis, login_ok=body.login_ok,
-              own_account=body.own_account)
-    return policy
-
-
 @app.delete("/api/sites/{domain}/cooldown")
 def clear_cooldown(domain: str):
     fetcher.update_settings(domain, {"cooldown_until": None, "cooldown_reason": None,
@@ -471,11 +428,14 @@ def forget_session(domain: str):
 
 
 @app.post("/api/sites/{domain}/login")
-def start_login(domain: str, body: WindowIn):
+def start_login(domain: str, body: LoginIn):
+    if not body.own_account:
+        raise HTTPException(400, "Confirm that this is your own account and that the site allows "
+                                 "automated access while logged in.")
     if not _browser_available():
         raise HTTPException(400, browser.install_hint())
     url = _clean_urls([body.url or f"https://{domain}/"])[0]
-    _require_policy(url, login=True)
+    audit.log("login_confirmed", domain=domain.lower(), own_account=True)
     existing = sessions.for_host(fetcher.host_of(url))
     win = sessions.open_window(f"login:{domain}", url, "login",
                                existing["state"] if existing else None)
@@ -536,7 +496,6 @@ def _save_after_solve(win: sessions.Window, account: str = "", kind_hint: str = 
 @app.post("/api/sites/{domain}/solve")
 def start_site_solve(domain: str, body: WindowIn):
     url = _clean_urls([body.url or f"https://{domain}/"])[0]
-    _require_policy(url)
     return _open_solve_window(f"site:{domain}", url, "solve")
 
 
@@ -557,8 +516,6 @@ def create_job(body: JobIn):
     recipe = _normalize_or_http_error(body.recipe)
     logged_in = any((s := sessions.for_host(fetcher.host_of(u))) and s.get("kind") == sessions.KIND_LOGIN
                     for u in urls)
-    for u in urls:
-        _require_policy(u, login=logged_in)
     if config.RESPECT_ROBOTS:
         blocked = [u for u in urls if not fetcher.robots_allows(u)]
         if blocked:
@@ -617,8 +574,6 @@ def start_job_solve(job_id: int):
     job = _job_or_404(job_id)
     if job["status"] != "needs_you" or not job["paused_url"]:
         raise HTTPException(409, "This job is not waiting for you")
-    if job["paused_kind"] == "login":
-        _require_policy(job["paused_url"], login=True)
     return _open_solve_window(f"job:{job_id}", job["paused_url"],
                               "login" if job["paused_kind"] == "login" else "solve")
 

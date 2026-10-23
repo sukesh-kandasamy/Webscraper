@@ -29,8 +29,6 @@ changes), `--no-browser`.
 
 ## How to use
 
-0. **Confirm the site's rules** the first time you use a site: its Terms page, how you are allowed
-   to scrape it, and your purpose. robots.txt for the page is shown next to it.
 1. **Paste URLs**, one per line. Use *listing/category* pages, e.g.
    - `https://dir.indiamart.com/impcat/pvc-pipes.html`
    - `https://www.tradeindia.com/manufacturers/upvc-pipe-fittings.html`
@@ -46,7 +44,8 @@ changes), `--no-browser`.
 
 ## Logged-in pages, CAPTCHAs and personal data
 
-- **Logging in:** *Sites & sessions → Log in* opens a real browser window. You log in yourself
+- **Logging in:** *Sites & sessions → Log in* first asks you to confirm it is your own account and
+  that the site allows automated access while logged in, then opens a real browser window. You log in yourself
   (password, OTP, 2-step); the app only keeps the session cookie, encrypted with a key held in Windows
   Credential Manager, for that site only. Sessions expire after 7 days; *Forget session* deletes one.
   Jobs that use a session store their results encrypted and have a lower daily page budget.
@@ -103,7 +102,7 @@ it stopped without duplicating rows.
 
 | Path | What it does |
 |---|---|
-| `app/main.py` | FastAPI routes + serves the UI; Host / Origin checks, security headers, site-rules gate |
+| `app/main.py` | FastAPI routes + serves the UI; Host / Origin checks, security headers |
 | `app/netguard.py` | Refuses local / private network targets (SSRF guard) |
 | `app/sessions.py` | Encrypted login sessions; visible browser windows for logging in / solving checks |
 | `app/vault.py` | Encryption with a key from the OS credential store |

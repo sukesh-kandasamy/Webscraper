@@ -434,7 +434,7 @@
       <span class="step">5</span>
       <div class="min-w-0 flex-1">
         <h2 class="card-title">Sites &amp; sessions</h2>
-        <p class="text-sm text-slate-500 dark:text-slate-400">Site rules you confirmed, login sessions (encrypted, never your password), daily budgets and cool-downs.</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400">Login sessions (encrypted, never your password), daily budgets and cool-downs.</p>
       </div>
       <button class="btn-ghost" @click="loadSites()">Refresh</button>
     </div>
@@ -446,8 +446,6 @@
             <div class="min-w-[12rem] flex-1">
               <div class="font-medium text-slate-900 dark:text-slate-100" x-text="s.domain"></div>
               <div class="mt-1 flex flex-wrap gap-1.5">
-                <span class="chip" :class="s.policy ? 'chip-green' : 'chip-amber'"
-                      x-text="s.policy ? 'rules: ' + ({allowed: 'terms allow', permission: 'permission', personal: 'personal use'}[s.policy.basis] || s.policy.basis) : 'rules not confirmed'"></span>
                 <span class="chip chip-blue" x-show="s.session"
                       x-text="(s.session?.kind === 'login' ? 'logged in' + (s.session?.account ? ' as ' + s.session.account : '') : 'browser check passed') + ' · ' + Math.max(0, Math.round((s.session?.expires_in_hours || 0) / 24)) + 'd left'"></span>
                 <span class="chip chip-gray" x-text="s.usage_today + ' / ' + s.budget + ' pages today'"></span>
@@ -456,7 +454,6 @@
               </div>
             </div>
             <div class="flex flex-wrap gap-1">
-              <button class="btn-ghost" @click="editPolicy(s)">Rules</button>
               <button class="btn-ghost" @click="startLogin(s)" :disabled="!status?.browser_available"
                       x-text="s.session?.kind === 'login' ? 'Log in again' : 'Log in'"></button>
               <button class="btn-ghost" x-show="s.session" @click="forgetSession(s)">Forget session</button>
@@ -495,58 +492,6 @@
     </details>
   </section>
 </main>
-
-<!-- Site rules dialog -->
-<template x-if="policy">
-<div class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" @keydown.escape.window="policy=null">
-  <div class="card max-h-[90vh] w-full max-w-xl overflow-auto" @click.outside="policy=null">
-    <div class="card-head">
-      <div class="min-w-0 flex-1">
-        <h2 class="card-title" x-text="'Rules for ' + (policy?.domain || '')"></h2>
-        <p class="text-sm text-slate-500 dark:text-slate-400" x-text="policy?.message"></p>
-      </div>
-    </div>
-    <div class="card-body space-y-4 text-sm">
-      <div class="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60" x-show="policy?.robots">
-        <div class="font-medium" x-text="policy?.robots?.allowed ? 'robots.txt allows this page' : 'robots.txt blocks this page'"
-             :class="policy?.robots?.allowed ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'"></div>
-        <div class="mt-1 text-xs text-slate-500" x-show="policy?.robots?.disallow?.length">
-          Blocked paths: <span x-text="(policy?.robots?.disallow || []).slice(0, 12).join('  ')"></span>
-        </div>
-      </div>
-      <div>
-        <label class="label">Terms of use page <span class="hint">· read it before you continue</span></label>
-        <div class="flex gap-2">
-          <input type="url" x-model="policy.form.terms_url" class="input" placeholder="https://example.com/terms" >
-          <a class="btn" :href="'https://' + (policy?.domain || '') + '/'" target="_blank" rel="noopener noreferrer">Open site</a>
-        </div>
-      </div>
-      <div>
-        <label class="label">How are you allowed to scrape this site?</label>
-        <div class="space-y-1.5" >
-          <label class="flex items-start gap-2"><input type="radio" value="allowed" x-model="policy.form.basis" class="mt-0.5"> The terms allow automated access to these pages</label>
-          <label class="flex items-start gap-2"><input type="radio" value="permission" x-model="policy.form.basis" class="mt-0.5"> I have the site owner's permission</label>
-          <label class="flex items-start gap-2"><input type="radio" value="personal" x-model="policy.form.basis" class="mt-0.5"> Light personal use of public pages, within the terms</label>
-        </div>
-      </div>
-      <div>
-        <label class="label">Purpose</label>
-        <input type="text" x-model="policy.form.purpose" class="input" placeholder="e.g. compare PVC pipe prices for our purchase" >
-      </div>
-      <div class="space-y-1.5 rounded-lg border border-slate-200 p-3 dark:border-slate-700" >
-        <div class="font-medium">Logging in (optional)</div>
-        <label class="flex items-start gap-2"><input type="checkbox" x-model="policy.form.login_ok" class="mt-0.5 rounded border-slate-300"> The site allows automated access while logged in</label>
-        <label class="flex items-start gap-2"><input type="checkbox" x-model="policy.form.own_account" class="mt-0.5 rounded border-slate-300"> I will only log in with my own account, to data I am entitled to see</label>
-        <p class="text-xs text-rose-600 dark:text-rose-400" x-show="policy?.needLogin && !(policy.form.login_ok && policy.form.own_account)">Both are needed to use a login session on this site.</p>
-      </div>
-    </div>
-    <div class="flex justify-end gap-2 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
-      <button class="btn" @click="policy=null">Cancel</button>
-      <button class="btn btn-primary" @click="savePolicy()" :disabled="!policyValid()">Confirm</button>
-    </div>
-  </div>
-</div>
-</template>
 
 <!-- Visible browser window dialog -->
 <template x-if="win">

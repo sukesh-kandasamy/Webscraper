@@ -23,7 +23,7 @@ async function api(method, path, body) {
 const EVENT_LABELS = {
   fetch: "Fetched", job_started: "Job started", job_paused: "Job paused", job_blocked: "Job blocked",
   job_deleted: "Job deleted", export: "Exported", session_saved: "Session saved",
-  session_forgotten: "Session forgotten", policy_confirmed: "Site rules confirmed",
+  session_forgotten: "Session forgotten", login_confirmed: "Own account confirmed",
   settings_changed: "Settings changed", cooldown: "Cool-down started", cooldown_cleared: "Cool-down cleared",
   challenge_solved: "Check solved by you", window_opened: "Browser window opened",
   recipe_built: "Recipe built by AI", recipe_saved: "Recipe saved", retention_purge: "Old data removed",
@@ -56,8 +56,6 @@ function scraper() {
     personalChoice: {},          // field -> collect raw?
     personalPurpose: "",
     blockedPage: null,           // {domain, url, kind, message} when analyse hit a challenge
-    // Site rules (policy) dialog
-    policy: null,                // {domain, url, robots, needLogin, form, retry}
     // Visible browser window dialog
     win: null,                   // {mode: login|site|job, domain, jobId, url, status, message, account, started}
     winTimer: null,
@@ -117,13 +115,9 @@ function scraper() {
       catch (e) { throw new Error("Recipe JSON is invalid: " + e.message); }
     },
 
-    // Central error handling: site-rules prompts and "needs a person" pages.
+    // Central error handling: "needs a person" pages get their own banner.
     handleError(e, retry) {
       const d = e.detail || {};
-      if (e.status === 428 && (d.code === "policy_required" || d.code === "policy_login_required")) {
-        this.openPolicy(d, retry);
-        return;
-      }
       if (e.status === 409 && d.code === "needs_human") {
         this.blockedPage = d;
         this.error = "";
@@ -341,49 +335,14 @@ function scraper() {
       } catch (e) { this.error = e.message; }
     },
 
-    // ---- site rules (policy) dialog -------------------------------------------------
-    openPolicy(d, retry) {
-      const site = this.sites.find(s => s.domain === d.domain);
-      const p = site?.policy || {};
-      this.policy = {
-        domain: d.domain, url: d.url, robots: d.robots, needLogin: d.code === "policy_login_required",
-        message: d.message, retry,
-        form: { basis: p.basis || "", terms_url: p.terms_url || "", purpose: p.purpose || "",
-                login_ok: !!p.login_ok, own_account: !!p.own_account },
-      };
-    },
-
-    async editPolicy(site) {
-      let robots = null;
-      try { robots = await api("GET", `/api/robots?url=${encodeURIComponent("https://" + site.domain + "/")}`); } catch {}
-      this.openPolicy({ domain: site.domain, url: "https://" + site.domain + "/", robots, code: "policy_required",
-                        message: "Review how you are allowed to use " + site.domain + "." }, null);
-    },
-
-    policyValid() {
-      const f = this.policy?.form;
-      if (!f || !f.basis || f.purpose.trim().length < 5) return false;
-      if (this.policy.needLogin && !(f.login_ok && f.own_account)) return false;
-      return true;
-    },
-
-    async savePolicy() {
-      try {
-        await api("PUT", `/api/sites/${this.policy.domain}/policy`, this.policy.form);
-        const retry = this.policy.retry;
-        this.policy = null;
-        await this.loadSites();
-        if (retry) retry();
-      } catch (e) { this.error = e.message; }
-    },
-
     // ---- visible browser windows (log in / solve a check) ---------------------------
     async startLogin(site) {
       const url = prompt(`Login page for ${site.domain}:`, `https://${site.domain}/`);
       if (!url) return;
+      if (!confirm(`Log in to ${site.domain}?\n\nOnly continue if this is your own account and the site allows automated access while logged in.`)) return;
       this.win = { mode: "login", domain: site.domain, url, status: "starting", message: "", account: site.session?.account || "" };
       try {
-        const w = await api("POST", `/api/sites/${site.domain}/login`, { url });
+        const w = await api("POST", `/api/sites/${site.domain}/login`, { url, own_account: true });
         this.trackWindow(`login:${site.domain}`, w);
       } catch (e) {
         this.win = null;
