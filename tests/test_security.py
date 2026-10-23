@@ -344,3 +344,26 @@ def test_adding_a_column_rebuilds_the_saved_recipe(client, monkeypatch):
     more = client.post("/api/analyse", json={"url": PUBLIC + "/l", "fields": ["name", "Price"]}).json()
     assert calls == [(["name", "price"], True)] and "price" in more["report"]
     assert "Rebuilt" in more["notes"]
+
+
+@pytest.mark.parametrize("text", [
+    "https://cms.buybooksindia.com/uploads/books/81tuqaqirpl-_sl1500_-1700000094.png",
+    "https://www.indiamart.com/proddetail/90mm-pvc-pipes-2855744545491.html",
+    "www.example.com/item/9876543210",          # even a phone-like number inside a link
+    "Order id 1700000094 shipped",              # timestamps / ids
+    "SKU 4006381333931",                         # barcodes
+])
+def test_links_and_ids_are_not_masked(text):
+    assert privacy.mask_text(text) == text
+    assert not privacy.has_personal(text)
+
+
+@pytest.mark.parametrize("text,masked", [
+    ("Call 98765 43210", "Call 98******10"),
+    ("(212) 555-0187", "21******87"),
+    ("011 2345 6789", "01*******89"),
+    ("see https://x.test/a-1700000094.png or call 9876543210",
+     "see https://x.test/a-1700000094.png or call 98******10"),
+])
+def test_real_phone_numbers_are_still_masked(text, masked):
+    assert privacy.mask_text(text) == masked

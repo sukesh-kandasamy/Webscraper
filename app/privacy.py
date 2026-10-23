@@ -9,20 +9,36 @@ PERSONAL_NAME_RE = re.compile(
     r"proprietor|first.?name|last.?name|full.?name|\bdob\b|birth|aadhaar|pan.?no|gstin.?holder", re.I)
 
 
+# Web addresses are never masked: product IDs, timestamps and image names inside them are long
+# digit runs that look like phone numbers, and a masked link no longer works.
+URL_RE = re.compile(r"(?:https?://|www\.)[^\s\"'<>]+", re.I)
+
+
 def _digits(s: str) -> str:
     return re.sub(r"\D", "", s)
 
 
 def is_phone(s: str) -> bool:
-    d = _digits(s)
-    return 10 <= len(d) <= 15
+    """Does this digit run look like a phone number (not an order id, barcode or timestamp)?"""
+    raw = s.strip()
+    d = _digits(raw)
+    if raw.startswith("+"):
+        return 10 <= len(d) <= 15                 # +91 98765 43210, +1 212 555 0187
+    separated = bool(re.search(r"[\s\-.()]", raw))
+    if len(d) == 10:
+        return d[0] in "6789" or separated        # Indian mobile, or formatted like (212) 555-0187
+    if len(d) == 11:
+        return d[0] == "0"                        # 011 2345 6789, 098765 43210
+    if len(d) == 12:
+        return d.startswith("91")                 # 919876543210
+    return False
 
 
 def _mask_phone(m: re.Match) -> str:
     raw = m.group(0)
+    if not is_phone(raw):
+        return raw          # prices, years, quantities, ids: not a phone number
     d = _digits(raw)
-    if not (10 <= len(d) <= 15):
-        return raw          # prices, years, quantities: not a phone number
     return d[:2] + "*" * (len(d) - 4) + d[-2:]
 
 
@@ -31,16 +47,28 @@ def _mask_email(m: re.Match) -> str:
     return (user[:1] + "***@" + host.split(".")[0][:1] + "***." + host.rsplit(".", 1)[-1])
 
 
-def mask_text(s):
-    if not isinstance(s, str) or not s:
-        return s
+def _mask_plain(s: str) -> str:
     s = EMAIL_RE.sub(_mask_email, s)
     return PHONE_RE.sub(_mask_phone, s)
+
+
+def mask_text(s):
+    """Mask phones and emails in free text; web addresses are left untouched."""
+    if not isinstance(s, str) or not s:
+        return s
+    out, pos = [], 0
+    for m in URL_RE.finditer(s):
+        out.append(_mask_plain(s[pos:m.start()]))
+        out.append(m.group(0))
+        pos = m.end()
+    out.append(_mask_plain(s[pos:]))
+    return "".join(out)
 
 
 def has_personal(s) -> bool:
     if not isinstance(s, str):
         return False
+    s = URL_RE.sub(" ", s)
     if EMAIL_RE.search(s):
         return True
     return any(is_phone(m.group(0)) for m in PHONE_RE.finditer(s))
