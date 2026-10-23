@@ -74,7 +74,7 @@ SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' "
         "https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+        "img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
         "form-action 'self'; object-src 'none'"),
 }
 
@@ -151,6 +151,29 @@ class JobIn(BaseModel):
 
 class KeepIn(BaseModel):
     keep: bool
+
+
+class ScrapeIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    urls: list[str]
+    recipe: dict
+    max_pages: int = Field(default=3, ge=1, le=100)
+    page_type: str = Field(default="", max_length=40)
+    run: bool = True                       # start a run straight away
+    personal_fields: list[str] = Field(default_factory=list)
+    personal_purpose: str = Field(default="", max_length=500)
+
+
+class ScrapeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    urls: list[str] | None = None
+    recipe: dict | None = None
+    max_pages: int | None = Field(default=None, ge=1, le=100)
+
+
+class RunIn(BaseModel):
+    personal_fields: list[str] = Field(default_factory=list)
+    personal_purpose: str = Field(default="", max_length=500)
 
 
 # ---- helpers -------------------------------------------------------------
@@ -520,10 +543,9 @@ def finish_site_solve(domain: str, body: FinishIn):
 
 # ---- routes: jobs --------------------------------------------------------------------
 
-@app.post("/api/jobs")
-def create_job(body: JobIn):
-    urls = _clean_urls(body.urls)
-    recipe = _normalize_or_http_error(body.recipe)
+def _start_run(urls: list[str], recipe: dict, max_pages: int, personal_fields: list[str],
+               personal_purpose: str, scrape_id: int | None = None) -> int:
+    """Validate and start a crawl job (shared by /api/jobs and saved scrapes)."""
     logged_in = any((s := sessions.for_host(fetcher.host_of(u))) and s.get("kind") == sessions.KIND_LOGIN
                     for u in urls)
     if config.RESPECT_ROBOTS:
@@ -531,23 +553,138 @@ def create_job(body: JobIn):
         if blocked:
             raise HTTPException(403, f"robots.txt disallows: {', '.join(blocked)}")
     names = {f["name"] for f in recipe["fields"]}
-    keep = [f for f in body.personal_fields if f in names]
+    keep = [f for f in personal_fields if f in names]
     personal = None
     if keep:
-        if len(body.personal_purpose.strip()) < 10:
+        if len(personal_purpose.strip()) < 10:
             raise HTTPException(400, "Collecting personal data needs a purpose (at least 10 characters).")
-        personal = {"fields": keep, "purpose": body.personal_purpose.strip(), "confirmed_at": time.time()}
+        personal = {"fields": keep, "purpose": personal_purpose.strip(), "confirmed_at": time.time()}
+    return jobs.start(urls, recipe, max_pages, logged_in=logged_in, personal=personal, scrape_id=scrape_id)
+
+
+def friendly_progress(job: dict) -> str:
+    """One plain-language line about a run, for people who don't want the technical message."""
+    s, done, total, rows = job["status"], job["pages_done"], job["pages_total"], job["rows"]
+    if s == "queued":
+        if "Resum" in job["message"]:
+            return "Picking up where it stopped…"
+        if time.time() - job["created_at"] < 15:
+            return "Starting…"
+        return "Waiting for a free slot: other scrapes are still running."
+    if s == "running":
+        return (f"Collecting page {min(done + 1, max(total, 1))} of {max(total, done + 1)} · {rows} rows so far. "
+                "It pauses a few seconds between pages to be polite to the site.")
+    if s == "done":
+        return f"Finished: {rows} rows from {done} page(s)." + (" Some pages had problems." if "Issues" in job["message"] else "")
+    if s == "needs_you":
+        return ("The site wants you to log in again before continuing." if job.get("paused_kind") == "login"
+                else "The site asked for a human check. Open it, solve it, and the scrape continues.")
+    if s == "blocked":
+        if "robots" in job["message"]:
+            return "Stopped: the site's crawling rules don't allow this page."
+        if "cooling" in job["message"] or "429" in job["message"] or "challenge" in job["message"]:
+            return "Stopped: the site is limiting automated visits. Try again later."
+        return f"Stopped: the site refused access. {rows} rows were saved."
+    if s == "stopped":
+        if "budget" in job["message"]:
+            return f"Stopped: today's page limit for this site is reached. {rows} rows were saved."
+        return f"Stopped. {rows} rows were saved."
+    if s == "error":
+        return "Something went wrong while collecting. See the details below."
+    return job["message"]
+
+
+@app.post("/api/jobs")
+def create_job(body: JobIn):
+    urls = _clean_urls(body.urls)
+    recipe = _normalize_or_http_error(body.recipe)
     if body.save_recipe:
         for domain in {fetcher.domain_of(u) for u in urls}:
             saved = db.get_recipe(domain)
             if not saved or saved["recipe"] != recipe:
                 db.save_recipe(domain, recipe, body.recipe_source)
-    return {"job_id": jobs.start(urls, recipe, body.max_pages, logged_in=logged_in, personal=personal)}
+    return {"job_id": _start_run(urls, recipe, body.max_pages, body.personal_fields, body.personal_purpose)}
 
 
 @app.get("/api/jobs")
-def list_jobs():
-    return [{k: v for k, v in j.items() if k != "recipe"} for j in db.list_jobs()]
+def list_jobs(scrape_id: int | None = None, limit: int = 50):
+    return [{**{k: v for k, v in j.items() if k != "recipe"}, "progress": friendly_progress(j),
+             "columns": [f["name"] for f in j["recipe"].get("fields", [])]}
+            for j in db.list_jobs(min(max(limit, 1), 200), scrape_id)]
+
+
+# ---- routes: saved scrapes -----------------------------------------------------------
+
+def _scrape_or_404(scrape_id: int) -> dict:
+    s = db.get_scrape(scrape_id)
+    if not s:
+        raise HTTPException(404, "Saved scrape not found")
+    return s
+
+
+@app.get("/api/scrapes")
+def list_scrapes():
+    out = []
+    for s in db.list_scrapes():
+        out.append({**{k: v for k, v in s.items() if k != "recipe"},
+                    "columns": [f["name"] for f in s["recipe"].get("fields", [])],
+                    "domain": fetcher.domain_of(s["urls"][0]) if s["urls"] else ""})
+    return out
+
+
+@app.get("/api/scrapes/{scrape_id}")
+def get_scrape(scrape_id: int):
+    return _scrape_or_404(scrape_id)
+
+
+@app.post("/api/scrapes")
+def create_scrape(body: ScrapeIn):
+    urls = _clean_urls(body.urls)
+    recipe = _normalize_or_http_error(body.recipe)
+    scrape_id = db.create_scrape(body.name.strip(), urls, recipe, body.max_pages, body.page_type)
+    domain = fetcher.domain_of(urls[0])
+    saved = db.get_recipe(domain)
+    if not saved or saved["recipe"] != recipe:
+        db.save_recipe(domain, recipe, "ai" if not saved else "manual")
+    audit.log("scrape_saved", scrape_id=scrape_id, domain=domain)
+    job_id = None
+    if body.run:
+        job_id = _start_run(urls, recipe, body.max_pages, body.personal_fields, body.personal_purpose,
+                            scrape_id)
+    return {"scrape_id": scrape_id, "job_id": job_id}
+
+
+@app.put("/api/scrapes/{scrape_id}")
+def update_scrape(scrape_id: int, body: ScrapeUpdate):
+    _scrape_or_404(scrape_id)
+    urls = _clean_urls(body.urls) if body.urls is not None else None
+    recipe = _normalize_or_http_error(body.recipe) if body.recipe is not None else None
+    db.update_scrape(scrape_id, name=body.name.strip() if body.name else None, urls=urls, recipe=recipe,
+                     max_pages=body.max_pages)
+    return db.get_scrape(scrape_id)
+
+
+@app.post("/api/scrapes/{scrape_id}/run")
+def run_scrape(scrape_id: int, body: RunIn):
+    s = _scrape_or_404(scrape_id)
+    recipe = _normalize_or_http_error(s["recipe"])
+    return {"job_id": _start_run(s["urls"], recipe, s["max_pages"], body.personal_fields,
+                                 body.personal_purpose, scrape_id)}
+
+
+@app.post("/api/scrapes/{scrape_id}/duplicate")
+def duplicate_scrape(scrape_id: int):
+    s = _scrape_or_404(scrape_id)
+    new_id = db.create_scrape(f"{s['name']} (copy)", s["urls"], s["recipe"], s["max_pages"], s["page_type"])
+    return {"scrape_id": new_id}
+
+
+@app.delete("/api/scrapes/{scrape_id}")
+def delete_scrape(scrape_id: int):
+    _scrape_or_404(scrape_id)
+    db.delete_scrape(scrape_id)
+    audit.log("scrape_deleted", scrape_id=scrape_id)
+    return {"ok": True}
 
 
 def _job_or_404(job_id: int) -> dict:
@@ -616,6 +753,13 @@ def delete_job(job_id: int):
     return {"ok": True}
 
 
+def _file_stem(name: str, job_id: int) -> str:
+    import re as _re
+    stem = _re.sub(r"[^A-Za-z0-9.-]+", "_", name).strip("_.")
+    stem = _re.sub(r"_+", "_", stem)[:60]
+    return f"{stem}-run{job_id}" if stem else f"job-{job_id}"
+
+
 def _visible_records(job: dict, show_personal: bool) -> list[dict]:
     records = db.get_records(job["id"])
     keep = tuple(job["personal"].get("fields", [])) if show_personal else ()
@@ -629,19 +773,23 @@ def job_records(job_id: int, show_personal: bool = False):
 
 
 @app.get("/api/jobs/{job_id}/export")
-def export_job(job_id: int, fmt: str = "csv", show_personal: bool = False):
+def export_job(job_id: int, fmt: str = "csv", show_personal: bool = False, columns: str = "",
+               name: str = ""):
     job = _job_or_404(job_id)
     if fmt not in ("csv", "xlsx"):
         raise HTTPException(400, "fmt must be csv or xlsx")
     records = _visible_records(job, show_personal)
+    wanted = [c for c in columns.split(",") if c]
+    if wanted:
+        records = [{c: r.get(c, "") for c in wanted} for r in records]
     audit.log("export", job_id=job_id, fmt=fmt, rows=len(records),
               personal=bool(show_personal and job["personal"].get("fields")))
     if fmt == "xlsx":
         return Response(export.to_xlsx(records),
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        headers={"Content-Disposition": f'attachment; filename="job-{job_id}.xlsx"'})
+                        headers={"Content-Disposition": f'attachment; filename="{_file_stem(name, job_id)}.xlsx"'})
     return Response(export.to_csv(records), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="job-{job_id}.csv"'})
+                    headers={"Content-Disposition": f'attachment; filename="{_file_stem(name, job_id)}.csv"'})
 
 
 # ---- routes: activity log ------------------------------------------------------------

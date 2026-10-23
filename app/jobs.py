@@ -21,8 +21,9 @@ _slots = threading.BoundedSemaphore(config.MAX_CONCURRENT_JOBS)
 
 
 def start(urls: list[str], recipe: dict, max_pages: int, logged_in: bool = False,
-          personal: dict | None = None) -> int:
-    job_id = db.create_job(urls, recipe, max_pages, logged_in=logged_in, personal=personal)
+          personal: dict | None = None, scrape_id: int | None = None) -> int:
+    job_id = db.create_job(urls, recipe, max_pages, logged_in=logged_in, personal=personal,
+                           scrape_id=scrape_id)
     audit.log("job_started", job_id=job_id, domain=fetcher.domain_of(urls[0]), urls=len(urls),
               logged_in=logged_in, personal_fields=(personal or {}).get("fields", []))
     _launch(job_id)

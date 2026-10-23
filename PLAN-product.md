@@ -1,5 +1,12 @@
 # Universal Scraper: Product Plan (draft)
 
+> **Decision (2026-10-23): single user, no login for now.** The app stays in local mode on one PC.
+> Phase 1 accounts / server mode are postponed. Building now: Phase 2 (guided wizard, saved scrapes,
+> results view, plain-language messages) plus the Simple / Advanced switch from Phase 3.
+> **Built:** app shell (2.9), wizard (2.1), templates (2.2), saved scrapes (2.3), results viewer with
+> column picker and thumbnails (2.4), named exports (2.5), plain-language statuses (2.6) and errors (2.7),
+> sample-shop onboarding (2.8 partly), plain wording (2.10), Advanced switch (3.1).
+
 ## Context
 
 Today the app is a strong **single-user, local** tool: paste a URL, the AI picks columns, preview, crawl,

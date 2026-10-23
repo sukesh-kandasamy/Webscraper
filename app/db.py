@@ -47,6 +47,16 @@ CREATE TABLE IF NOT EXISTS job_pages (          -- every page a job has fetched,
     fetched_at REAL NOT NULL,
     PRIMARY KEY (job_id, url)
 );
+CREATE TABLE IF NOT EXISTS scrapes (            -- saved scrapes: named, re-runnable setups
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    urls       TEXT NOT NULL,
+    recipe     TEXT NOT NULL,
+    max_pages  INTEGER NOT NULL DEFAULT 3,
+    page_type  TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS site_usage (         -- pages fetched per site per day (budgets)
     domain TEXT NOT NULL,
     day    TEXT NOT NULL,
@@ -90,6 +100,7 @@ MIGRATIONS = [
     ("jobs", "personal", "ALTER TABLE jobs ADD COLUMN personal TEXT NOT NULL DEFAULT '{}'"),
     ("jobs", "paused_url", "ALTER TABLE jobs ADD COLUMN paused_url TEXT NOT NULL DEFAULT ''"),
     ("jobs", "paused_kind", "ALTER TABLE jobs ADD COLUMN paused_kind TEXT NOT NULL DEFAULT ''"),
+    ("jobs", "scrape_id", "ALTER TABLE jobs ADD COLUMN scrape_id INTEGER"),
 ]
 
 
@@ -176,13 +187,13 @@ def save_site_settings(domain: str, settings: dict) -> None:
 # ---- jobs ----------------------------------------------------------------
 
 def create_job(urls: list[str], recipe: dict, max_pages: int, logged_in: bool = False,
-               personal: dict | None = None) -> int:
+               personal: dict | None = None, scrape_id: int | None = None) -> int:
     with tx() as c:
         cur = c.execute(
-            "INSERT INTO jobs(urls, recipe, max_pages, status, created_at, logged_in, encrypted, personal) "
-            "VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(urls, recipe, max_pages, status, created_at, logged_in, encrypted, personal, "
+            "scrape_id) VALUES(?,?,?,?,?,?,?,?,?)",
             (json.dumps(urls), json.dumps(recipe), max_pages, "queued", time.time(),
-             int(logged_in), int(logged_in), json.dumps(personal or {})),
+             int(logged_in), int(logged_in), json.dumps(personal or {}), scrape_id),
         )
         return cur.lastrowid
 
@@ -207,10 +218,75 @@ def pending_jobs() -> list[int]:
     return [r["id"] for r in rows]
 
 
-def list_jobs(limit: int = 50) -> list[dict]:
+def list_jobs(limit: int = 50, scrape_id: int | None = None) -> list[dict]:
+    sql = ("SELECT jobs.*, scrapes.name AS scrape_name FROM jobs "
+           "LEFT JOIN scrapes ON scrapes.id = jobs.scrape_id")
+    args: tuple = ()
+    if scrape_id is not None:
+        sql += " WHERE jobs.scrape_id = ?"
+        args = (scrape_id,)
     with tx() as c:
-        rows = c.execute("SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        rows = c.execute(sql + " ORDER BY jobs.id DESC LIMIT ?", (*args, limit)).fetchall()
     return [_job_dict(r) for r in rows]
+
+
+# ---- saved scrapes -------------------------------------------------------
+
+def _scrape_dict(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["urls"] = json.loads(d["urls"])
+    d["recipe"] = json.loads(d["recipe"])
+    return d
+
+
+def create_scrape(name: str, urls: list[str], recipe: dict, max_pages: int, page_type: str = "") -> int:
+    now = time.time()
+    with tx() as c:
+        cur = c.execute(
+            "INSERT INTO scrapes(name, urls, recipe, max_pages, page_type, created_at, updated_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (name, json.dumps(urls), json.dumps(recipe), max_pages, page_type, now, now))
+        return cur.lastrowid
+
+
+def get_scrape(scrape_id: int) -> dict | None:
+    with tx() as c:
+        row = c.execute("SELECT * FROM scrapes WHERE id=?", (scrape_id,)).fetchone()
+    return _scrape_dict(row) if row else None
+
+
+def update_scrape(scrape_id: int, **fields) -> None:
+    allowed = {"name", "urls", "recipe", "max_pages", "page_type"}
+    fields = {k: (json.dumps(v) if k in ("urls", "recipe") else v) for k, v in fields.items()
+              if k in allowed and v is not None}
+    if not fields:
+        return
+    fields["updated_at"] = time.time()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with tx() as c:
+        c.execute(f"UPDATE scrapes SET {cols} WHERE id=?", (*fields.values(), scrape_id))
+
+
+def delete_scrape(scrape_id: int) -> None:
+    with tx() as c:
+        c.execute("UPDATE jobs SET scrape_id=NULL WHERE scrape_id=?", (scrape_id,))
+        c.execute("DELETE FROM scrapes WHERE id=?", (scrape_id,))
+
+
+def list_scrapes() -> list[dict]:
+    """Saved scrapes, newest activity first, each with a summary of its latest run."""
+    with tx() as c:
+        rows = c.execute("SELECT * FROM scrapes").fetchall()
+        out = []
+        for r in rows:
+            d = _scrape_dict(r)
+            last = c.execute("SELECT id, status, rows, created_at, finished_at, message FROM jobs "
+                             "WHERE scrape_id=? ORDER BY id DESC LIMIT 1", (d["id"],)).fetchone()
+            d["runs"] = c.execute("SELECT COUNT(*) FROM jobs WHERE scrape_id=?", (d["id"],)).fetchone()[0]
+            d["last_run"] = dict(last) if last else None
+            out.append(d)
+    out.sort(key=lambda d: max(d["updated_at"], (d["last_run"] or {}).get("created_at") or 0), reverse=True)
+    return out
 
 
 def delete_job(job_id: int) -> None:

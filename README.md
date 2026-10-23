@@ -29,28 +29,35 @@ changes), `--no-browser`.
 
 ## How to use
 
-1. **Paste URLs**, one per line. Use *listing/category* pages, e.g.
-   - `https://dir.indiamart.com/impcat/pvc-pipes.html`
-   - `https://www.tradeindia.com/manufacturers/upvc-pipe-fittings.html`
+The app has five screens in the sidebar: **Home, New scrape, Saved scrapes, Results, Settings**.
 
-   Both sites block their **search** pages in robots.txt, so the app refuses them. Category pages
-   are allowed. Add several category URLs to one job to cover more products.
-   **Columns are optional.** Leave the box empty and the AI decides what kind of page it is (jobs,
-   e-commerce, real estate, stocks / finance tables, directories, news, events) and picks every
-   important column itself. Type columns (e.g. `salary, experience`) to make sure they are included;
-   with *Let the AI also find every other important column* ticked, it adds the rest too.
-2. **Analyse page.** The app uses the saved recipe for that site if one works and has the columns you
-   typed; otherwise the AI writes a new one. *Re-analyse with AI* ignores the saved recipe.
-3. **Check the preview.** The page type and the columns are shown as chips: click **×** to drop a
-   column (instant, no AI), or type a name in *add a column…* and the AI finds it (it tells you when
-   the page doesn't show it). The fill-rate bars show how often each column was found. Columns the AI
-   added itself that are mostly empty or duplicate another column are left out automatically.
-4. **Approve & scrape.** The job runs in the background (2–5 s between requests) and the results
-   appear as they arrive. Search, sort, and download CSV or Excel.
+1. **Home → paste a link** (or pick a type of data: products, jobs, real estate, stock tables,
+   directories, news, anything else). Use a page that *lists* many items: a category, search
+   results or a table. No link handy? *Try a sample bookshop*.
+2. **New scrape, step 1 · Link.** Optionally add more links from the same site, choose the type of
+   data, or type the columns you want. Leave columns empty and the AI picks the important ones.
+   Click **Find the data**.
+3. **Step 2 · Columns.** See how many items were found, the page type, and the columns as chips:
+   click a name to rename it, **×** to remove it (instant), or *Add a column…* and the AI finds it
+   (it tells you when the page doesn't show it). Coloured dots show how often each column was found.
+   The preview shows the first rows, with image thumbnails. *Ask the AI again* if it looks wrong.
+4. **Step 3 · Collect.** Name the scrape, choose how many pages, then **Start collecting** (or *Save
+   for later*). It runs in the background, with polite pauses between pages.
+5. **Results.** Every run, with plain-language progress ("Collecting page 2 of 3 · 40 rows so far").
+   Search, sort, choose which columns to show, and download **Excel** or **CSV** (only the columns
+   you show; the file is named after the scrape).
+6. **Saved scrapes.** Each setup is saved: **Run again** for fresh data, open the latest results,
+   edit, rename, duplicate or delete.
+
+**Advanced mode** (switch at the bottom of the sidebar) shows the technical parts: the column setup
+as JSON, per-site settings (page limits, waiting time, browser loading), logins and the activity log.
+
+Search pages are often blocked by a site's crawling rules (robots.txt); the app explains this and
+suggests a category page instead. For example, IndiaMART allows `dir.indiamart.com/impcat/...`.
 
 ## Logged-in pages, CAPTCHAs and personal data
 
-- **Logging in:** *Sites & sessions → Log in* first asks you to confirm it is your own account and
+- **Logging in** (Advanced mode): *Settings → Sites → Log in* first asks you to confirm it is your own account and
   that the site allows automated access while logged in, then opens a real browser window. You log in yourself
   (password, OTP, 2-step); the app only keeps the session cookie, encrypted with a key held in Windows
   Credential Manager, for that site only. Sessions expire after 7 days; *Forget session* deletes one.
