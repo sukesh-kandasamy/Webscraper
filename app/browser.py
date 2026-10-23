@@ -47,11 +47,24 @@ class Rendered:
     items: int           # matches of the item selector at the end (0 if none given)
 
 
+_INSTALLED_BROWSERS = [
+    Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+    Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+    Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+    Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+    Path("/usr/bin/google-chrome"), Path("/usr/bin/microsoft-edge"),
+]
+
+
 def available() -> bool:
+    """True when Playwright is installed and some Chromium-family browser can be used: the
+    bundled one, or (as render() falls back to them) an installed Edge / Chrome."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         return False
+    if any(p.exists() for p in _INSTALLED_BROWSERS):
+        return True
     try:
         with sync_playwright() as p:
             return Path(p.chromium.executable_path).exists()

@@ -748,7 +748,7 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
                 if shrinks:
                     notes = (notes + " | The page sample was trimmed to fit the AI provider's limit.").strip(" |")
                 return {"recipe": recipe, "rows": rows, "report": report, "notes": notes,
-                        "page_type": page_type}
+                        "page_type": page_type, "absent": absent}
             last_problem = (f"Testing that recipe on the page gave {len(rows)} rows. "
                             f"Fields filled in fewer than half the rows: {weak or 'none'}. "
                             f"First rows: {json.dumps(rows[:2], ensure_ascii=False)[:1500]}"
@@ -757,6 +757,7 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
             if attempt == 1:
                 # Second attempt still weak: return it anyway so the user can fix it by hand.
                 return {"recipe": recipe, "rows": rows, "report": report, "page_type": page_type,
+                        "absent": absent,
                         "notes": (raw.get("notes", "") + " | Warning: " + last_problem).strip(" |")}
         attempt += 1
         if attempt < 2:

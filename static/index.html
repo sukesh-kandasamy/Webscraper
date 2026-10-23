@@ -189,7 +189,7 @@
         </div>
 
         <div class="grid gap-6 lg:grid-cols-2">
-          <div class="card">
+          <div class="card min-w-0">
             <div class="card-head"><h2 class="card-title">Saved scrapes</h2>
               <button class="btn-ghost ml-auto" @click="go('scrapes')" x-show="scrapes.length">See all</button></div>
             <div class="card-body">
@@ -207,7 +207,7 @@
               </ul>
             </div>
           </div>
-          <div class="card">
+          <div class="card min-w-0">
             <div class="card-head"><h2 class="card-title">Recent results</h2>
               <button class="btn-ghost ml-auto" @click="go('runs')" x-show="jobs.length">See all</button></div>
             <div class="card-body">
@@ -335,8 +335,12 @@
                 </div>
               </div>
 
-              <p x-show="analysis?.notes" x-text="analysis?.notes"
-                 class="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"></p>
+              <p x-show="analysis?.absent?.length"
+                 class="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+                Not on this page: <span class="font-medium" x-text="(analysis?.absent || []).map(pretty).join(', ')"></span>.
+                <span class="text-slate-400">These may only appear on each item's own page.</span></p>
+              <p x-show="advanced && analysis?.notes" x-text="analysis?.notes"
+                 class="rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400"></p>
               <div x-show="analysis?.personal_fields?.length"
                    class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
                 Some columns contain personal data (<span x-text="(analysis?.personal_fields || []).join(', ')"></span>).
@@ -486,7 +490,7 @@
         </div>
         <div class="grid gap-4 md:grid-cols-2">
           <template x-for="s in scrapes" :key="s.id">
-            <div class="card flex flex-col p-5">
+            <div class="card flex min-w-0 flex-col p-5">
               <div class="flex items-start gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="truncate text-base font-semibold text-slate-900 dark:text-white" x-text="s.name"></div>

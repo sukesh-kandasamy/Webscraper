@@ -6,7 +6,6 @@ The app only answers requests addressed to localhost from its own page: other we
 your browser cannot drive it (Host / Origin / Sec-Fetch-Site checks), and responses carry strict
 security headers.
 """
-import functools
 import json
 import threading
 import time
@@ -237,7 +236,7 @@ def _starter_recipe(html: str, fields: list[str]) -> dict:
 
 
 def _result(domain: str, page: fetcher.Page, recipe: dict, source: str, rows: list[dict],
-            notes: str = "") -> dict:
+            notes: str = "", absent: list[str] | None = None) -> dict:
     personal = privacy.personal_fields(recipe, rows)
     found = sessions.for_host(fetcher.host_of(page.final_url))
     session = sessions._public(found) if found else None
@@ -248,12 +247,19 @@ def _result(domain: str, page: fetcher.Page, recipe: dict, source: str, rows: li
             "personal_fields": personal,
             "row_count": len(rows), "rows": privacy.mask_rows(rows[:PREVIEW_ROWS]),
             "report": extractor.field_report(rows, recipe),
-            "page_type": recipe.get("page_type") or ""}
+            "page_type": recipe.get("page_type") or "", "absent": absent or []}
 
 
-@functools.lru_cache(maxsize=1)
+_browser_check = {"ok": False, "at": 0.0}
+
+
 def _browser_available() -> bool:
-    return browser.available()
+    """Cached: a "yes" is kept, a "no" is checked again after a minute (a one-off failure at
+    start-up must not hide browser features until the app is restarted)."""
+    if _browser_check["ok"] or time.time() - _browser_check["at"] < 60:
+        return _browser_check["ok"]
+    _browser_check.update(ok=browser.available(), at=time.time())
+    return _browser_check["ok"]
 
 
 def _remember_render(domain: str, page: fetcher.Page) -> str:
@@ -311,7 +317,8 @@ def analyse(body: AnalyseIn):
                     "pick the columns again.")
             if missing:
                 note += f" It has no column for: {', '.join(missing)} (no AI key to add them)."
-            return _result(domain, page, saved_recipe, saved["source"], rows, note + render_note)
+            return _result(domain, page, saved_recipe, saved["source"], rows, note + render_note,
+                           absent=missing)
 
     ai_allowed = db.get_site_settings(domain).get("ai_allowed", True)
     if not config.ai_enabled() or not ai_allowed:
@@ -336,7 +343,7 @@ def analyse(body: AnalyseIn):
     if missing:
         note += f" Rebuilt because the saved recipe had no column for: {', '.join(missing)}."
     return _result(domain, page, built["recipe"], "ai", built["rows"],
-                   built["notes"] + render_note + note)
+                   built["notes"] + render_note + note, absent=built.get("absent", []))
 
 
 @app.post("/api/preview")
