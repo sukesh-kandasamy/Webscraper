@@ -128,7 +128,7 @@ it stopped without duplicating rows.
 | `SCRAPER_AI_PROVIDER` | `groq` if `GROQ_API_KEY` is set, else `anthropic` | |
 | `GROQ_API_KEY` / `SCRAPER_GROQ_MODEL` | — / `openai/gpt-oss-120b` | |
 | `ANTHROPIC_API_KEY` / `SCRAPER_CLAUDE_MODEL` | — / `claude-opus-5-5` | |
-| `SCRAPER_AI_PROMPT_CHARS` | 11000 (Groq), 60000 (Claude) | Groq's free tier allows 8,000 tokens per minute, so large pages are trimmed to fit |
+| `SCRAPER_AI_PROMPT_CHARS` | 11000 (Groq), 60000 (Claude) | Size of the whole AI prompt. Long links are shortened, and if the provider still says "too large" the app trims the sample and retries by itself |
 | `SCRAPER_MIN_DELAY` / `SCRAPER_MAX_DELAY` | 2 / 5 s | Wait between requests to the same site |
 | `SCRAPER_MAX_PAGES` | 10 | Per start URL (or scroll / click rounds) |
 | `SCRAPER_MAX_JOBS` | 2 | Jobs crawling at the same time |

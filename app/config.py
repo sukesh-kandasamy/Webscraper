@@ -74,7 +74,7 @@ HONEST_USER_AGENT = f"UniversalScraper/0.2 (+{CONTACT})" if CONTACT else "Univer
 
 
 def ai_prompt_budget() -> int:
-    """Max characters of page HTML sent to the model. Groq's free tier allows 8,000 tokens/minute."""
+    """Max characters of the whole AI prompt. Groq's free tier allows about 8,000 tokens per request."""
     default = 11000 if AI_PROVIDER == "groq" else 60000
     return int(os.getenv("SCRAPER_AI_PROMPT_CHARS", default))
 

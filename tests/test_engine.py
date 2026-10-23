@@ -153,3 +153,44 @@ def test_pagination_hints_include_load_more_buttons():
     assert any('ecomerce-items-scroll-more' in h and '>More<' in h for h in hints)
     assert any('id="lm"' in h for h in hints)
     assert not any("company history" in h for h in hints)
+
+
+def test_short_url_keeps_paging_drops_tracking():
+    href = ("/s?k=Shoes&page=2&xpid=x9W1&_encoding=UTF8&content-id=amzn1.sym.acbd6832&crid=1W98"
+            "&pd_rd_r=6fa1a246-65a3-4488-8f2d&qid=1792736417&ref=sr_pg_2")
+    assert recipe_builder.short_url(href) == "/s?k=Shoes&page=2&…"
+    assert recipe_builder.short_url("/catalogue/page-2.html") == "/catalogue/page-2.html"
+
+
+def test_pagination_hints_are_deduplicated():
+    links = "".join(f'<a class="pg" href="/list?page={n}&track=abcdef">{n}</a>' for n in range(2, 20))
+    hints = recipe_builder._pagination_hints(links + '<a class="nx" href="/list?page=2">Next</a>')
+    assert len(hints) == 2 and any(">Next<" in h for h in hints)
+
+
+def test_prompt_fits_total_budget():
+    html = (ROOT / "tests" / "fixtures" / "tradeindia_upvc-pipe-fittings.html").read_text(encoding="utf-8")
+    cands = recipe_builder.find_candidates(html)
+    for budget in (6000, 11000):
+        prompt = recipe_builder._make_prompt(cands, recipe_builder._pagination_hints(html),
+                                             "https://www.tradeindia.com/x.html", ["name", "price"],
+                                             False, False, budget)
+        assert len(prompt) <= budget + 50
+
+
+def test_too_large_prompt_is_shrunk_and_retried(monkeypatch):
+    html = (ROOT / "tests" / "fixtures" / "indiamart_pvc-pipes.html").read_text(encoding="utf-8")
+    recipe = json.loads((ROOT / "app" / "recipes" / "dir.indiamart.com.json").read_text(encoding="utf-8"))
+    sizes = []
+
+    def fake_ask(messages, fields):
+        sizes.append(len(messages[0]["content"]))
+        if len(sizes) == 1:
+            raise recipe_builder.PromptTooLarge("too large", limit=8000, requested=12000)
+        return json.dumps(recipe)
+
+    monkeypatch.setattr(recipe_builder, "_ask_model", fake_ask)
+    monkeypatch.setattr(recipe_builder.config, "ai_enabled", lambda: True)
+    out = recipe_builder.build_recipe(html, "https://dir.indiamart.com/impcat/pvc-pipes.html", ["name", "price"])
+    assert len(sizes) == 2 and sizes[1] < sizes[0] * 0.7
+    assert out["rows"] and "trimmed" in out["notes"]

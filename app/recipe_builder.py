@@ -40,6 +40,28 @@ def _path_hint(node: LexborNode, depth: int = 3) -> str:
     return " > ".join(reversed(parts))
 
 
+_PAGE_PARAMS = re.compile(r"^(page|p|pg|pn|pageno|page_no|pagenum|pagenumber|start|offset|from|skip)$", re.I)
+MAX_URL_CHARS = 100
+MAX_CLASS_CHARS = 100
+
+
+def short_url(href: str) -> str:
+    """Shorten a link for the AI prompt: keep the path and the query parameters that matter for
+    paging (plus the first one, usually the search term); drop tracking parameters. Long shop URLs
+    cost many tokens and tell the AI nothing about selectors."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+        return href
+    parts = urlsplit(href)
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    kept = params[:1] + [(k, v) for k, v in params[1:] if _PAGE_PARAMS.match(k)]
+    path = parts.path if len(parts.path) <= 60 else parts.path[:57] + "..."
+    out = urlunsplit((parts.scheme, parts.netloc, path, urlencode(kept), ""))
+    if len(params) > len(kept):
+        out += "&…" if kept else "?…"
+    return out[:MAX_URL_CHARS]
+
+
 def _compact(node: LexborNode) -> str:
     html = LexborHTMLParser(node.html)
     for tag in DROP_TAGS:
@@ -50,10 +72,15 @@ def _compact(node: LexborNode) -> str:
             # data-* attributes often hold values (data-rating="4"), so keep the short ones.
             keep = attr in KEEP_ATTRS or (attr.startswith("data-") and
                                           len(n.attributes[attr] or "") <= 40)
+            value = n.attributes[attr] or ""
             if not keep:
                 del n.attrs[attr]
-            elif n.attributes[attr] and len(n.attributes[attr]) > 150:
-                n.attrs[attr] = n.attributes[attr][:150] + "…"
+            elif attr in ("href", "src", "data-src"):
+                n.attrs[attr] = short_url(value) if attr == "href" else value[:80]
+            elif attr == "class" and len(value) > MAX_CLASS_CHARS:
+                n.attrs[attr] = value[:MAX_CLASS_CHARS] + "…"
+            elif len(value) > 150:
+                n.attrs[attr] = value[:150] + "…"
     body = html.body
     text = body.inner_html if body is not None else html.html
     text = re.sub(r"<!--.*?-->", "", text or "", flags=re.S)
@@ -127,27 +154,40 @@ def _page_counts(tree: LexborHTMLParser, node: LexborNode) -> list[tuple[str, in
     return out
 
 
+MAX_LINK_HINTS = 6
+MAX_BUTTON_HINTS = 3
+
+
 def _pagination_hints(html: str) -> list[str]:
+    """Up to a few "next" / page-number links and "load more" buttons, with short URLs."""
     tree = extractor.parse_html(html)
-    hints = []
+    hints, seen = [], set()
     for a in tree.css("a[href]"):
         txt = extractor.clean_text(a.text())
-        cls = a.attributes.get("class") or ""
+        cls = (a.attributes.get("class") or "")[:80]
         rel = a.attributes.get("rel") or ""
         # "Next", "Next →", "›", "»", page numbers, or rel/class containing "next"
         is_next = ("next" in txt.lower() and len(txt) <= 12) or re.fullmatch(r"[›»>]|\d{1,3}", txt)
-        if is_next or "next" in (cls + rel).lower():
-            hints.append(f'<a class="{cls}" rel="{rel}" href="{a.attributes.get("href")}">{txt}</a>')
-        if len(hints) >= 12:
+        if not (is_next or "next" in (cls + rel).lower()):
+            continue
+        # One example per link style is enough: page 2, page 3 ... look the same.
+        key = (cls, "num" if txt.isdigit() else txt.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        hints.append(f'<a class="{cls}" rel="{rel}" href="{short_url(a.attributes.get("href") or "")}">{txt}</a>')
+        if len(hints) >= MAX_LINK_HINTS:
             break
+    buttons = 0
     for b in tree.css("button, a, div[role=button]"):
         txt = extractor.clean_text(b.text())
         # "Load more", "Show more products", "More", "View more…": short labels with "more" in them
         if re.search(r"\bmore\b", txt, re.I) and len(txt.split()) <= 4:
             ident = b.attributes.get("id") or ""
-            cls = b.attributes.get("class") or ""
+            cls = (b.attributes.get("class") or "")[:80]
             hints.append(f'<{b.tag} id="{ident}" class="{cls}">{txt}</{b.tag}>')
-        if len(hints) >= 16:
+            buttons += 1
+        if buttons >= MAX_BUTTON_HINTS:
             break
     return hints
 
@@ -218,6 +258,14 @@ class _Refused(Exception):
     pass
 
 
+class PromptTooLarge(RecipeBuildError):
+    """The provider rejected the request as too large (e.g. Groq's tokens-per-request limit)."""
+
+    def __init__(self, message: str, limit: int | None = None, requested: int | None = None):
+        super().__init__(message)
+        self.limit, self.requested = limit, requested
+
+
 _RETRY_HINT = re.compile(r"try again in\s*([\d.]+)\s*(ms|s|m)", re.I)
 MAX_AI_ATTEMPTS = 4
 MAX_AI_WAIT_S = 90.0
@@ -261,9 +309,10 @@ def _with_retries(call, *args):
             return call(*args)
         except Exception as e:  # SDK-specific classes differ between providers
             if getattr(e, "status_code", None) == 413 or "request too large" in str(e).lower():
-                raise RecipeBuildError(
-                    "The page sample is too large for the AI provider's limit. Lower "
-                    "SCRAPER_AI_PROMPT_CHARS in .env (or upgrade the provider plan).") from e
+                m = re.search(r"Limit\s+(\d+),\s*Requested\s+(\d+)", str(e))
+                raise PromptTooLarge("The page sample is too large for the AI provider's limit.",
+                                     int(m.group(1)) if m else None,
+                                     int(m.group(2)) if m else None) from e
             if not _is_retryable(e) or attempt == MAX_AI_ATTEMPTS - 1:
                 raise
             delay = _retry_delay(e, attempt) + 0.5
@@ -364,8 +413,8 @@ def _field_debug(html: str, recipe: dict, weak: list[str]) -> str:
 
 
 def _retry_prompt(prompt: str, previous: str, problem: str) -> str:
-    return (f"{prompt}\n\nYour previous recipe was:\n```json\n{previous[:3000]}\n```\n"
-            f"Problem: {problem}\n"
+    return (f"{prompt}\n\nYour previous recipe was:\n```json\n{previous[:2000]}\n```\n"
+            f"Problem: {problem[:1500]}\n"
             "Return a corrected recipe, using only selectors visible in the HTML above.")
 
 
@@ -380,6 +429,51 @@ def build_recipe(html: str, url: str, field_names: list[str], rendered: bool = F
     return _build(html, url, field_names, rendered, redact)
 
 
+MIN_PROMPT_CHARS = 3_000
+MAX_SHRINKS = 3
+
+
+def _make_prompt(candidates: list[dict], pag: list[str], url: str, field_names: list[str],
+                 rendered: bool, redact: bool, total_budget: int) -> str:
+    """Build the prompt so that *everything* (instructions, samples, pagination hints) fits in
+    total_budget characters: the samples get whatever room is left."""
+    def assemble(samples: list[list[str]]) -> str:
+        parts = [f"Page URL: {short_url(url)}",
+                 f"Fields to extract: {', '.join(field_names)}",
+                 ("This HTML was captured from a real browser after the page's scripts ran."
+                  if rendered else "This HTML is the server's plain response (no scripts were run)."),
+                 "",
+                 "Below are the groups of repeated elements found on the page (most likely listings first). "
+                 "Each shows a CSS path hint, how many siblings matched, and samples of cleaned HTML "
+                 "(only class/id/href/src/itemprop/title/aria-label/role and short data-* attributes kept; "
+                 "long samples are cut off; long links are shortened and end in …). "
+                 "Values can live in attributes, e.g. a rating in data-rating: use attr for that."]
+        if redact:
+            parts.insert(3, "Text content has been replaced by its shape (letters shown as x) for "
+                            "privacy; write selectors from the structure and class names.")
+        for i, c in enumerate(candidates):
+            if not samples[i]:
+                continue
+            parts.append(f"\n### Candidate {i + 1}: `{c['selector_hint']}` ({c['count']} siblings)")
+            if c.get("page_counts"):
+                parts.append("Matches on the whole page: " +
+                             ", ".join(f"`{sel}` = {n}" for sel, n in c["page_counts"]))
+            for j, sample in enumerate(samples[i], 1):
+                parts.append(f"Sample {j}:\n```html\n{sample}\n```")
+        parts.append("\n### Possible pagination links\n" + ("\n".join(pag) if pag else "(none found)"))
+        # Phones / emails are always masked; logged-in pages are reduced to text shape.
+        return privacy.redact_html("\n".join(parts), full=redact)
+
+    overhead = len(assemble([[] for _ in candidates]))
+    sample_budget = max(800, total_budget - overhead)
+    prompt = assemble(_fit_samples(candidates, sample_budget))
+    # Masking can change lengths a little; trim the samples again if we ended up over.
+    while len(prompt) > total_budget and sample_budget > 800:
+        sample_budget = int(sample_budget * 0.85)
+        prompt = assemble(_fit_samples(candidates, sample_budget))
+    return prompt
+
+
 def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: bool) -> dict:
     """Return {"recipe", "rows", "report", "notes"} or raise RecipeBuildError."""
     if not config.ai_enabled():
@@ -389,44 +483,35 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
     if not candidates:
         raise RecipeBuildError("Couldn't find any repeated listing blocks on this page. "
                                "It may be rendered with JavaScript or be a single-item page.")
-
-    samples = _fit_samples(candidates, config.ai_prompt_budget())
-    parts = [f"Page URL: {url}",
-             f"Fields to extract: {', '.join(field_names)}",
-             ("This HTML was captured from a real browser after the page's scripts ran."
-              if rendered else "This HTML is the server's plain response (no scripts were run)."),
-             "",
-             "Below are the groups of repeated elements found on the page (most likely listings first). "
-             "Each shows a CSS path hint, how many siblings matched, and samples of cleaned HTML "
-             "(only class/id/href/src/itemprop/title/aria-label/role and short data-* attributes kept; "
-             "long samples are cut off). "
-             "Values can live in attributes, e.g. a rating in data-rating: use attr for that."]
-    for i, c in enumerate(candidates):
-        if not samples[i]:
-            continue
-        parts.append(f"\n### Candidate {i + 1}: `{c['selector_hint']}` ({c['count']} siblings)")
-        if c.get("page_counts"):
-            parts.append("Matches on the whole page: " +
-                         ", ".join(f"`{sel}` = {n}" for sel, n in c["page_counts"]))
-        for j, sample in enumerate(samples[i], 1):
-            parts.append(f"Sample {j}:\n```html\n{sample}\n```")
     pag = _pagination_hints(html)
-    parts.append("\n### Possible pagination links\n" + ("\n".join(pag) if pag else "(none found)"))
-    if redact:
-        parts.insert(3, "Text content has been replaced by its shape (letters shown as x) for "
-                        "privacy; write selectors from the structure and class names.")
-    # Phones / emails are always masked; logged-in pages are reduced to text shape.
-    prompt = privacy.redact_html("\n".join(parts), full=redact)
+    budget = config.ai_prompt_budget()
+    prompt = _make_prompt(candidates, pag, url, field_names, rendered, redact, budget)
 
     # Each attempt is one self-contained message, so a retry costs about the same as the first
     # call. That keeps it under per-request token limits such as Groq's free tier.
     messages = [{"role": "user", "content": prompt + "\n\nWrite the recipe."}]
-    last_problem = ""
-    for attempt in range(2):
+    last_problem, text, shrinks, attempt = "", "", 0, 0
+    while attempt < 2:
         try:
             text = _ask_model(messages, field_names)
         except _Refused:
             raise RecipeBuildError("The AI model declined to analyse this page.")
+        except PromptTooLarge as e:
+            # Shrink the sample to fit the provider's limit and try the same step again.
+            if shrinks >= MAX_SHRINKS or budget <= MIN_PROMPT_CHARS:
+                raise RecipeBuildError(
+                    "This page is too large for the AI provider's request limit, even after "
+                    "trimming the sample. Use the starter recipe below, or switch to a provider "
+                    "with a larger limit (SCRAPER_AI_PROVIDER=anthropic).") from e
+            factor = 0.7
+            if e.limit and e.requested:
+                factor = min(0.8, e.limit / e.requested * 0.85)
+            budget = max(MIN_PROMPT_CHARS, int(budget * factor))
+            shrinks += 1
+            prompt = _make_prompt(candidates, pag, url, field_names, rendered, redact, budget)
+            messages = [{"role": "user", "content": (_retry_prompt(prompt, text, last_problem)
+                                                     if attempt else prompt + "\n\nWrite the recipe.")}]
+            continue
         try:
             raw = json.loads(text)
             recipe = extractor.normalize_recipe(_drop_missing(raw))
@@ -440,18 +525,19 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
                 notes = raw.get("notes", "")
                 if weak:
                     notes = (notes + f" | Mostly empty: {', '.join(weak)}. Check these fields.").strip(" |")
+                if shrinks:
+                    notes = (notes + " | The page sample was trimmed to fit the AI provider's limit.").strip(" |")
                 return {"recipe": recipe, "rows": rows, "report": report, "notes": notes}
             last_problem = (f"Testing that recipe on the page gave {len(rows)} rows. "
                             f"Fields filled in fewer than half the rows: {weak or 'none'}. "
                             f"First rows: {json.dumps(rows[:2], ensure_ascii=False)[:1500]}"
                             + _field_debug(html, recipe, weak))
             last_problem = privacy.shape(last_problem) if redact else privacy.mask_text(last_problem)
-            if attempt == 0:
-                messages = [{"role": "user", "content": _retry_prompt(prompt, text, last_problem)}]
-                continue
-            # Second attempt still weak: return it anyway so the user can fix it by hand.
-            return {"recipe": recipe, "rows": rows, "report": report,
-                    "notes": (raw.get("notes", "") + " | Warning: " + last_problem).strip(" |")}
-        if attempt == 0:
+            if attempt == 1:
+                # Second attempt still weak: return it anyway so the user can fix it by hand.
+                return {"recipe": recipe, "rows": rows, "report": report,
+                        "notes": (raw.get("notes", "") + " | Warning: " + last_problem).strip(" |")}
+        attempt += 1
+        if attempt < 2:
             messages = [{"role": "user", "content": _retry_prompt(prompt, text, last_problem)}]
     raise RecipeBuildError(last_problem or "The AI model did not return a usable recipe.")
