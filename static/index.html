@@ -51,22 +51,6 @@
       </button>
     </nav>
 
-    <div class="space-y-3 border-t border-slate-200/80 p-4 text-xs dark:border-slate-800">
-      <div class="flex flex-wrap gap-1.5" x-show="status" x-cloak>
-        <span class="chip" :class="status?.ai_enabled ? 'chip-green' : 'chip-amber'"><span class="dot"></span><span x-text="status?.ai_enabled ? 'AI ready' : 'AI off'"></span></span>
-        <span class="chip" :class="status?.browser_available ? 'chip-green' : 'chip-amber'"><span class="dot"></span><span x-text="status?.browser_available ? 'Browser ready' : 'No browser'"></span></span>
-      </div>
-      <div class="flex items-center justify-between gap-3">
-        <span>
-          <span class="block font-medium text-slate-700 dark:text-slate-200">Advanced mode</span>
-          <span class="block text-slate-400">Technical options</span>
-        </span>
-        <button type="button" role="switch" :aria-checked="advanced" aria-label="Advanced mode" @click="advanced = !advanced"
-                class="relative h-5 w-9 shrink-0 rounded-full transition" :class="advanced ? 'bg-brand-600' : 'bg-slate-300 dark:bg-slate-700'">
-          <span class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all" :class="advanced ? 'left-[18px]' : 'left-0.5'"></span>
-        </button>
-      </div>
-    </div>
   </aside>
   <div class="fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-[2px] lg:hidden" x-show="menuOpen" x-cloak x-transition.opacity @click="menuOpen=false"></div>
 
@@ -512,7 +496,7 @@
                   </tbody>
                 </table>
               </div>
-              <p class="muted p-6 text-center" x-show="!analysis?.rows?.length">No rows yet. Try “Ask the AI again”, or adjust the setup in Advanced mode.</p>
+              <p class="muted p-6 text-center" x-show="!analysis?.rows?.length">No rows yet. Try “Ask the AI again”, or adjust the setup in Advanced mode (Settings).</p>
             </div>
           </div>
 
@@ -962,6 +946,18 @@
                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'"
                       @click="theme = t.id"><span x-html="icon(t.icon, 'h-4 w-4')"></span><span x-text="t.label"></span></button>
             </template>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2 class="card-title">Advanced mode</h2></div>
+          <div class="card-body flex items-start gap-3">
+            <button type="button" role="switch" :aria-checked="advanced" aria-label="Advanced mode" class="switch mt-0.5"
+                    :class="advanced && 'switch-on'" @click="advanced = !advanced"><span></span></button>
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Show technical options</div>
+              <p class="mt-0.5 text-xs text-slate-500">The column setup as JSON, per-site settings (page limits, waiting time, browser loading), logging in to sites and the activity log.</p>
+            </div>
           </div>
         </div>
 

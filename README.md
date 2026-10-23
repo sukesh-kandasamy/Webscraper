@@ -65,7 +65,7 @@ The app has five screens in the sidebar: **Home, New scrape, Saved scrapes, Resu
 
 **Light / dark theme:** the button in the top bar cycles System → Light → Dark (also in Settings).
 
-**Advanced mode** (switch at the bottom of the sidebar) shows the technical parts: the column setup
+**Advanced mode** (switch in Settings) shows the technical parts: the column setup
 as JSON, per-site settings (page limits, waiting time, browser loading), logins and the activity log.
 
 Search pages are often blocked by a site's crawling rules (robots.txt); the app explains this and

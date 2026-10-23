@@ -330,17 +330,17 @@ function scraper() {
       if (/CERTIFICATE|SSL/i.test(msg)) return { title: "Your network blocked this site",
         hint: "A company firewall is intercepting the connection. Try another network, or ask IT to allow the site.", raw: msg };
       if (e.status === 429 || /budget/i.test(msg)) return { title: "Daily limit reached for this site",
-        hint: "It resets tomorrow. You can raise the limit in Settings → Sites (Advanced mode).", raw: msg };
+        hint: "It resets tomorrow. You can raise the limit in Settings → Sites (turn on Advanced mode in Settings).", raw: msg };
       if (/cooling down/i.test(msg)) return { title: "This site is paused for a while",
         hint: "It recently limited our visits. Wait a bit, or end the pause in Settings → Sites.", raw: msg };
       if (/needs a login/i.test(msg)) return { title: "This page needs a login",
         hint: "If it's your own account, use Settings → Sites → Log in, then try again.", raw: msg };
       if (/too large/i.test(msg)) return { title: "This page is too big for the AI",
-        hint: "Try a page with fewer items, or set up the columns by hand in Advanced mode.", raw: msg };
+        hint: "Try a page with fewer items, or set up the columns by hand (turn on Advanced mode in Settings).", raw: msg };
       if (/repeated listing|Couldn't find any repeated/i.test(msg)) return { title: "No list of items found",
         hint: "Use a page that shows many similar items (search results, a category, a table). Single product pages won't work.", raw: msg };
       if (/no AI|AI is turned off|API key/i.test(msg)) return { title: "The AI is not available",
-        hint: "Add an AI key to .env, or set up the columns by hand in Advanced mode.", raw: msg };
+        hint: "Add an AI key to .env, or set up the columns by hand (turn on Advanced mode in Settings).", raw: msg };
       if (/rate-limited/i.test(msg)) {
         const m = msg.match(/wait (about \d+ minutes|\d+ seconds)/);
         return { title: "The AI is busy", hint: m ? `Its provider asks to wait ${m[1]}. Try again after that.` : "Wait a minute and try again.", raw: msg };
