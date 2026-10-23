@@ -1,5 +1,57 @@
 // Universal Scraper UI (Alpine.js). One component drives the whole app shell.
 
+// Apply the saved theme straight away so the page doesn't flash the wrong colours.
+function applyTheme(theme) {
+  const dark = theme === "dark" || (theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.classList.toggle("dark", dark);
+}
+applyTheme((() => { try { return JSON.parse(localStorage.getItem("us:theme")) || "system"; } catch { return "system"; } })());
+
+// Heroicons (MIT), 20px solid. Static strings only; rendered with x-html.
+const ICON_PATHS = {
+  home: "M10.7 2.3a1 1 0 0 0-1.4 0l-7 7A1 1 0 0 0 3 11h1v6a1 1 0 0 0 1 1h3v-4h4v4h3a1 1 0 0 0 1-1v-6h1a1 1 0 0 0 .7-1.7l-7-7Z",
+  plus: "M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z",
+  folder: "M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.24 3.24 0 0 1 1.75-.51h12.5c.64 0 1.24.19 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.84a.25.25 0 0 1-.18-.07L9.82 3.51A1.75 1.75 0 0 0 8.59 3H3.75ZM3.75 9A1.75 1.75 0 0 0 2 10.75v4.5c0 .97.78 1.75 1.75 1.75h12.5c.97 0 1.75-.78 1.75-1.75v-4.5A1.75 1.75 0 0 0 16.25 9H3.75Z",
+  table: "M.99 5.24A2.25 2.25 0 0 1 3.25 3h13.5A2.25 2.25 0 0 1 19 5.25l.01 9.5A2.25 2.25 0 0 1 16.76 17H3.26A2.27 2.27 0 0 1 1 14.75l-.01-9.51Zm8.26 9.52v-.63a.75.75 0 0 0-.75-.75H3.24a.75.75 0 0 0-.75.75v.63c0 .41.34.74.75.74h5.27c.41 0 .74-.33.74-.74Zm1.5 0c0 .41.33.74.75.74h5.25a.75.75 0 0 0 .75-.74v-.63a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.63Zm6.75-3.63v-.62a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.62c0 .42.33.75.75.75h5.25c.42 0 .75-.33.75-.75Zm-8.25 0v-.62a.75.75 0 0 0-.75-.75H3.24a.75.75 0 0 0-.75.75v.62c0 .42.34.75.75.75H8.5c.42 0 .75-.33.75-.75ZM17.5 7.5v-.62a.75.75 0 0 0-.75-.75H11.5a.75.75 0 0 0-.75.75v.62c0 .42.33.75.75.75h5.25c.42 0 .75-.33.75-.75Zm-8.25 0v-.62a.75.75 0 0 0-.75-.75H3.24a.75.75 0 0 0-.75.75v.62c0 .42.34.75.75.75H8.5c.42 0 .75-.33.75-.75Z",
+  cog: "M7.84 1.8A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.8l.28 1.42c.38.15.74.36 1.07.6l1.37-.47a1 1 0 0 1 1.19.45l1.18 2.04a1 1 0 0 1-.21 1.25l-1.09.95a6 6 0 0 1 0 1.92l1.09.95a1 1 0 0 1 .21 1.25l-1.18 2.04a1 1 0 0 1-1.19.45l-1.37-.47c-.33.24-.69.45-1.07.6l-.28 1.42a1 1 0 0 1-.98.8H8.82a1 1 0 0 1-.98-.8l-.28-1.42a6 6 0 0 1-1.07-.6l-1.37.47a1 1 0 0 1-1.19-.45L2.75 12.2a1 1 0 0 1 .21-1.25l1.09-.95a6 6 0 0 1 0-1.92l-1.09-.95a1 1 0 0 1-.21-1.25l1.18-2.04a1 1 0 0 1 1.19-.45l1.37.47c.33-.24.69-.45 1.07-.6l.28-1.42ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+  cart: "M1 1.75A.75.75 0 0 1 1.75 1h1.63c.84 0 1.55.6 1.71 1.42L5.3 3.5h11.2a.75.75 0 0 1 .73.92l-1.2 5.25a1.75 1.75 0 0 1-1.7 1.36H7.07l.24 1.22c.02.12.13.2.25.2h8.69a.75.75 0 0 1 0 1.5H7.56a1.75 1.75 0 0 1-1.72-1.42L3.62 2.7a.25.25 0 0 0-.25-.2H1.75A.75.75 0 0 1 1 1.75ZM6 17.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0ZM15.5 16a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z",
+  briefcase: "M6 3.75A2.75 2.75 0 0 1 8.75 1h2.5A2.75 2.75 0 0 1 14 3.75v.44c.79.07 1.57.18 2.35.31A2.24 2.24 0 0 1 18 6.71v3.03a2.75 2.75 0 0 1-1.96 2.64A23.6 23.6 0 0 1 10 13.25c-2.1 0-4.13-.3-6.04-.87A2.75 2.75 0 0 1 2 9.74V6.71c0-1.1.79-2.02 1.65-2.21.78-.13 1.56-.24 2.35-.31v-.44ZM12.5 3.75v.32a41.3 41.3 0 0 0-5 0v-.32c0-.69.56-1.25 1.25-1.25h2.5c.69 0 1.25.56 1.25 1.25ZM10 10a1 1 0 0 0-1 1v.01a1 1 0 0 0 1 1h.01a1 1 0 0 0 1-1V11a1 1 0 0 0-1-1H10ZM3 13.04v2.25c0 1.1.79 2.02 1.65 2.21 1.74.29 3.53.44 5.35.44s3.61-.15 5.35-.44A2.24 2.24 0 0 0 17 15.29v-2.25c-.25.11-.5.2-.77.28A25.1 25.1 0 0 1 10 14.75c-2.16 0-4.26-.3-6.23-.86A3.3 3.3 0 0 1 3 13.04Z",
+  building: "M4 16.5v-13h-.25a.75.75 0 0 1 0-1.5h12.5a.75.75 0 0 1 0 1.5H16v13h.25a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1-.75-.75v-2.5a.75.75 0 0 0-.75-.75h-2.5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 1-.75.75h-3.5a.75.75 0 0 1 0-1.5H4Zm3-11a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1ZM7.5 9a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1ZM11 5.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm.5 3.5a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1Z",
+  house: "M14.5 9V5.25a.75.75 0 0 0-.75-.75h-1.5a.75.75 0 0 0-.75.75v1.29L10.7 5.3a1 1 0 0 0-1.4 0l-7 7A1 1 0 0 0 3 14h1v3a1 1 0 0 0 1 1h3.5v-4h3v4H15a1 1 0 0 0 1-1v-3h1a1 1 0 0 0 .7-1.7L14.5 9Z",
+  chart: "M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 1.5 1.5h1a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 16.5 2h-1ZM9.5 6A1.5 1.5 0 0 0 8 7.5v9A1.5 1.5 0 0 0 9.5 18h1a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 10.5 6h-1ZM3.5 10A1.5 1.5 0 0 0 2 11.5v5A1.5 1.5 0 0 0 3.5 18h1A1.5 1.5 0 0 0 6 16.5v-5A1.5 1.5 0 0 0 4.5 10h-1Z",
+  news: "M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v11.75A2.75 2.75 0 0 0 16.75 18h-12A2.75 2.75 0 0 1 2 15.25V3.5Zm3.75 7a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-4.5Zm0 3a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-4.5ZM5 5.75A.75.75 0 0 1 5.75 5h4.5a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-.75.75h-4.5A.75.75 0 0 1 5 8.25v-2.5ZM15.5 6v9.25a1.25 1.25 0 0 0 2.5 0V7a1 1 0 0 0-1-1h-1.5Z",
+  sparkles: "M15.98 1.8a.75.75 0 0 0-1.46 0l-.26 1.03a2.25 2.25 0 0 1-1.64 1.64l-1.02.26a.75.75 0 0 0 0 1.45l1.02.26c.8.2 1.43.84 1.64 1.64l.26 1.03a.75.75 0 0 0 1.46 0l.26-1.03c.2-.8.84-1.43 1.64-1.64l1.03-.26a.75.75 0 0 0 0-1.45l-1.03-.26a2.25 2.25 0 0 1-1.64-1.64l-.26-1.03ZM6.95 5.3a.75.75 0 0 0-1.4 0L4.7 7.84a1.75 1.75 0 0 1-1.1 1.1l-2.55.85a.75.75 0 0 0 0 1.42l2.55.85c.52.17.93.58 1.1 1.1l.85 2.55a.75.75 0 0 0 1.42 0l.85-2.55c.17-.52.58-.93 1.1-1.1l2.55-.85a.75.75 0 0 0 0-1.42l-2.55-.85a1.75 1.75 0 0 1-1.1-1.1L6.95 5.3Z",
+  search: "M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.45 4.39l3.08 3.08a.75.75 0 1 1-1.06 1.06l-3.08-3.08A7 7 0 0 1 2 9Z",
+  download: "M10.75 2.75a.75.75 0 0 0-1.5 0v8.61L6.3 8.24a.75.75 0 1 0-1.1 1.02l4.25 4.5a.75.75 0 0 0 1.1 0l4.25-4.5a.75.75 0 0 0-1.1-1.02l-2.95 3.12V2.75ZM3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z",
+  play: "M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.34-5.89a1.5 1.5 0 0 0 0-2.54L6.3 2.84Z",
+  refresh: "M15.31 11.42a5.5 5.5 0 0 1-9.2 2.47l-.31-.31h2.43a.75.75 0 0 0 0-1.5H3.99a.75.75 0 0 0-.75.75v4.24a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.71-3.14.75.75 0 0 0-1.45-.39Zm1.23-3.72a.75.75 0 0 0 .22-.53V2.93a.75.75 0 0 0-1.5 0v2.43l-.31-.31A7 7 0 0 0 3.24 8.19a.75.75 0 0 0 1.45.39 5.5 5.5 0 0 1 9.2-2.47l.31.31h-2.43a.75.75 0 0 0 0 1.5h4.24a.75.75 0 0 0 .53-.22Z",
+  pencil: "M2.7 15.08 1.97 17.4a.5.5 0 0 0 .62.62l2.33-.72a4 4 0 0 0 1.62-.98l8.2-8.2a2 2 0 0 0-2.83-2.83l-8.2 8.2a4 4 0 0 0-1 1.6ZM13.85 3.73a2 2 0 0 1 2.83 2.83l-.48.48-2.83-2.83.48-.48Z",
+  trash: "M8.75 1A2.75 2.75 0 0 0 6 3.75v.44c-.8.08-1.57.18-2.35.32a.75.75 0 1 0 .26 1.48l.15-.03.85 10.66A2.75 2.75 0 0 0 7.65 19h4.7a2.75 2.75 0 0 0 2.74-2.53l.85-10.66.15.03a.75.75 0 1 0 .26-1.48A41 41 0 0 0 14 4.19v-.44A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.67.03 2.5.08v-.33c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.33C8.33 4.03 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z",
+  copy: "M7 3.5A1.5 1.5 0 0 1 8.5 2h3.88a1.5 1.5 0 0 1 1.06.44l3.12 3.12A1.5 1.5 0 0 1 17 6.62V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.38a3 3 0 0 0-.88-2.12l-3.12-3.12A3 3 0 0 0 8.38 4.5H7v-1Z M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.88a1.5 1.5 0 0 0-.44-1.06L9.44 6.44A1.5 1.5 0 0 0 8.38 6H4.5Z",
+  stop: "M5.25 3A2.25 2.25 0 0 0 3 5.25v9.5A2.25 2.25 0 0 0 5.25 17h9.5A2.25 2.25 0 0 0 17 14.75v-9.5A2.25 2.25 0 0 0 14.75 3h-9.5Z",
+  external: "M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .41.34.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h5a.75.75 0 0 1 0 1.5h-5Zm6.5-3.25a.75.75 0 0 1 .75-.75h5.75a.75.75 0 0 1 .75.75v5.75a.75.75 0 0 1-1.5 0V4.06l-6.22 6.22a.75.75 0 1 1-1.06-1.06L14.94 3h-3.44a.75.75 0 0 1-.75-.75Z",
+  dots: "M3 10a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0ZM8.5 10a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0ZM15.5 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z",
+  check: "M16.7 4.15a.75.75 0 0 1 .15 1.05l-8 10.5a.75.75 0 0 1-1.13.08l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.9 3.89 7.48-9.82a.75.75 0 0 1 1.05-.14Z",
+  warn: "M8.49 2.86a1.75 1.75 0 0 1 3.02 0l6.28 10.88A1.75 1.75 0 0 1 16.28 16.4H3.72a1.75 1.75 0 0 1-1.51-2.66L8.49 2.86ZM10 7a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 10 7Zm0 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
+  info: "M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.25a.25.25 0 0 1 .24.3l-.45 2.08A1.75 1.75 0 0 0 10.75 15H11a.75.75 0 0 0 0-1.5h-.25a.25.25 0 0 1-.24-.3l.45-2.08A1.75 1.75 0 0 0 9.25 9H9Z",
+  error: "M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
+  sun: "M10 2a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 2ZM10 15a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 15ZM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM15.66 5.4a.75.75 0 0 0-1.06-1.06l-1.06 1.06a.75.75 0 0 0 1.06 1.06l1.06-1.06ZM6.46 14.6a.75.75 0 1 0-1.06-1.06l-1.06 1.06a.75.75 0 0 0 1.06 1.06l1.06-1.06ZM18 10a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 18 10ZM5 10a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 5 10ZM14.6 15.66a.75.75 0 0 0 1.06-1.06l-1.06-1.06a.75.75 0 1 0-1.06 1.06l1.06 1.06ZM5.4 6.46a.75.75 0 0 0 1.06-1.06L5.4 4.34a.75.75 0 0 0-1.06 1.06L5.4 6.46Z",
+  moon: "M7.46 1.61a.75.75 0 0 1 .17.81 6 6 0 0 0 7.95 7.95.75.75 0 0 1 .98.98A7.5 7.5 0 1 1 6.65 1.44a.75.75 0 0 1 .81.17Z",
+  monitor: "M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v8.5A2.25 2.25 0 0 1 15.75 15h-3.11l.22 1.32a.75.75 0 0 1-.74.68H7.88a.75.75 0 0 1-.74-.68l.22-1.32H4.25A2.25 2.25 0 0 1 2 12.75v-8.5Zm1.5 0v7.5c0 .41.34.75.75.75h11.5a.75.75 0 0 0 .75-.75v-7.5a.75.75 0 0 0-.75-.75H4.25a.75.75 0 0 0-.75.75Z",
+  menu: "M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 5A.75.75 0 0 1 2.75 9h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 9.75Zm0 5a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z",
+  x: "M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z",
+  chevron: "M7.2 14.8a.75.75 0 0 1 0-1.06L10.94 10 7.2 6.27a.75.75 0 1 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0Z",
+  left: "M12.8 5.2a.75.75 0 0 1 0 1.06L9.06 10l3.74 3.74a.75.75 0 1 1-1.06 1.06l-4.27-4.27a.75.75 0 0 1 0-1.06l4.27-4.27a.75.75 0 0 1 1.06 0Z",
+  bolt: "M11.98 1.58a.75.75 0 0 0-1.33-.48l-7.5 9.5A.75.75 0 0 0 3.75 12H9.5l-1.48 6.42a.75.75 0 0 0 1.33.48l7.5-9.5A.75.75 0 0 0 16.25 8H10.5l1.48-6.42Z",
+  rows: "M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 10.5a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1-.75-.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Z",
+  clock: "M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13a.75.75 0 0 0-1.5 0v5c0 .41.34.75.75.75h4a.75.75 0 0 0 0-1.5h-3.25V5Z",
+  lock: "M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z",
+};
+function iconSvg(name, cls = "h-5 w-5") {
+  const d = ICON_PATHS[name] || ICON_PATHS.info;
+  return `<svg class="${cls}" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="${d}"/></svg>`;
+}
+
 async function api(method, path, body) {
   let res;
   try {
@@ -25,19 +77,19 @@ async function api(method, path, body) {
 }
 
 const TEMPLATES = [
-  { id: "products", icon: "🛒", name: "Products & prices", hint: "Shops, marketplaces, B2B catalogues",
+  { id: "products", icon: "cart", name: "Products & prices", hint: "Shops, marketplaces, B2B catalogues",
     columns: ["name", "price", "rating", "reviews", "seller", "url"] },
-  { id: "jobs", icon: "💼", name: "Job listings", hint: "Job boards, career pages",
+  { id: "jobs", icon: "briefcase", name: "Job listings", hint: "Job boards, career pages",
     columns: ["title", "company", "location", "salary", "experience", "posted", "url"] },
-  { id: "real_estate", icon: "🏠", name: "Real estate", hint: "Flats, houses, rentals",
+  { id: "real_estate", icon: "house", name: "Real estate", hint: "Flats, houses, rentals",
     columns: ["title", "price", "location", "area_sqft", "bedrooms", "url"] },
-  { id: "stocks", icon: "📈", name: "Stock & market tables", hint: "Tickers, prices, indices",
+  { id: "stocks", icon: "chart", name: "Stock & market tables", hint: "Tickers, prices, indices",
     columns: ["symbol", "name", "price", "change", "change_percent", "volume"] },
-  { id: "directory", icon: "🏢", name: "Business directory", hint: "Suppliers, companies, shops",
+  { id: "directory", icon: "building", name: "Business directory", hint: "Suppliers, companies, shops",
     columns: ["name", "category", "location", "rating", "url"] },
-  { id: "news", icon: "📰", name: "News & articles", hint: "Headlines, blogs, press",
+  { id: "news", icon: "news", name: "News & articles", hint: "Headlines, blogs, press",
     columns: ["title", "summary", "published", "url"] },
-  { id: "auto", icon: "✨", name: "Anything else", hint: "Let the AI decide the columns", columns: [] },
+  { id: "auto", icon: "sparkles", name: "Anything else", hint: "Let the AI decide the columns", columns: [] },
 ];
 
 const PAGE_TYPES = {
@@ -67,12 +119,18 @@ function scraper() {
   return {
     // ---- app shell ----
     view: "home",
+    theme: store("theme") || "system",
+    toasts: [],
+    dialog: null,                // {title, message, input, value, confirmText, danger}
+    loadStep: 0,
+    loadTimer: null,
+    scrapeQuery: "",
+    page: 1,
+    pageSize: 50,
     menuOpen: false,
     advanced: store("advanced") === true,
     status: null,
     error: null,                 // {title, hint, raw}
-    notice: "",
-    noticeTimer: null,
     busy: "",
 
     // ---- wizard ----
@@ -124,19 +182,87 @@ function scraper() {
       } catch (e) { this.showError(e); }
       await Promise.all([this.loadJobs(), this.loadScrapes(), this.loadSites()]);
       this.$watch("advanced", v => store("advanced", v));
+      this.$watch("theme", v => { store("theme", v); applyTheme(v); });
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applyTheme(this.theme));
+      this.$watch("busy", v => this.trackLoading(v));
+      this.$watch("search", () => { this.page = 1; });
+      document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && this.dialog) this.closeDialog(false);
+        if (e.key === "Escape") { this.menuOpen = false; this.colMenu = false; }
+      });
     },
 
     // ---------------------------------------------------------------- helpers
+    icon(name, cls) { return iconSvg(name, cls); },
+    viewTitle() {
+      return { home: "Home", new: this.editingScrapeId ? "Edit scrape" : "New scrape", scrapes: "Saved scrapes",
+               runs: "Results", settings: "Settings" }[this.view] || "";
+    },
+    cycleTheme() { this.theme = { system: "light", light: "dark", dark: "system" }[this.theme] || "system"; },
+    themeIcon() { return { system: "monitor", light: "sun", dark: "moon" }[this.theme]; },
+    themeLabel() { return { system: "System theme", light: "Light theme", dark: "Dark theme" }[this.theme]; },
+
+    // Styled dialogs instead of the browser's confirm() / prompt().
+    ask(opts) {
+      return new Promise(resolve => {
+        this.dialog = { title: "", message: "", input: false, value: "", confirmText: "OK", danger: false, ...opts, resolve };
+        this.$nextTick(() => document.getElementById(this.dialog.input ? "dialog-input" : "dialog-ok")?.focus());
+      });
+    },
+    confirmDialog(title, message, confirmText = "Delete", danger = true) {
+      return this.ask({ title, message, confirmText, danger });
+    },
+    promptDialog(title, label, value = "", confirmText = "Save") {
+      return this.ask({ title, message: label, input: true, value, confirmText });
+    },
+    closeDialog(ok) {
+      const d = this.dialog;
+      if (!d) return;
+      this.dialog = null;
+      d.resolve(ok ? (d.input ? (d.value || "").trim() : true) : (d.input ? null : false));
+    },
+
+    // Step-by-step messages while the page is being read, so waiting doesn't feel stuck.
+    loadingSteps() {
+      return this.busy === "add"
+        ? ["Opening the page…", "Looking for the new column…", "Checking it on every item…"]
+        : ["Opening the page…", "Finding the list of items…", "Choosing the important columns…", "Checking the result…"];
+    },
+    trackLoading(v) {
+      clearInterval(this.loadTimer);
+      this.loadStep = 0;
+      if (["analyse", "ai", "add"].includes(v)) {
+        this.loadTimer = setInterval(() => { this.loadStep = Math.min(this.loadStep + 1, this.loadingSteps().length - 1); }, 2600);
+      }
+    },
+
+    // Dashboard numbers.
+    stats() {
+      const now = Date.now() / 1000, day = 86400;
+      const recent = this.jobs.filter(j => now - j.created_at < 7 * day);
+      return {
+        scrapes: this.scrapes.length,
+        rowsWeek: recent.reduce((n, j) => n + (j.rows || 0), 0),
+        runsWeek: recent.length,
+        active: this.activeJobs().length,
+      };
+    },
+    fmt(n) { return (n || 0).toLocaleString(); },
+    filteredScrapes() {
+      const q = this.scrapeQuery.trim().toLowerCase();
+      return q ? this.scrapes.filter(s => (s.name + " " + s.domain + " " + s.columns.join(" ")).toLowerCase().includes(q)) : this.scrapes;
+    },
+
     go(view) {
       this.view = view; this.menuOpen = false; this.error = null;
       if (view === "settings") this.loadSites();
       if (view === "scrapes") this.loadScrapes();
       window.scrollTo({ top: 0 });
     },
-    toast(msg) {
-      this.notice = msg;
-      clearTimeout(this.noticeTimer);
-      this.noticeTimer = setTimeout(() => { this.notice = ""; }, 6000);
+    toast(msg, type = "success") {
+      const id = Date.now() + Math.random();
+      this.toasts.push({ id, msg, type });
+      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 5500);
     },
     urls() {
       return [this.urlMain, ...this.urlsExtra.split("\n")].map(s => s.trim()).filter(Boolean);
@@ -291,7 +417,7 @@ function scraper() {
     },
 
     async renameColumn(name) {
-      const next = prompt(`New name for "${this.pretty(name)}":`, name);
+      const next = await this.promptDialog("Rename column", `New name for “${this.pretty(name)}”`, name, "Rename");
       if (!next || next.trim() === name) return;
       const clean = next.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
       if (!clean) return;
@@ -398,14 +524,14 @@ function scraper() {
     },
 
     async renameScrape(s) {
-      const name = prompt("Name:", s.name);
+      const name = await this.promptDialog("Rename scrape", "Name", s.name, "Rename");
       if (!name || name === s.name) return;
       try { await api("PUT", `/api/scrapes/${s.id}`, { name }); await this.loadScrapes(); }
       catch (e) { this.showError(e); }
     },
 
     async deleteScrape(s) {
-      if (!confirm(`Delete “${s.name}”? Its past results stay under Results until you delete them.`)) return;
+      if (!await this.confirmDialog(`Delete “${s.name}”?`, "The saved setup is removed. Its past results stay under Results until you delete them.")) return;
       try { await api("DELETE", `/api/scrapes/${s.id}`); await this.loadScrapes(); }
       catch (e) { this.showError(e); }
     },
@@ -436,7 +562,7 @@ function scraper() {
 
     async openJob(j) {
       if (!j) return;
-      this.selectedJob = j; this.search = ""; this.sortKey = ""; this.showPersonal = false;
+      this.selectedJob = j; this.search = ""; this.sortKey = ""; this.showPersonal = false; this.page = 1;
       this.hiddenCols = store("hidden:" + (j.scrape_id || j.id)) || [];
       await this.loadRecords();
     },
@@ -470,7 +596,7 @@ function scraper() {
       try { await api("POST", `/api/jobs/${j.id}/keep`, { keep: !j.keep }); j.keep = !j.keep; } catch (e) { this.showError(e); }
     },
     async deleteJob(j) {
-      if (!confirm(`Delete this run and its ${j.rows} rows?`)) return;
+      if (!await this.confirmDialog("Delete this run?", `This removes the run and its ${this.fmt(j.rows)} rows. This can't be undone.`)) return;
       try {
         await api("DELETE", `/api/jobs/${j.id}`);
         if (this.selectedJob?.id === j.id) { this.selectedJob = null; this.records = []; }
@@ -497,6 +623,17 @@ function scraper() {
         });
       }
       return rows;
+    },
+    totalPages() { return Math.max(1, Math.ceil(this.filtered().length / this.pageSize)); },
+    pagedRows() {
+      const p = Math.min(this.page, this.totalPages());
+      return this.filtered().slice((p - 1) * this.pageSize, p * this.pageSize);
+    },
+    rangeText() {
+      const n = this.filtered().length;
+      if (!n) return "0 rows";
+      const p = Math.min(this.page, this.totalPages());
+      return `${this.fmt((p - 1) * this.pageSize + 1)}–${this.fmt(Math.min(p * this.pageSize, n))} of ${this.fmt(n)}`;
     },
     progressPct(j) {
       if (!j) return 0;
@@ -541,7 +678,7 @@ function scraper() {
     // ---------------------------------------------------------------- sites & logins
     async loadSites() { try { this.sites = await api("GET", "/api/sites"); } catch (e) { /* not fatal */ } },
     async forgetSession(site) {
-      if (!confirm(`Remove the saved login for ${site.session.domain}?`)) return;
+      if (!await this.confirmDialog("Remove saved login?", `You'll need to log in to ${site.session.domain} again before scraping pages that need it.`, "Remove")) return;
       try { await api("DELETE", `/api/sessions/${site.session.domain}`); this.loadSites(); } catch (e) { this.showError(e); }
     },
     async clearCooldown(site) {
@@ -552,7 +689,7 @@ function scraper() {
       catch (e) { this.showError(e); }
     },
     async deleteSiteData(site) {
-      if (!confirm(`Delete all runs, results, cached pages and the saved login for ${site.domain}?`)) return;
+      if (!await this.confirmDialog(`Delete all data for ${site.domain}?`, "Runs, results, cached pages and the saved login for this site are removed. This can't be undone.")) return;
       try {
         const r = await api("DELETE", `/api/sites/${site.domain}/data`);
         this.toast(`Deleted ${r.jobs} run(s) and ${r.cache_pages} cached page(s).`);
@@ -563,9 +700,9 @@ function scraper() {
 
     // ---------------------------------------------------------------- visible browser window
     async startLogin(site) {
-      const url = prompt(`Login page for ${site.domain}:`, `https://${site.domain}/`);
+      const url = await this.promptDialog(`Log in to ${site.domain}`, "Login page address", `https://${site.domain}/`, "Next");
       if (!url) return;
-      if (!confirm(`Log in to ${site.domain}?\n\nOnly continue if this is your own account and the site allows automated access while logged in.`)) return;
+      if (!await this.confirmDialog("Is this your own account?", "Only continue if it is your own account and the site allows automated access while logged in. You'll type your password in a browser window; the app never sees it.", "Continue", false)) return;
       this.win = { mode: "login", domain: site.domain, url, status: "starting", message: "", account: site.session?.account || "" };
       try { this.trackWindow(`login:${site.domain}`, await api("POST", `/api/sites/${site.domain}/login`, { url, own_account: true })); }
       catch (e) { this.win = null; this.showError(e); }

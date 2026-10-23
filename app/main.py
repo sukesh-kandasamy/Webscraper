@@ -69,10 +69,10 @@ SECURITY_HEADERS = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
-    # Tailwind's CDN build and Alpine need inline / eval script; nothing else is allowed in.
+    # All scripts and styles are served by the app itself (compiled Tailwind, bundled Alpine).
+    # Alpine evaluates its template expressions, which needs 'unsafe-eval'; no inline scripts.
     "Content-Security-Policy": (
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' "
-        "https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; "
+        "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
         "form-action 'self'; object-src 'none'"),
 }

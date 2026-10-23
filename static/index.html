@@ -3,205 +3,210 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Universal Scraper</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%234f46e5'/%3E%3Cpath fill='white' d='M6 7h12v2H6zm0 4h8v2H6zm0 4h12v2H6z'/%3E%3C/svg%3E">
-  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
-  <script>
-    tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'] } } } };
-  </script>
-  <style type="text/tailwindcss">
-    @layer components {
-      .card        { @apply rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900; }
-      .card-head   { @apply flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800; }
-      .card-body   { @apply p-5; }
-      .card-title  { @apply text-base font-semibold text-slate-900 dark:text-slate-100; }
-      .page-title  { @apply text-2xl font-semibold tracking-tight text-slate-900 dark:text-white; }
-      .muted       { @apply text-sm text-slate-500 dark:text-slate-400; }
-      .label       { @apply mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300; }
-      .hint        { @apply font-normal text-slate-400 dark:text-slate-500; }
-      .input       { @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm
-                            placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20
-                            dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600; }
-      .btn         { @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white
-                            px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50
-                            focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50
-                            dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700; }
-      .btn-primary { @apply border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-500 dark:border-indigo-500 dark:bg-indigo-500 dark:text-white dark:hover:bg-indigo-400; }
-      .btn-lg      { @apply px-5 py-2.5 text-base; }
-      .btn-ghost   { @apply rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200; }
-      .chip        { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset; }
-      .chip-gray   { @apply bg-slate-50 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700; }
-      .chip-green  { @apply bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30; }
-      .chip-amber  { @apply bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30; }
-      .chip-red    { @apply bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30; }
-      .chip-blue   { @apply bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-500/30; }
-      .dot         { @apply h-1.5 w-1.5 rounded-full bg-current; }
-      .nav-item    { @apply flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white; }
-      .nav-active  { @apply bg-indigo-50 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300; }
-      .table-wrap  { @apply overflow-auto rounded-xl border border-slate-200 dark:border-slate-800; }
-      .tbl         { @apply min-w-full text-left text-sm; }
-      .tbl th      { @apply sticky top-0 z-10 whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold uppercase
-                            tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400; }
-      .tbl td      { @apply min-w-[7rem] max-w-[22rem] border-b border-slate-100 px-3 py-2 align-top text-slate-700 dark:border-slate-800/70 dark:text-slate-300; }
-      .tbl tbody tr { @apply hover:bg-indigo-50/40 dark:hover:bg-slate-800/40; }
-      .link        { @apply font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300; }
-      details > summary { @apply flex cursor-pointer select-none list-none items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300; }
-      details > summary::-webkit-details-marker { display: none; }
-      details[open] > summary .chev { @apply rotate-90; }
-      .spinner     { @apply h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-r-transparent; }
-      .step-dot    { @apply grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-semibold; }
-    }
-    [x-cloak] { display: none !important; }
-  </style>
+  <link rel="stylesheet" href="/static/app.css">
   <script defer src="/static/app.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script defer src="/static/vendor/alpine-3.14.1.min.js"></script>
 </head>
-<body class="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-200"
-      x-data="scraper()" x-init="init()">
+<body x-data="scraper()" x-init="init()">
 
 <div class="flex min-h-screen">
 
-  <!-- ================= Sidebar ================= -->
-  <aside class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white transition-transform dark:border-slate-800 dark:bg-slate-900 lg:translate-x-0"
-         :class="menuOpen ? 'translate-x-0' : '-translate-x-full'">
-    <div class="flex items-center gap-3 px-5 py-5">
-      <div class="grid h-9 w-9 place-items-center rounded-xl bg-indigo-600 text-white shadow-sm">
-        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="currentColor"><path d="M5 6h14v2H5zm0 5h9v2H5zm0 5h14v2H5z"/></svg>
+  <!-- ===================================================== Sidebar -->
+  <aside class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-slate-200/80 bg-slate-50 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-900 lg:translate-x-0"
+         :class="menuOpen ? 'translate-x-0 shadow-pop' : '-translate-x-full'">
+    <div class="flex items-center gap-2.5 px-4 pb-4 pt-5">
+      <div class="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm">
+        <svg viewBox="0 0 24 24" class="h-[18px] w-[18px]" fill="currentColor"><path d="M5 6h14v2H5zm0 5h9v2H5zm0 5h14v2H5z"/></svg>
       </div>
       <div class="leading-tight">
-        <div class="font-semibold text-slate-900 dark:text-white">Universal Scraper</div>
-        <div class="text-xs text-slate-500">Collect data from any website</div>
+        <div class="text-[15px] font-semibold text-slate-900 dark:text-white">Universal Scraper</div>
+        <div class="text-[11px] text-slate-500">Web data, made simple</div>
       </div>
     </div>
 
-    <nav class="flex-1 space-y-1 px-3">
-      <button class="nav-item" :class="view==='home' && 'nav-active'" @click="go('home')">
-        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.7 2.3a1 1 0 0 0-1.4 0l-7 7A1 1 0 0 0 3 11h1v6a1 1 0 0 0 1 1h3v-4h4v4h3a1 1 0 0 0 1-1v-6h1a1 1 0 0 0 .7-1.7l-7-7Z"/></svg>
-        Home
+    <div class="px-3 pb-3">
+      <button class="btn btn-primary w-full justify-center" @click="startWizard()">
+        <span x-html="icon('plus', 'h-4 w-4')"></span> New scrape
       </button>
-      <button class="nav-item" :class="view==='new' && 'nav-active'" @click="startWizard()">
-        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z"/></svg>
-        New scrape
+    </div>
+
+    <nav class="flex-1 space-y-0.5 px-3" aria-label="Main">
+      <button class="nav-item" :class="view==='home' && 'nav-active'" @click="go('home')">
+        <span x-html="icon('home', 'nav-icon')"></span> Home
       </button>
       <button class="nav-item" :class="view==='scrapes' && 'nav-active'" @click="go('scrapes')">
-        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M3.5 3A1.5 1.5 0 0 0 2 4.5v11A1.5 1.5 0 0 0 3.5 17h13a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 16.5 6h-5.8L9.2 3.6A1.5 1.5 0 0 0 7.9 3H3.5Z"/></svg>
-        Saved scrapes
-        <span class="ml-auto text-xs text-slate-400" x-text="scrapes.length || ''"></span>
+        <span x-html="icon('folder', 'nav-icon')"></span> Saved scrapes
+        <span class="ml-auto text-xs tabular-nums text-slate-400" x-text="scrapes.length || ''"></span>
       </button>
       <button class="nav-item" :class="view==='runs' && 'nav-active'" @click="go('runs')">
-        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 5A.75.75 0 0 1 2.75 9h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 9.75Zm0 5a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"/></svg>
-        Results
-        <span class="ml-auto chip chip-amber" x-show="needsYouJobs().length" x-text="needsYouJobs().length"></span>
-        <span class="ml-auto chip chip-blue" x-show="!needsYouJobs().length && activeJobs().length"><span class="dot animate-pulse"></span><span x-text="activeJobs().length"></span></span>
+        <span x-html="icon('table', 'nav-icon')"></span> Results
+        <span class="ml-auto chip chip-amber" x-show="needsYouJobs().length" x-cloak x-text="needsYouJobs().length"></span>
+        <span class="ml-auto chip chip-blue" x-show="!needsYouJobs().length && activeJobs().length" x-cloak>
+          <span class="dot animate-pulse"></span><span x-text="activeJobs().length"></span></span>
       </button>
       <button class="nav-item" :class="view==='settings' && 'nav-active'" @click="go('settings')">
-        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.84 1.8A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.8l.28 1.42c.38.15.74.36 1.07.6l1.37-.47a1 1 0 0 1 1.19.45l1.18 2.04a1 1 0 0 1-.21 1.25l-1.09.95a6 6 0 0 1 0 1.92l1.09.95a1 1 0 0 1 .21 1.25l-1.18 2.04a1 1 0 0 1-1.19.45l-1.37-.47c-.33.24-.69.45-1.07.6l-.28 1.42a1 1 0 0 1-.98.8H8.82a1 1 0 0 1-.98-.8l-.28-1.42a6 6 0 0 1-1.07-.6l-1.37.47a1 1 0 0 1-1.19-.45L2.75 12.2a1 1 0 0 1 .21-1.25l1.09-.95a6 6 0 0 1 0-1.92l-1.09-.95a1 1 0 0 1-.21-1.25l1.18-2.04a1 1 0 0 1 1.19-.45l1.37.47c.33-.24.69-.45 1.07-.6l.28-1.42ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clip-rule="evenodd"/></svg>
-        Settings
+        <span x-html="icon('cog', 'nav-icon')"></span> Settings
       </button>
     </nav>
 
-    <div class="space-y-3 border-t border-slate-100 p-4 text-xs dark:border-slate-800">
+    <div class="space-y-3 border-t border-slate-200/80 p-4 text-xs dark:border-slate-800">
       <div class="flex flex-wrap gap-1.5" x-show="status" x-cloak>
         <span class="chip" :class="status?.ai_enabled ? 'chip-green' : 'chip-amber'"><span class="dot"></span><span x-text="status?.ai_enabled ? 'AI ready' : 'AI off'"></span></span>
         <span class="chip" :class="status?.browser_available ? 'chip-green' : 'chip-amber'"><span class="dot"></span><span x-text="status?.browser_available ? 'Browser ready' : 'No browser'"></span></span>
       </div>
-      <label class="flex cursor-pointer items-center justify-between gap-3">
+      <div class="flex items-center justify-between gap-3">
         <span>
-          <span class="font-medium text-slate-700 dark:text-slate-200">Advanced mode</span>
-          <span class="block text-slate-400">Show technical options</span>
+          <span class="block font-medium text-slate-700 dark:text-slate-200">Advanced mode</span>
+          <span class="block text-slate-400">Technical options</span>
         </span>
-        <button type="button" role="switch" :aria-checked="advanced" @click="advanced = !advanced"
-                class="relative h-6 w-11 shrink-0 rounded-full transition" :class="advanced ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'">
-          <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition" :class="advanced ? 'left-[22px]' : 'left-0.5'"></span>
+        <button type="button" role="switch" :aria-checked="advanced" aria-label="Advanced mode" @click="advanced = !advanced"
+                class="relative h-5 w-9 shrink-0 rounded-full transition" :class="advanced ? 'bg-brand-600' : 'bg-slate-300 dark:bg-slate-700'">
+          <span class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all" :class="advanced ? 'left-[18px]' : 'left-0.5'"></span>
         </button>
-      </label>
+      </div>
     </div>
   </aside>
-  <div class="fixed inset-0 z-30 bg-slate-900/40 lg:hidden" x-show="menuOpen" x-cloak @click="menuOpen=false"></div>
+  <div class="fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-[2px] lg:hidden" x-show="menuOpen" x-cloak x-transition.opacity @click="menuOpen=false"></div>
 
-  <!-- ================= Main ================= -->
-  <div class="flex min-w-0 flex-1 flex-col lg:pl-64">
-    <header class="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 lg:hidden">
-      <button class="btn px-2" @click="menuOpen = true" aria-label="Menu">
-        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 5A.75.75 0 0 1 2.75 9h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 9.75Zm0 5a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"/></svg>
-      </button>
-      <span class="font-semibold">Universal Scraper</span>
+  <!-- ===================================================== Main column -->
+  <div class="flex min-w-0 flex-1 flex-col lg:pl-60">
+    <!-- top bar -->
+    <header class="sticky top-0 z-20 border-b border-slate-200/80 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
+      <div class="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:px-8">
+        <button class="btn btn-icon lg:hidden" @click="menuOpen = true" aria-label="Menu"><span x-html="icon('menu', 'h-5 w-5')"></span></button>
+        <nav class="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Breadcrumb">
+          <button class="text-slate-500 hover:text-slate-900 dark:hover:text-white" @click="go('home')" x-show="view !== 'home'">Home</button>
+          <span class="text-slate-300 dark:text-slate-600" x-show="view !== 'home'" x-html="icon('chevron', 'h-4 w-4')"></span>
+          <span class="truncate font-medium text-slate-900 dark:text-white" x-text="viewTitle()"></span>
+        </nav>
+        <div class="ml-auto flex items-center gap-2">
+          <button class="hidden items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-600/20 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 sm:flex"
+                  x-show="activeJobs().length" x-cloak @click="go('runs')">
+            <span class="spinner h-3 w-3"></span>
+            <span x-text="activeJobs().length === 1 ? '1 scrape running' : activeJobs().length + ' scrapes running'"></span>
+          </button>
+          <button class="btn btn-icon" @click="cycleTheme()" :title="themeLabel()" :aria-label="themeLabel()">
+            <span x-html="icon(themeIcon(), 'h-[18px] w-[18px]')"></span>
+          </button>
+          <button class="btn btn-primary hidden sm:inline-flex" x-show="view !== 'new'" @click="startWizard()">
+            <span x-html="icon('plus', 'h-4 w-4')"></span> New scrape
+          </button>
+        </div>
+      </div>
     </header>
 
     <main class="mx-auto w-full max-w-6xl flex-1 space-y-6 px-4 py-6 sm:px-8 sm:py-8">
 
       <!-- Error card -->
-      <div x-show="error" x-cloak x-transition
-           class="flex items-start justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100">
-        <div class="flex gap-3">
-          <svg class="mt-0.5 h-5 w-5 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>
-          <div>
-            <div class="font-semibold" x-text="error?.title"></div>
-            <div class="mt-0.5 opacity-90" x-show="error?.hint" x-text="error?.hint"></div>
-            <details class="mt-1" x-show="advanced && error?.raw"><summary class="text-xs opacity-70">Technical details</summary>
-              <div class="mt-1 break-words font-mono text-xs opacity-80" x-text="error?.raw"></div></details>
-          </div>
+      <div x-show="error" x-cloak x-transition.opacity role="alert"
+           class="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100">
+        <span class="mt-0.5 text-rose-500" x-html="icon('error', 'h-5 w-5')"></span>
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold" x-text="error?.title"></div>
+          <div class="mt-0.5 text-rose-800/90 dark:text-rose-200/90" x-show="error?.hint" x-text="error?.hint"></div>
+          <details class="mt-2" x-show="advanced && error?.raw"><summary class="text-xs opacity-70">Technical details</summary>
+            <div class="mt-1 break-words font-mono text-xs opacity-80" x-text="error?.raw"></div></details>
         </div>
-        <button class="btn-ghost" @click="error=null">Close</button>
+        <button class="btn-ghost text-rose-700 dark:text-rose-200" @click="error=null" aria-label="Close"><span x-html="icon('x', 'h-4 w-4')"></span></button>
       </div>
 
-      <!-- Jobs waiting for you (any view) -->
+      <!-- Runs waiting for a person -->
       <template x-for="j in needsYouJobs()" :key="'ny' + j.id">
-        <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
-          <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <span class="text-amber-500" x-html="icon('warn', 'h-5 w-5')"></span>
+          <div class="min-w-0 flex-1">
             <div class="font-semibold" x-text="`“${jobTitle(j)}” needs you`"></div>
-            <div class="text-xs opacity-80" x-text="j.progress"></div>
+            <div class="text-amber-800/90 dark:text-amber-200/90" x-text="j.progress"></div>
           </div>
-          <div class="flex gap-2">
-            <button class="btn btn-primary" @click="startJobSolve(j)" :disabled="!status?.browser_available"
-                    x-text="j.paused_kind === 'login' ? 'Open to log in' : 'Open to solve'"></button>
-            <button class="btn" @click="stopJob(j)">Stop</button>
-          </div>
+          <button class="btn btn-primary btn-sm" @click="startJobSolve(j)" :disabled="!status?.browser_available"
+                  x-text="j.paused_kind === 'login' ? 'Open to log in' : 'Open to solve'"></button>
+          <button class="btn btn-sm" @click="stopJob(j)">Stop</button>
         </div>
       </template>
 
-      <!-- ================= HOME ================= -->
-      <section x-show="view==='home'" class="space-y-8">
-        <div class="rounded-3xl bg-gradient-to-br from-indigo-600 to-violet-600 p-6 text-white shadow-lg sm:p-10">
-          <h1 class="text-2xl font-semibold sm:text-3xl">What do you want to collect today?</h1>
-          <p class="mt-2 max-w-2xl text-indigo-100">Paste the link of a page that lists things (products, jobs, flats, stocks…). The app finds the important columns for you.</p>
-          <form class="mt-6 flex flex-col gap-3 sm:flex-row" @submit.prevent="startWizard(null, urlMain)">
-            <input type="url" x-model="urlMain" required placeholder="https://example.com/category/laptops"
-                   class="w-full flex-1 rounded-xl border-0 px-4 py-3 text-base text-slate-900 shadow-sm focus:outline-none focus:ring-4 focus:ring-white/30">
-            <button class="btn btn-lg border-white bg-white text-indigo-700 hover:bg-indigo-50">Start</button>
-          </form>
-          <button class="mt-3 text-sm text-indigo-100 underline-offset-2 hover:underline" @click="trySample()">No link handy? Try a sample bookshop</button>
+      <!-- ===================================================== HOME -->
+      <section x-show="view==='home'" class="space-y-8 animate-fade-up">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 class="page-title">Welcome back</h1>
+            <p class="muted mt-1">Collect structured data from any website in three steps.</p>
+          </div>
         </div>
 
+        <!-- stats -->
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <template x-for="tile in [
+              { label: 'Saved scrapes', value: fmt(stats().scrapes), icon: 'folder', go: 'scrapes' },
+              { label: 'Rows this week', value: fmt(stats().rowsWeek), icon: 'rows', go: 'runs' },
+              { label: 'Runs this week', value: fmt(stats().runsWeek), icon: 'clock', go: 'runs' },
+              { label: 'Running now', value: fmt(stats().active), icon: 'bolt', go: 'runs' }]" :key="tile.label">
+            <button class="card p-4 text-left transition hover:shadow-pop" @click="go(tile.go)">
+              <div class="flex items-center justify-between">
+                <span class="eyebrow" x-text="tile.label"></span>
+                <span class="text-slate-300 dark:text-slate-600" x-html="icon(tile.icon, 'h-4 w-4')"></span>
+              </div>
+              <div class="mt-2 text-2xl font-semibold tabular-nums text-slate-900 dark:text-white" x-text="tile.value"></div>
+            </button>
+          </template>
+        </div>
+
+        <!-- start -->
+        <div class="card overflow-hidden">
+          <div class="relative p-6 sm:p-8">
+            <div class="pointer-events-none absolute inset-y-0 right-0 hidden w-1/3 bg-gradient-to-l from-brand-50 to-transparent dark:from-brand-500/10 md:block"></div>
+            <div class="relative max-w-2xl">
+              <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Start with a link</h2>
+              <p class="muted mt-1">Paste the address of a page that lists things: products, jobs, flats, stock tables. The app finds the important columns for you.</p>
+              <form class="mt-5 flex flex-col gap-2 sm:flex-row" @submit.prevent="startWizard(null, urlMain)">
+                <div class="relative flex-1">
+                  <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" x-html="icon('search', 'h-4 w-4')"></span>
+                  <input type="url" x-model="urlMain" required aria-label="Page link" placeholder="https://example.com/category/laptops" class="input py-2.5 pl-9">
+                </div>
+                <button class="btn btn-primary btn-lg">Find the data</button>
+              </form>
+              <button class="mt-3 text-sm link" @click="trySample()">No link handy? Try a sample bookshop →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- templates -->
         <div>
-          <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Or start from a type of data</h2>
+          <div class="mb-3 flex items-center justify-between"><h2 class="eyebrow">Or start from a type of data</h2></div>
           <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <template x-for="t in templates" :key="t.id">
-              <button class="card flex items-start gap-3 p-4 text-left transition hover:border-indigo-300 hover:shadow-md" @click="startWizard(t)">
-                <span class="text-2xl" x-text="t.icon"></span>
-                <span>
+              <button class="card group flex items-start gap-3 p-4 text-left transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop dark:hover:border-brand-500/40" @click="startWizard(t)">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-600/10 transition group-hover:bg-brand-600 group-hover:text-white dark:bg-brand-500/10 dark:text-brand-300"
+                      x-html="icon(t.icon, 'h-[18px] w-[18px]')"></span>
+                <span class="min-w-0">
                   <span class="block font-medium text-slate-900 dark:text-slate-100" x-text="t.name"></span>
-                  <span class="block text-xs text-slate-500" x-text="t.hint"></span>
+                  <span class="mt-0.5 block text-xs text-slate-500" x-text="t.hint"></span>
                 </span>
               </button>
             </template>
           </div>
         </div>
 
+        <!-- recent -->
         <div class="grid gap-6 lg:grid-cols-2">
           <div class="card min-w-0">
             <div class="card-head"><h2 class="card-title">Saved scrapes</h2>
-              <button class="btn-ghost ml-auto" @click="go('scrapes')" x-show="scrapes.length">See all</button></div>
-            <div class="card-body">
-              <p class="muted" x-show="!scrapes.length">Scrapes you save appear here, ready to run again with one click.</p>
+              <button class="btn-ghost ml-auto" @click="go('scrapes')" x-show="scrapes.length">View all</button></div>
+            <div class="px-5 py-2">
+              <div class="py-8 text-center" x-show="!scrapes.length">
+                <span class="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-400 dark:bg-slate-800" x-html="icon('folder', 'h-5 w-5')"></span>
+                <p class="muted">Scrapes you save appear here, ready to run again.</p>
+              </div>
               <ul class="divide-y divide-slate-100 dark:divide-slate-800">
                 <template x-for="s in scrapes.slice(0, 5)" :key="s.id">
-                  <li class="flex items-center gap-3 py-2.5">
+                  <li class="flex items-center gap-3 py-3">
                     <div class="min-w-0 flex-1">
-                      <div class="truncate font-medium" x-text="s.name"></div>
-                      <div class="text-xs text-slate-500" x-text="s.last_run ? `${statusLabel(s.last_run.status)} · ${s.last_run.rows} rows · ${timeAgo(s.last_run.created_at)}` : 'Not run yet'"></div>
+                      <div class="truncate font-medium text-slate-900 dark:text-slate-100" x-text="s.name"></div>
+                      <div class="text-xs text-slate-500" x-text="s.last_run ? `${statusLabel(s.last_run.status)} · ${fmt(s.last_run.rows)} rows · ${timeAgo(s.last_run.created_at)}` : 'Not run yet'"></div>
                     </div>
-                    <button class="btn" @click="runScrape(s)">Run again</button>
+                    <button class="btn btn-sm" @click="runScrape(s)"><span x-html="icon('play', 'h-3.5 w-3.5')"></span> Run</button>
                   </li>
                 </template>
               </ul>
@@ -209,15 +214,18 @@
           </div>
           <div class="card min-w-0">
             <div class="card-head"><h2 class="card-title">Recent results</h2>
-              <button class="btn-ghost ml-auto" @click="go('runs')" x-show="jobs.length">See all</button></div>
-            <div class="card-body">
-              <p class="muted" x-show="!jobs.length">Nothing collected yet. Start with a link above.</p>
+              <button class="btn-ghost ml-auto" @click="go('runs')" x-show="jobs.length">View all</button></div>
+            <div class="px-5 py-2">
+              <div class="py-8 text-center" x-show="!jobs.length">
+                <span class="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-400 dark:bg-slate-800" x-html="icon('table', 'h-5 w-5')"></span>
+                <p class="muted">Nothing collected yet. Start with a link above.</p>
+              </div>
               <ul class="divide-y divide-slate-100 dark:divide-slate-800">
                 <template x-for="j in jobs.slice(0, 5)" :key="j.id">
-                  <li class="flex cursor-pointer items-center gap-3 py-2.5" @click="go('runs'); openJob(j)">
+                  <li class="flex cursor-pointer items-center gap-3 py-3" @click="go('runs'); openJob(j)">
                     <div class="min-w-0 flex-1">
-                      <div class="truncate font-medium" x-text="jobTitle(j)"></div>
-                      <div class="truncate text-xs text-slate-500" x-text="j.progress"></div>
+                      <div class="truncate font-medium text-slate-900 dark:text-slate-100" x-text="jobTitle(j)"></div>
+                      <div class="truncate text-xs text-slate-500" x-text="`${fmt(j.rows)} rows · ${timeAgo(j.created_at)}`"></div>
                     </div>
                     <span class="chip" :class="statusChip(j.status)" x-text="statusLabel(j.status)"></span>
                   </li>
@@ -228,130 +236,164 @@
         </div>
       </section>
 
-      <!-- ================= NEW SCRAPE WIZARD ================= -->
-      <section x-show="view==='new'" class="space-y-6">
+      <!-- ===================================================== NEW SCRAPE -->
+      <section x-show="view==='new'" x-cloak class="space-y-6 animate-fade-up">
         <div>
           <h1 class="page-title" x-text="editingScrapeId ? 'Edit scrape' : 'New scrape'"></h1>
-          <p class="muted">Three steps: paste a link, check the columns, collect the data.</p>
+          <p class="muted mt-1">Paste a link, check the columns, collect the data.</p>
         </div>
 
         <!-- stepper -->
-        <ol class="flex items-center gap-2 text-sm">
-          <template x-for="(label, i) in ['Link', 'Columns', 'Collect']" :key="i">
-            <li class="flex flex-1 items-center gap-2">
-              <button class="step-dot" :disabled="i + 1 > step || busy"
-                      :class="step > i + 1 ? 'bg-emerald-500 text-white' : step === i + 1 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-800'"
-                      @click="if (i + 1 < step) step = i + 1">
-                <span x-text="step > i + 1 ? '✓' : i + 1"></span>
+        <ol class="grid grid-cols-3 gap-2" aria-label="Steps">
+          <template x-for="(s, i) in [{t: 'Link', d: 'Which page'}, {t: 'Columns', d: 'What to collect'}, {t: 'Collect', d: 'Name and run'}]" :key="i">
+            <li>
+              <button class="flex w-full items-center gap-3 rounded-xl border p-3 text-left transition disabled:cursor-default"
+                      :class="step === i + 1 ? 'border-brand-300 bg-white shadow-card ring-1 ring-brand-500/20 dark:border-brand-500/50 dark:bg-slate-900'
+                             : step > i + 1 ? 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900'
+                             : 'border-dashed border-slate-200 dark:border-slate-800'"
+                      :disabled="i + 1 >= step || !!busy" @click="step = i + 1">
+                <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-semibold"
+                      :class="step > i + 1 ? 'bg-emerald-500 text-white' : step === i + 1 ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'">
+                  <template x-if="step > i + 1"><span x-html="icon('check', 'h-4 w-4')"></span></template>
+                  <template x-if="step <= i + 1"><span x-text="i + 1"></span></template>
+                </span>
+                <span class="hidden min-w-0 sm:block">
+                  <span class="block text-sm font-medium" :class="step >= i + 1 ? 'text-slate-900 dark:text-white' : 'text-slate-400'" x-text="s.t"></span>
+                  <span class="block text-xs text-slate-500" x-text="s.d"></span>
+                </span>
               </button>
-              <span class="font-medium" :class="step === i + 1 ? 'text-slate-900 dark:text-white' : 'text-slate-500'" x-text="label"></span>
-              <span class="mx-2 hidden h-px flex-1 bg-slate-200 dark:bg-slate-800 sm:block" x-show="i < 2"></span>
             </li>
           </template>
         </ol>
 
-        <!-- Step 1: link -->
-        <div class="card" x-show="step === 1">
-          <div class="card-body space-y-5">
+        <!-- loading state while the page is read -->
+        <div class="card p-6" x-show="['analyse','ai','add'].includes(busy)" x-cloak>
+          <div class="flex items-start gap-4">
+            <span class="spinner mt-1 h-5 w-5 text-brand-600"></span>
+            <div class="min-w-0 flex-1">
+              <div class="font-medium text-slate-900 dark:text-white" x-text="loadingSteps()[loadStep]"></div>
+              <ul class="mt-3 space-y-1.5 text-sm">
+                <template x-for="(t, i) in loadingSteps()" :key="i">
+                  <li class="flex items-center gap-2" :class="i < loadStep ? 'text-emerald-600 dark:text-emerald-400' : i === loadStep ? 'text-slate-900 dark:text-white' : 'text-slate-400'">
+                    <span class="grid h-4 w-4 place-items-center">
+                      <template x-if="i < loadStep"><span x-html="icon('check', 'h-4 w-4')"></span></template>
+                      <template x-if="i >= loadStep"><span class="h-1.5 w-1.5 rounded-full bg-current"></span></template>
+                    </span>
+                    <span x-text="t"></span>
+                  </li>
+                </template>
+              </ul>
+              <div class="mt-5 space-y-2" aria-hidden="true">
+                <div class="skeleton h-3 w-full"></div><div class="skeleton h-3 w-11/12"></div><div class="skeleton h-3 w-4/5"></div>
+              </div>
+              <p class="mt-4 text-xs text-slate-400">This usually takes 5–20 seconds.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="card" x-show="step === 1 && !['analyse','ai'].includes(busy)">
+          <div class="card-body space-y-6">
             <div>
-              <label class="label">Page link</label>
-              <input type="url" x-model="urlMain" class="input py-3 text-base" placeholder="https://example.com/category/laptops"
+              <label class="label" for="url-main">Page link</label>
+              <input id="url-main" type="url" x-model="urlMain" class="input py-2.5 text-[15px]" placeholder="https://example.com/category/laptops"
                      @keydown.enter.prevent="analyse(false)">
-              <p class="mt-1.5 text-xs text-slate-500">Tip: use a page that shows many similar items, like search results, a category or a table. Not a single product page.</p>
+              <p class="mt-1.5 text-xs text-slate-500">Use a page that shows many similar items: search results, a category, a table. Not a single product page.</p>
               <button class="mt-2 text-xs link" @click="showExtra = !showExtra" x-text="showExtra ? 'Hide extra links' : '+ Add more pages from the same site'"></button>
-              <textarea x-show="showExtra" x-model="urlsExtra" rows="3" class="input mt-2 font-mono text-xs"
-                        placeholder="One link per line, e.g. other categories of the same site"></textarea>
+              <textarea x-show="showExtra" x-cloak x-model="urlsExtra" rows="3" class="input mt-2 font-mono text-xs"
+                        placeholder="One link per line, for example other categories of the same site"></textarea>
             </div>
 
             <div>
-              <label class="label">What kind of data is it? <span class="hint">· optional</span></label>
+              <span class="label">What kind of data is it? <span class="hint">· optional</span></span>
               <div class="flex flex-wrap gap-2">
                 <template x-for="t in templates" :key="t.id">
-                  <button class="chip px-3 py-1.5 text-sm" :class="template?.id === t.id ? 'chip-blue' : 'chip-gray hover:bg-slate-100 dark:hover:bg-slate-700'"
-                          @click="pickTemplate(t)"><span x-text="t.icon"></span><span x-text="t.name"></span></button>
+                  <button class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition"
+                          :class="template?.id === t.id ? 'border-brand-300 bg-brand-50 text-brand-700 ring-1 ring-brand-500/20 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
+                                 : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'"
+                          @click="pickTemplate(t)">
+                    <span x-html="icon(t.icon, 'h-4 w-4')"></span><span x-text="t.name"></span></button>
                 </template>
               </div>
             </div>
 
             <div>
-              <label class="label">Columns you want <span class="hint">· optional, separated by commas</span></label>
-              <input type="text" x-model="fieldsText" class="input" placeholder="Leave empty and the AI picks the important ones">
-              <label class="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                <input type="checkbox" x-model="autoColumns" class="rounded border-slate-300"> Also add any other important columns the AI finds
+              <label class="label" for="fields">Columns you want <span class="hint">· optional, separated by commas</span></label>
+              <input id="fields" type="text" x-model="fieldsText" class="input" placeholder="Leave empty and the AI picks the important ones">
+              <label class="mt-2.5 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <input type="checkbox" x-model="autoColumns" class="checkbox"> Also add any other important columns the AI finds
               </label>
             </div>
 
-            <!-- the site showed a human check -->
-            <div x-show="blockedPage" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
-              <div class="font-semibold" x-text="(blockedPage?.domain || '') + ' asked for a human check'"></div>
-              <p class="mt-1 opacity-90">The app never solves these automatically. You can solve it yourself in a browser window, then try again.</p>
-              <button class="btn mt-3" @click="startSiteSolve()" :disabled="!status?.browser_available">Open to solve</button>
+            <div x-show="blockedPage" x-cloak class="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+              <span class="text-amber-500" x-html="icon('warn', 'h-5 w-5')"></span>
+              <div class="flex-1">
+                <div class="font-semibold" x-text="(blockedPage?.domain || '') + ' asked for a human check'"></div>
+                <p class="mt-0.5 text-amber-800/90 dark:text-amber-200/90">The app never solves these automatically. Solve it yourself in a browser window, then try again.</p>
+                <button class="btn btn-sm mt-3" @click="startSiteSolve()" :disabled="!status?.browser_available">Open to solve</button>
+              </div>
             </div>
-
-            <div class="flex justify-end">
-              <button class="btn btn-primary btn-lg" @click="analyse(false)" :disabled="!!busy">
-                <span x-show="busy==='analyse'" class="spinner"></span>
-                <span x-text="busy==='analyse' ? 'Reading the page…' : 'Find the data'"></span>
-              </button>
-            </div>
+          </div>
+          <div class="flex justify-end border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+            <button class="btn btn-primary btn-lg" @click="analyse(false)" :disabled="!!busy">Find the data</button>
           </div>
         </div>
 
-        <!-- Step 2: columns -->
-        <div class="space-y-5" x-show="step === 2">
+        <!-- Step 2 -->
+        <div class="space-y-5" x-show="step === 2 && !['analyse','ai','add'].includes(busy)">
           <div class="card">
-            <div class="card-body space-y-4">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="text-lg font-semibold text-slate-900 dark:text-white"
-                      x-text="`Found ${analysis?.row_count ?? 0} items`"></span>
+            <div class="card-body space-y-5">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div class="text-lg font-semibold text-slate-900 dark:text-white">
+                  Found <span class="tabular-nums" x-text="fmt(analysis?.row_count)"></span> items</div>
                 <span class="muted" x-text="'on ' + (analysis?.domain || '')"></span>
                 <span class="chip chip-green" x-show="analysis?.page_type" x-text="pageTypeLabel(analysis?.page_type)"></span>
-                <span class="chip chip-blue" x-show="analysis?.logged_in">using your login</span>
-                <span class="chip chip-gray" x-show="advanced" x-text="'setup: ' + (analysis?.source || '')"></span>
+                <span class="chip chip-blue" x-show="analysis?.logged_in" x-cloak><span x-html="icon('lock', 'h-3 w-3')"></span> using your login</span>
+                <span class="chip chip-gray" x-show="advanced" x-cloak x-text="'setup: ' + (analysis?.source || '')"></span>
               </div>
 
               <div>
-                <div class="mb-2 flex items-center gap-2">
-                  <span class="text-sm font-medium text-slate-700 dark:text-slate-200" x-text="`Columns (${recipeColumns().length})`"></span>
-                  <span class="text-xs text-slate-400">Click a name to rename it · × removes it</span>
+                <div class="mb-2 flex flex-wrap items-baseline gap-2">
+                  <span class="text-sm font-medium text-slate-900 dark:text-slate-100" x-text="`Columns (${recipeColumns().length})`"></span>
+                  <span class="text-xs text-slate-400">Click a name to rename · × to remove · dot shows how often it was found</span>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
                   <template x-for="c in recipeColumns()" :key="c">
-                    <span class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800"
+                    <span class="group inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800"
                           :title="fillOf(c) === null ? '' : `Found in ${Math.round(fillOf(c) * 100)}% of items`">
                       <span class="h-2 w-2 rounded-full" :class="fillClass(c)"></span>
-                      <button class="hover:text-indigo-600" @click="renameColumn(c)" x-text="pretty(c)" :disabled="!!busy"></button>
-                      <span class="text-xs text-slate-400" x-show="fillOf(c) !== null" x-text="Math.round(fillOf(c) * 100) + '%'"></span>
-                      <button class="rounded px-1 text-slate-400 hover:bg-slate-100 hover:text-rose-600 dark:hover:bg-slate-700"
-                              @click="removeColumn(c)" :disabled="!!busy" :title="'Remove ' + c">×</button>
+                      <button class="font-medium text-slate-700 hover:text-brand-600 dark:text-slate-200" @click="renameColumn(c)" x-text="pretty(c)" :disabled="!!busy"></button>
+                      <span class="text-xs tabular-nums text-slate-400" x-show="fillOf(c) !== null" x-text="Math.round(fillOf(c) * 100) + '%'"></span>
+                      <button class="rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
+                              @click="removeColumn(c)" :disabled="!!busy" :aria-label="'Remove ' + c"><span x-html="icon('x', 'h-3.5 w-3.5')"></span></button>
                     </span>
                   </template>
-                  <form class="flex items-center gap-1" @submit.prevent="addColumn()">
-                    <input type="text" x-model="newColumn" class="input h-8 w-44 py-0 text-sm" placeholder="Add a column…">
-                    <button class="btn h-8 px-2.5 py-0" :disabled="!!busy || !newColumn.trim() || !status?.ai_enabled">
-                      <span x-show="busy==='add'" class="spinner"></span> Add
-                    </button>
+                  <form class="flex items-center gap-1.5" @submit.prevent="addColumn()">
+                    <input type="text" x-model="newColumn" class="input h-8 w-44 py-0" placeholder="Add a column…" aria-label="Add a column">
+                    <button class="btn btn-sm h-8" :disabled="!!busy || !newColumn.trim() || !status?.ai_enabled">Add</button>
                   </form>
                 </div>
               </div>
 
-              <p x-show="analysis?.absent?.length"
-                 class="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
-                Not on this page: <span class="font-medium" x-text="(analysis?.absent || []).map(pretty).join(', ')"></span>.
-                <span class="text-slate-400">These may only appear on each item's own page.</span></p>
-              <p x-show="advanced && analysis?.notes" x-text="analysis?.notes"
+              <div x-show="analysis?.absent?.length" x-cloak class="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+                <span class="mt-0.5 text-slate-400" x-html="icon('info', 'h-4 w-4')"></span>
+                <span>Not on this page: <span class="font-medium" x-text="(analysis?.absent || []).map(pretty).join(', ')"></span>.
+                  <span class="text-slate-400">These may only appear on each item's own page.</span></span>
+              </div>
+              <p x-show="advanced && analysis?.notes" x-cloak x-text="analysis?.notes"
                  class="rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400"></p>
-              <div x-show="analysis?.personal_fields?.length"
-                   class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                Some columns contain personal data (<span x-text="(analysis?.personal_fields || []).join(', ')"></span>).
-                Phone numbers and emails are hidden unless you choose to collect them in the next step.
+              <div x-show="analysis?.personal_fields?.length" x-cloak
+                   class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                <span class="mt-0.5 text-amber-500" x-html="icon('lock', 'h-4 w-4')"></span>
+                <span>Some columns contain personal data (<span x-text="(analysis?.personal_fields || []).map(pretty).join(', ')"></span>).
+                  Phone numbers and emails stay hidden unless you choose to collect them in the next step.</span>
               </div>
             </div>
           </div>
 
           <div class="card">
-            <div class="card-head"><h2 class="card-title">Preview</h2><span class="muted">first rows from the page</span>
-              <span class="ml-auto" x-show="busy==='preview'"><span class="spinner inline-block"></span></span></div>
+            <div class="card-head"><h2 class="card-title">Preview</h2><span class="muted">first 10 rows from the page</span>
+              <span class="ml-auto text-brand-600" x-show="busy==='preview'" x-cloak><span class="spinner"></span></span></div>
             <div class="p-3">
               <div class="table-wrap max-h-[26rem]" x-show="analysis?.rows?.length">
                 <table class="tbl">
@@ -360,8 +402,8 @@
                     <template x-for="(r, i) in (analysis?.rows || []).slice(0, 10)" :key="i">
                       <tr><template x-for="c in columns(analysis?.rows)" :key="c">
                         <td>
-                          <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded object-cover" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
-                          <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link" :href="r[c]" target="_blank" rel="noopener noreferrer">Open ↗</a></template>
+                          <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700" alt="" loading="eager" referrerpolicy="no-referrer"></template>
+                          <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link inline-flex items-center gap-1" :href="r[c]" target="_blank" rel="noopener noreferrer">Open <span x-html="icon('external', 'h-3 w-3')"></span></a></template>
                           <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :title="r[c]" x-text="r[c]"></span></template>
                         </td>
                       </template></tr>
@@ -369,245 +411,255 @@
                   </tbody>
                 </table>
               </div>
-              <p class="muted p-4" x-show="!analysis?.rows?.length">No rows yet. Try “Ask the AI again”, or adjust the setup in Advanced mode.</p>
+              <p class="muted p-6 text-center" x-show="!analysis?.rows?.length">No rows yet. Try “Ask the AI again”, or adjust the setup in Advanced mode.</p>
             </div>
           </div>
 
-          <!-- Advanced: setup JSON + site settings -->
-          <div class="card" x-show="advanced">
+          <!-- advanced: setup + site settings -->
+          <div class="card" x-show="advanced" x-cloak>
             <div class="divide-y divide-slate-100 dark:divide-slate-800">
               <details class="group px-5 py-4">
-                <summary><svg class="chev h-4 w-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 0 1 0-1.06L10.94 10 7.2 6.27a.75.75 0 1 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0Z" clip-rule="evenodd"/></svg>
-                  Column setup (JSON)</summary>
-                <textarea x-model="recipeText" rows="14" spellcheck="false" class="input mt-3 bg-slate-50 font-mono text-xs leading-relaxed dark:bg-slate-950"></textarea>
+                <summary><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-4 w-4')"></span> Column setup (JSON)</summary>
+                <textarea x-model="recipeText" rows="14" spellcheck="false" class="input mt-3 bg-slate-50 font-mono text-xs leading-relaxed dark:bg-slate-950" aria-label="Column setup JSON"></textarea>
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <button class="btn" @click="previewRecipe()" :disabled="!!busy">Preview again</button>
-                  <button class="btn" @click="saveRecipeForSite()" :disabled="!!busy || !analysis?.domain">Save as this site's default</button>
+                  <button class="btn btn-sm" @click="previewRecipe()" :disabled="!!busy">Preview again</button>
+                  <button class="btn btn-sm" @click="saveRecipeForSite()" :disabled="!!busy || !analysis?.domain">Save as this site's default</button>
                 </div>
               </details>
               <details class="group px-5 py-4">
-                <summary><svg class="chev h-4 w-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 0 1 0-1.06L10.94 10 7.2 6.27a.75.75 0 1 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0Z" clip-rule="evenodd"/></svg>
+                <summary><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-4 w-4')"></span>
                   Site settings <span class="ml-1 text-xs font-normal text-slate-400" x-text="settingsSummary()"></span></summary>
-                <div class="mt-4 flex flex-wrap items-end gap-4">
+                <div class="mt-4 grid gap-4 sm:grid-cols-4">
                   <div><label class="label">Daily page limit</label>
-                    <input type="number" min="1" x-model.number="settings.daily_budget" class="input w-28" :placeholder="status?.budget?.[0]"></div>
+                    <input type="number" min="1" x-model.number="settings.daily_budget" class="input" :placeholder="status?.budget?.[0]"></div>
                   <div><label class="label">Min wait (s)</label>
-                    <input type="number" min="0" step="0.5" x-model.number="settings.min_delay" class="input w-24" :placeholder="status?.delay?.[0]"></div>
+                    <input type="number" min="0" step="0.5" x-model.number="settings.min_delay" class="input" :placeholder="status?.delay?.[0]"></div>
                   <div><label class="label">Max wait (s)</label>
-                    <input type="number" min="0" step="0.5" x-model.number="settings.max_delay" class="input w-24" :placeholder="status?.delay?.[1]"></div>
+                    <input type="number" min="0" step="0.5" x-model.number="settings.max_delay" class="input" :placeholder="status?.delay?.[1]"></div>
                   <div><label class="label">Page loading</label>
-                    <select x-model="settings.render" class="input w-60">
+                    <select x-model="settings.render" class="input">
                       <option value="auto">Automatic</option>
                       <option value="never">Simple (fast)</option>
-                      <option value="always">Like a browser (for JavaScript sites)</option>
+                      <option value="always">Like a browser</option>
                     </select></div>
                 </div>
-                <div class="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.ai_allowed" class="rounded border-slate-300"> Let the AI analyse this site</label>
-                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.use_session" class="rounded border-slate-300"> Use my saved login for this site</label>
-                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.honest_ua" class="rounded border-slate-300"> Identify as UniversalScraper</label>
-                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.blocked" class="rounded border-slate-300"> Never scrape this site</label>
+                <div class="mt-4 grid gap-2.5 text-sm sm:grid-cols-2">
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.ai_allowed" class="checkbox"> Let the AI analyse this site</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.use_session" class="checkbox"> Use my saved login for this site</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.honest_ua" class="checkbox"> Identify as UniversalScraper</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.blocked" class="checkbox"> Never scrape this site</label>
                 </div>
-                <button class="btn mt-4" @click="saveSettings()" :disabled="!!busy || !analysis?.domain">Save site settings</button>
+                <button class="btn btn-sm mt-4" @click="saveSettings()" :disabled="!!busy || !analysis?.domain">Save site settings</button>
               </details>
             </div>
           </div>
 
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex gap-2">
-              <button class="btn" @click="step = 1">← Back</button>
+              <button class="btn" @click="step = 1"><span x-html="icon('left', 'h-4 w-4')"></span> Back</button>
               <button class="btn" @click="analyse(true)" :disabled="!!busy || !status?.ai_enabled" title="Let the AI look at the page again">
-                <span x-show="busy==='ai'" class="spinner"></span> Ask the AI again
-              </button>
+                <span x-html="icon('refresh', 'h-4 w-4')"></span> Ask the AI again</button>
             </div>
-            <button class="btn btn-primary btn-lg" @click="step = 3" :disabled="!!busy || !analysis?.row_count">Looks good →</button>
+            <button class="btn btn-primary btn-lg" @click="step = 3" :disabled="!!busy || !analysis?.row_count">Continue</button>
           </div>
         </div>
 
-        <!-- Step 3: collect -->
-        <div class="space-y-5" x-show="step === 3">
-          <div class="card">
-            <div class="card-body space-y-5">
-              <div>
-                <label class="label">Name this scrape</label>
-                <input type="text" x-model="scrapeName" class="input text-base" maxlength="120">
-                <p class="mt-1 text-xs text-slate-500">You'll find it under Saved scrapes, ready to run again.</p>
-              </div>
-              <div>
-                <label class="label">How many pages to collect?</label>
-                <div class="flex items-center gap-3">
-                  <input type="range" min="1" :max="Math.min(50, status?.max_pages || 10)" x-model.number="maxPages" class="w-64 accent-indigo-600">
-                  <span class="w-28 text-sm font-medium" x-text="maxPages + (maxPages === 1 ? ' page' : ' pages') + (urls().length > 1 ? ' per link' : '')"></span>
+        <!-- Step 3 -->
+        <div class="space-y-5" x-show="step === 3" x-cloak>
+          <div class="grid gap-5 lg:grid-cols-[1fr_20rem]">
+            <div class="card">
+              <div class="card-body space-y-6">
+                <div>
+                  <label class="label" for="scrape-name">Name</label>
+                  <input id="scrape-name" type="text" x-model="scrapeName" class="input py-2.5 text-[15px]" maxlength="120">
+                  <p class="mt-1.5 text-xs text-slate-500">It's saved under Saved scrapes, ready to run again.</p>
                 </div>
-                <p class="mt-1 text-xs text-slate-500" x-text="paginationHint()"></p>
-              </div>
-
-              <div x-show="analysis?.personal_fields?.length" class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
-                <div class="text-sm font-medium">Collect personal data?</div>
-                <p class="mt-0.5 text-xs text-slate-500">Only tick a column if you have a lawful reason, e.g. contacting suppliers you already work with. Otherwise phones and emails stay hidden.</p>
-                <div class="mt-3 flex flex-wrap gap-4 text-sm">
-                  <template x-for="f in analysis?.personal_fields || []" :key="f">
-                    <label class="flex items-center gap-2"><input type="checkbox" x-model="personalChoice[f]" class="rounded border-slate-300"> <span x-text="pretty(f)"></span></label>
-                  </template>
+                <div>
+                  <div class="flex items-baseline justify-between">
+                    <label class="label" for="pages">Pages to collect</label>
+                    <span class="text-sm font-semibold tabular-nums text-slate-900 dark:text-white" x-text="maxPages + (urls().length > 1 ? ' per link' : '')"></span>
+                  </div>
+                  <input id="pages" type="range" min="1" :max="Math.min(50, status?.max_pages || 10)" x-model.number="maxPages" class="w-full accent-brand-600">
+                  <p class="mt-1 text-xs text-slate-500" x-text="paginationHint()"></p>
                 </div>
-                <input type="text" x-show="personalFieldsChosen().length" x-model="personalPurpose" class="input mt-3" placeholder="Why do you need it?">
-              </div>
-
-              <div class="rounded-lg bg-slate-50 p-4 text-sm dark:bg-slate-800/60">
-                <div class="font-medium text-slate-700 dark:text-slate-200">Summary</div>
-                <ul class="mt-1 space-y-0.5 text-slate-600 dark:text-slate-300">
-                  <li x-text="`Site: ${analysis?.domain || ''}` + (urls().length > 1 ? ` (${urls().length} links)` : '')"></li>
-                  <li x-text="`Columns: ${recipeColumns().map(pretty).join(', ')}`"></li>
-                  <li x-text="`Up to ${maxPages} page(s)` + (urls().length > 1 ? ' per link' : '') + ', with short polite pauses between pages'"></li>
-                </ul>
+                <div x-show="analysis?.personal_fields?.length" x-cloak class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                  <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Collect personal data?</div>
+                  <p class="mt-0.5 text-xs text-slate-500">Only tick a column if you have a lawful reason, e.g. contacting suppliers you already work with. Otherwise phones and emails stay hidden.</p>
+                  <div class="mt-3 flex flex-wrap gap-4 text-sm">
+                    <template x-for="f in analysis?.personal_fields || []" :key="f">
+                      <label class="flex items-center gap-2"><input type="checkbox" x-model="personalChoice[f]" class="checkbox"> <span x-text="pretty(f)"></span></label>
+                    </template>
+                  </div>
+                  <input type="text" x-show="personalFieldsChosen().length" x-cloak x-model="personalPurpose" class="input mt-3" placeholder="Why do you need it?">
+                </div>
               </div>
             </div>
+            <aside class="card h-fit p-5">
+              <div class="eyebrow">Summary</div>
+              <dl class="mt-3 space-y-3 text-sm">
+                <div><dt class="text-slate-500">Site</dt><dd class="font-medium text-slate-900 dark:text-white" x-text="(analysis?.domain || '') + (urls().length > 1 ? ` · ${urls().length} links` : '')"></dd></div>
+                <div><dt class="text-slate-500">Type</dt><dd class="font-medium text-slate-900 dark:text-white" x-text="pageTypeLabel(analysis?.page_type) || '—'"></dd></div>
+                <div><dt class="text-slate-500">Columns</dt>
+                  <dd class="mt-1 flex flex-wrap gap-1"><template x-for="c in recipeColumns()" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template></dd></div>
+                <div><dt class="text-slate-500">Pace</dt><dd class="text-slate-700 dark:text-slate-300">Short polite pauses between pages</dd></div>
+              </dl>
+            </aside>
           </div>
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <button class="btn" @click="step = 2">← Back</button>
+            <button class="btn" @click="step = 2"><span x-html="icon('left', 'h-4 w-4')"></span> Back</button>
             <div class="flex gap-2">
-              <button class="btn" @click="saveScrape(false)" :disabled="!!busy">
-                <span x-show="busy==='save'" class="spinner"></span> Save for later
-              </button>
+              <button class="btn" @click="saveScrape(false)" :disabled="!!busy"><span x-show="busy==='save'" class="spinner"></span> Save for later</button>
               <button class="btn btn-primary btn-lg" @click="saveScrape(true)" :disabled="!!busy">
-                <span x-show="busy==='run'" class="spinner"></span> Start collecting
-              </button>
+                <span x-show="busy==='run'" class="spinner"></span><span x-show="busy!=='run'" x-html="icon('play', 'h-4 w-4')"></span> Start collecting</button>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- ================= SAVED SCRAPES ================= -->
-      <section x-show="view==='scrapes'" class="space-y-6">
-        <div class="flex flex-wrap items-end justify-between gap-3">
-          <div><h1 class="page-title">Saved scrapes</h1><p class="muted">Set up once, run again whenever you need fresh data.</p></div>
-          <button class="btn btn-primary" @click="startWizard()">+ New scrape</button>
+      <!-- ===================================================== SAVED SCRAPES -->
+      <section x-show="view==='scrapes'" x-cloak class="space-y-6 animate-fade-up">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div><h1 class="page-title">Saved scrapes</h1><p class="muted mt-1">Set up once, run again whenever you need fresh data.</p></div>
+          <div class="relative w-full sm:w-72" x-show="scrapes.length">
+            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" x-html="icon('search', 'h-4 w-4')"></span>
+            <input type="search" x-model="scrapeQuery" class="input pl-9" placeholder="Search saved scrapes" aria-label="Search saved scrapes">
+          </div>
         </div>
-        <div class="card p-10 text-center" x-show="!scrapes.length">
-          <div class="text-3xl">📁</div>
-          <p class="mt-2 font-medium">No saved scrapes yet</p>
-          <p class="muted">Create one with New scrape; it will appear here.</p>
+        <div class="card px-6 py-14 text-center" x-show="!scrapes.length">
+          <span class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10" x-html="icon('folder', 'h-6 w-6')"></span>
+          <p class="font-medium text-slate-900 dark:text-white">No saved scrapes yet</p>
+          <p class="muted mt-1">Create one and it appears here, ready to run again.</p>
+          <button class="btn btn-primary mt-5" @click="startWizard()"><span x-html="icon('plus', 'h-4 w-4')"></span> New scrape</button>
         </div>
+        <p class="muted" x-show="scrapes.length && !filteredScrapes().length" x-cloak>No saved scrape matches “<span x-text="scrapeQuery"></span>”.</p>
         <div class="grid gap-4 md:grid-cols-2">
-          <template x-for="s in scrapes" :key="s.id">
-            <div class="card flex min-w-0 flex-col p-5">
+          <template x-for="s in filteredScrapes()" :key="s.id">
+            <div class="card flex min-w-0 flex-col p-5 transition hover:shadow-pop">
               <div class="flex items-start gap-3">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"
+                      x-html="icon(({ecommerce: 'cart', jobs: 'briefcase', real_estate: 'house', stocks_finance: 'chart', directory: 'building', news_articles: 'news'})[s.page_type] || 'table', 'h-[18px] w-[18px]')"></span>
                 <div class="min-w-0 flex-1">
-                  <div class="truncate text-base font-semibold text-slate-900 dark:text-white" x-text="s.name"></div>
-                  <div class="text-xs text-slate-500" x-text="s.domain + (s.urls.length > 1 ? ` · ${s.urls.length} links` : '')"></div>
+                  <div class="truncate font-semibold text-slate-900 dark:text-white" x-text="s.name"></div>
+                  <div class="truncate text-xs text-slate-500" x-text="s.domain + (s.urls.length > 1 ? ` · ${s.urls.length} links` : '') + (s.page_type ? ' · ' + pageTypeLabel(s.page_type) : '')"></div>
                 </div>
-                <span class="chip chip-green" x-show="s.page_type" x-text="pageTypeLabel(s.page_type)"></span>
+                <div class="relative" x-data="{ open: false }">
+                  <button class="btn-ghost p-1.5" @click="open = !open" @click.outside="open = false" aria-label="More actions"><span x-html="icon('dots', 'h-4 w-4')"></span></button>
+                  <div class="menu" x-show="open" x-cloak x-transition.opacity>
+                    <button class="menu-item" @click="open=false; editScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Edit columns</button>
+                    <button class="menu-item" @click="open=false; renameScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Rename</button>
+                    <button class="menu-item" @click="open=false; duplicateScrape(s)"><span x-html="icon('copy', 'h-4 w-4 text-slate-400')"></span> Duplicate</button>
+                    <button class="menu-item text-rose-600 dark:text-rose-400" @click="open=false; deleteScrape(s)"><span x-html="icon('trash', 'h-4 w-4')"></span> Delete</button>
+                  </div>
+                </div>
               </div>
               <div class="mt-3 flex flex-wrap gap-1">
-                <template x-for="c in s.columns.slice(0, 7)" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template>
-                <span class="text-xs text-slate-400" x-show="s.columns.length > 7" x-text="'+' + (s.columns.length - 7)"></span>
+                <template x-for="c in s.columns.slice(0, 6)" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template>
+                <span class="chip chip-gray" x-show="s.columns.length > 6" x-text="'+' + (s.columns.length - 6)"></span>
               </div>
-              <div class="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                <template x-if="s.last_run">
-                  <span><span class="chip" :class="statusChip(s.last_run.status)" x-text="statusLabel(s.last_run.status)"></span>
-                    <span x-text="` ${s.last_run.rows} rows · ${timeAgo(s.last_run.created_at)} · ${s.runs} run(s)`"></span></span>
-                </template>
-                <span x-show="!s.last_run" class="text-slate-400">Not run yet</span>
-              </div>
-              <div class="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-                <button class="btn btn-primary" @click="runScrape(s)">Run again</button>
-                <button class="btn" @click="openLatestRun(s)" :disabled="!s.last_run">Results</button>
-                <button class="btn" @click="editScrape(s)">Edit</button>
-                <div class="ml-auto flex gap-1">
-                  <button class="btn-ghost" @click="renameScrape(s)">Rename</button>
-                  <button class="btn-ghost" @click="duplicateScrape(s)">Duplicate</button>
-                  <button class="btn-ghost hover:text-rose-600" @click="deleteScrape(s)">Delete</button>
+              <div class="mt-auto flex items-center gap-3 border-t border-slate-100 pt-4 dark:border-slate-800" :class="'mt-4'">
+                <div class="min-w-0 flex-1 text-xs text-slate-500">
+                  <template x-if="s.last_run"><span class="inline-flex items-center gap-1.5"><span class="chip" :class="statusChip(s.last_run.status)" x-text="statusLabel(s.last_run.status)"></span>
+                    <span x-text="`${fmt(s.last_run.rows)} rows · ${timeAgo(s.last_run.created_at)}`"></span></span></template>
+                  <span x-show="!s.last_run">Not run yet</span>
                 </div>
+                <button class="btn btn-sm" @click="openLatestRun(s)" :disabled="!s.last_run">Results</button>
+                <button class="btn btn-primary btn-sm" @click="runScrape(s)"><span x-html="icon('play', 'h-3.5 w-3.5')"></span> Run</button>
               </div>
             </div>
           </template>
         </div>
       </section>
 
-      <!-- ================= RESULTS ================= -->
-      <section x-show="view==='runs'" class="space-y-6">
-        <div><h1 class="page-title">Results</h1><p class="muted">Every run and the data it collected.</p></div>
-        <div class="card p-10 text-center" x-show="!jobs.length">
-          <div class="text-3xl">📊</div><p class="mt-2 font-medium">No results yet</p>
-          <p class="muted">Start a scrape and its data shows up here.</p>
+      <!-- ===================================================== RESULTS -->
+      <section x-show="view==='runs'" x-cloak class="space-y-6 animate-fade-up">
+        <div><h1 class="page-title">Results</h1><p class="muted mt-1">Every run and the data it collected.</p></div>
+        <div class="card px-6 py-14 text-center" x-show="!jobs.length">
+          <span class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10" x-html="icon('table', 'h-6 w-6')"></span>
+          <p class="font-medium text-slate-900 dark:text-white">No results yet</p>
+          <p class="muted mt-1">Start a scrape and its data shows up here.</p>
         </div>
 
-        <div class="grid gap-6 lg:grid-cols-[18rem_1fr]" x-show="jobs.length">
-          <!-- run list -->
-          <div class="card max-h-[70vh] overflow-auto p-2">
+        <div class="grid gap-6 lg:grid-cols-[17rem_1fr]" x-show="jobs.length">
+          <div class="card max-h-[72vh] overflow-auto p-1.5">
+            <div class="eyebrow px-2.5 pb-1 pt-2">Runs</div>
             <template x-for="j in jobs" :key="j.id">
-              <button class="w-full rounded-lg px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                      :class="selectedJob?.id === j.id && 'bg-indigo-50 ring-1 ring-indigo-200 dark:bg-indigo-500/10 dark:ring-indigo-500/30'"
-                      @click="openJob(j)">
+              <button class="w-full rounded-lg px-2.5 py-2 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      :class="selectedJob?.id === j.id && 'bg-brand-50 hover:bg-brand-50 dark:bg-brand-500/10'" @click="openJob(j)">
                 <div class="flex items-center gap-2">
-                  <span class="min-w-0 flex-1 truncate text-sm font-medium" x-text="jobTitle(j)"></span>
-                  <span class="chip" :class="statusChip(j.status)" x-text="statusLabel(j.status)"></span>
+                  <span class="min-w-0 flex-1 truncate text-sm font-medium text-slate-900 dark:text-slate-100" x-text="jobTitle(j)"></span>
+                  <span class="h-2 w-2 shrink-0 rounded-full" :title="statusLabel(j.status)"
+                        :class="{done: 'bg-emerald-500', running: 'bg-brand-500 animate-pulse', queued: 'bg-amber-400', needs_you: 'bg-amber-500 animate-pulse', blocked: 'bg-rose-500', error: 'bg-rose-500', stopped: 'bg-slate-400'}[j.status]"></span>
                 </div>
-                <div class="mt-0.5 text-xs text-slate-500" x-text="`${j.rows} rows · ${timeAgo(j.created_at)}`"></div>
+                <div class="mt-0.5 text-xs text-slate-500" x-text="`${fmt(j.rows)} rows · ${timeAgo(j.created_at)}`"></div>
               </button>
             </template>
           </div>
 
-          <!-- run detail -->
-          <div class="space-y-4 min-w-0">
-            <div class="card p-10 text-center" x-show="!selectedJob"><p class="muted">Pick a run on the left to see its data.</p></div>
+          <div class="min-w-0 space-y-4">
+            <div class="card px-6 py-14 text-center" x-show="!selectedJob"><p class="muted">Choose a run on the left to see its data.</p></div>
             <template x-if="selectedJob">
               <div class="space-y-4">
                 <div class="card p-5">
                   <div class="flex flex-wrap items-start gap-3">
                     <div class="min-w-0 flex-1">
                       <div class="flex flex-wrap items-center gap-2">
-                        <h2 class="text-lg font-semibold text-slate-900 dark:text-white" x-text="jobTitle(selectedJob)"></h2>
+                        <h2 class="truncate text-lg font-semibold text-slate-900 dark:text-white" x-text="jobTitle(selectedJob)"></h2>
                         <span class="chip" :class="statusChip(selectedJob.status)">
-                          <span class="dot" :class="['queued','running'].includes(selectedJob.status) && 'animate-pulse'"></span>
+                          <span class="dot" :class="['queued','running','needs_you'].includes(selectedJob.status) && 'animate-pulse'"></span>
                           <span x-text="statusLabel(selectedJob.status)"></span></span>
-                        <span class="chip chip-blue" x-show="selectedJob.logged_in" title="Used a login; stored encrypted">logged in</span>
+                        <span class="chip chip-blue" x-show="selectedJob.logged_in" title="Used a login; stored encrypted"><span x-html="icon('lock', 'h-3 w-3')"></span> logged in</span>
                         <span class="chip chip-gray" x-show="selectedJob.keep">kept</span>
                       </div>
                       <p class="mt-1 text-sm text-slate-600 dark:text-slate-300" x-text="selectedJob.progress"></p>
                       <p class="mt-1 break-words font-mono text-xs text-slate-400" x-show="advanced" x-text="selectedJob.message"></p>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                      <button class="btn btn-primary" x-show="selectedJob.status==='needs_you'" @click="startJobSolve(selectedJob)">Open to solve</button>
-                      <button class="btn" x-show="['queued','running','needs_you'].includes(selectedJob.status)" @click="stopJob(selectedJob)">Stop</button>
-                      <button class="btn" x-show="['stopped','blocked','error'].includes(selectedJob.status) && selectedJob.pages_done < selectedJob.pages_total" @click="resumeJob(selectedJob)">Continue</button>
-                      <button class="btn" x-show="selectedJob.scrape_id && !['queued','running'].includes(selectedJob.status)" @click="runAgainFromJob(selectedJob)">Run again</button>
+                      <button class="btn btn-primary btn-sm" x-show="selectedJob.status==='needs_you'" @click="startJobSolve(selectedJob)">Open to solve</button>
+                      <button class="btn btn-sm" x-show="['queued','running','needs_you'].includes(selectedJob.status)" @click="stopJob(selectedJob)"><span x-html="icon('stop', 'h-3.5 w-3.5')"></span> Stop</button>
+                      <button class="btn btn-sm" x-show="['stopped','blocked','error'].includes(selectedJob.status) && selectedJob.pages_done < selectedJob.pages_total" @click="resumeJob(selectedJob)">Continue</button>
+                      <button class="btn btn-sm" x-show="selectedJob.scrape_id && !['queued','running'].includes(selectedJob.status)" @click="runAgainFromJob(selectedJob)"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Run again</button>
                     </div>
                   </div>
-                  <div class="mt-4 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" x-show="['queued','running'].includes(selectedJob.status)">
-                    <div class="h-full rounded-full bg-indigo-500 transition-all duration-500" :style="`width:${progressPct(selectedJob)}%`"></div>
+                  <div class="mt-4" x-show="['queued','running'].includes(selectedJob.status)">
+                    <div class="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div class="h-full rounded-full bg-brand-500 transition-all duration-500" :style="`width:${progressPct(selectedJob)}%`"></div>
+                    </div>
                   </div>
                 </div>
 
                 <div class="card">
                   <div class="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3 dark:border-slate-800">
                     <div class="relative min-w-[12rem] flex-1">
-                      <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.45 4.39l3.08 3.08a.75.75 0 1 1-1.06 1.06l-3.08-3.08A7 7 0 0 1 2 9Z" clip-rule="evenodd"/></svg>
-                      <input type="search" x-model="search" placeholder="Search the data…" class="input pl-9">
+                      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" x-html="icon('search', 'h-4 w-4')"></span>
+                      <input type="search" x-model="search" placeholder="Search the data" class="input pl-9" aria-label="Search the data">
                     </div>
-                    <span class="px-1 text-sm tabular-nums text-slate-500" x-text="filtered().length + ' of ' + records.length + ' rows'"></span>
                     <div class="relative">
                       <button class="btn" @click="colMenu = !colMenu" @click.outside="colMenu = false"
-                              x-text="`Columns (${visibleColumns().length}/${allColumns().length})`"></button>
-                      <div x-show="colMenu" x-cloak class="absolute right-0 z-20 mt-1 max-h-72 w-56 overflow-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                              x-text="`Columns ${visibleColumns().length}/${allColumns().length}`"></button>
+                      <div class="menu max-h-72 w-56 overflow-auto" x-show="colMenu" x-cloak x-transition.opacity>
                         <template x-for="c in allColumns()" :key="c">
-                          <label class="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
-                            <input type="checkbox" :checked="!hiddenCols.includes(c)" @change="toggleCol(c)" class="rounded border-slate-300">
-                            <span x-text="pretty(c)"></span></label>
+                          <label class="menu-item cursor-pointer">
+                            <input type="checkbox" :checked="!hiddenCols.includes(c)" @change="toggleCol(c)" class="checkbox"> <span x-text="pretty(c)"></span></label>
                         </template>
                       </div>
                     </div>
                     <label class="flex items-center gap-2 px-1 text-sm" x-show="selectedJob.personal?.fields?.length">
-                      <input type="checkbox" x-model="showPersonal" @change="loadRecords()" class="rounded border-slate-300"> Show personal data</label>
-                    <a class="btn" :href="exportUrl('xlsx')">⬇ Excel</a>
-                    <a class="btn" :href="exportUrl('csv')">⬇ CSV</a>
-                    <div class="relative" x-data="{ more: false }">
-                      <button class="btn px-2" @click="more = !more" @click.outside="more = false" aria-label="More">⋯</button>
-                      <div x-show="more" x-cloak class="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-                        <button class="w-full rounded px-3 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800" @click="toggleKeep(selectedJob); more=false"
-                                x-text="selectedJob.keep ? 'Allow automatic clean-up' : 'Keep (never auto-delete)'"></button>
-                        <button class="w-full rounded px-3 py-1.5 text-left text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                                x-show="!['queued','running'].includes(selectedJob.status)" @click="deleteJob(selectedJob); more=false">Delete this run</button>
+                      <input type="checkbox" x-model="showPersonal" @change="loadRecords()" class="checkbox"> Show personal data</label>
+                    <div class="relative" x-data="{ open: false }">
+                      <button class="btn btn-primary" @click="open = !open" @click.outside="open = false" :disabled="!records.length">
+                        <span x-html="icon('download', 'h-4 w-4')"></span> Download</button>
+                      <div class="menu" x-show="open" x-cloak x-transition.opacity>
+                        <a class="menu-item" :href="exportUrl('xlsx')" @click="open=false">Excel (.xlsx)</a>
+                        <a class="menu-item" :href="exportUrl('csv')" @click="open=false">CSV (.csv)</a>
+                        <div class="px-2.5 pb-1 pt-1.5 text-[11px] text-slate-400">Only the columns you show</div>
+                      </div>
+                    </div>
+                    <div class="relative" x-data="{ open: false }">
+                      <button class="btn btn-icon" @click="open = !open" @click.outside="open = false" aria-label="More"><span x-html="icon('dots', 'h-4 w-4')"></span></button>
+                      <div class="menu w-56" x-show="open" x-cloak x-transition.opacity>
+                        <button class="menu-item" @click="toggleKeep(selectedJob); open=false" x-text="selectedJob.keep ? 'Allow automatic clean-up' : 'Keep (never auto-delete)'"></button>
+                        <button class="menu-item text-rose-600 dark:text-rose-400" x-show="!['queued','running'].includes(selectedJob.status)" @click="deleteJob(selectedJob); open=false">
+                          <span x-html="icon('trash', 'h-4 w-4')"></span> Delete this run</button>
                       </div>
                     </div>
                   </div>
@@ -616,16 +668,17 @@
                       <table class="tbl">
                         <thead><tr>
                           <template x-for="c in visibleColumns()" :key="c">
-                            <th class="cursor-pointer select-none hover:text-slate-800 dark:hover:text-slate-200" @click="sortBy(c)">
-                              <span x-text="pretty(c)"></span><span class="text-indigo-500" x-text="sortKey===c ? (sortAsc ? ' ▲' : ' ▼') : ''"></span></th>
+                            <th class="cursor-pointer select-none hover:text-slate-800 dark:hover:text-slate-200" @click="sortBy(c)" :aria-sort="sortKey===c ? (sortAsc ? 'ascending' : 'descending') : 'none'">
+                              <span class="inline-flex items-center gap-1"><span x-text="pretty(c)"></span>
+                                <span class="text-brand-500" x-text="sortKey===c ? (sortAsc ? '↑' : '↓') : ''"></span></span></th>
                           </template>
                         </tr></thead>
                         <tbody>
-                          <template x-for="(r, i) in filtered().slice(0, 1000)" :key="i">
+                          <template x-for="(r, i) in pagedRows()" :key="i">
                             <tr><template x-for="c in visibleColumns()" :key="c">
                               <td>
-                                <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded object-cover" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
-                                <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link" :href="r[c]" target="_blank" rel="noopener noreferrer">Open ↗</a></template>
+                                <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
+                                <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link inline-flex items-center gap-1" :href="r[c]" target="_blank" rel="noopener noreferrer">Open <span x-html="icon('external', 'h-3 w-3')"></span></a></template>
                                 <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :title="r[c]" x-text="r[c]"></span></template>
                               </td>
                             </template></tr>
@@ -633,9 +686,19 @@
                         </tbody>
                       </table>
                     </div>
-                    <p class="muted p-6 text-center" x-show="!records.length"
+                    <div class="flex flex-wrap items-center justify-between gap-3 px-1 pt-3 text-sm" x-show="records.length">
+                      <span class="tabular-nums text-slate-500" x-text="rangeText()"></span>
+                      <div class="flex items-center gap-2">
+                        <select x-model.number="pageSize" @change="page = 1" class="input w-auto py-1 text-xs" aria-label="Rows per page">
+                          <option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option><option value="250">250 / page</option>
+                        </select>
+                        <button class="btn btn-sm" :disabled="page <= 1" @click="page--" aria-label="Previous page"><span x-html="icon('left', 'h-4 w-4')"></span></button>
+                        <span class="tabular-nums text-slate-500" x-text="`${Math.min(page, totalPages())} / ${totalPages()}`"></span>
+                        <button class="btn btn-sm" :disabled="page >= totalPages()" @click="page++" aria-label="Next page"><span x-html="icon('chevron', 'h-4 w-4')"></span></button>
+                      </div>
+                    </div>
+                    <p class="muted p-8 text-center" x-show="!records.length"
                        x-text="['queued','running'].includes(selectedJob.status) ? 'Collecting… rows appear here as they arrive.' : 'This run has no rows.'"></p>
-                    <p class="px-2 pt-2 text-xs text-slate-400" x-show="filtered().length > 1000">Showing the first 1,000 rows. Downloads include everything.</p>
                   </div>
                 </div>
               </div>
@@ -644,16 +707,28 @@
         </div>
       </section>
 
-      <!-- ================= SETTINGS ================= -->
-      <section x-show="view==='settings'" class="space-y-6">
-        <div><h1 class="page-title">Settings</h1><p class="muted">Sites you've used, saved logins and app information.</p></div>
+      <!-- ===================================================== SETTINGS -->
+      <section x-show="view==='settings'" x-cloak class="space-y-6 animate-fade-up">
+        <div><h1 class="page-title">Settings</h1><p class="muted mt-1">Sites you've used, appearance and app information.</p></div>
+
+        <div class="card">
+          <div class="card-head"><h2 class="card-title">Appearance</h2></div>
+          <div class="card-body flex flex-wrap gap-2">
+            <template x-for="t in [{id: 'system', label: 'System', icon: 'monitor'}, {id: 'light', label: 'Light', icon: 'sun'}, {id: 'dark', label: 'Dark', icon: 'moon'}]" :key="t.id">
+              <button class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition"
+                      :class="theme === t.id ? 'border-brand-300 bg-brand-50 text-brand-700 ring-1 ring-brand-500/20 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
+                             : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'"
+                      @click="theme = t.id"><span x-html="icon(t.icon, 'h-4 w-4')"></span><span x-text="t.label"></span></button>
+            </template>
+          </div>
+        </div>
 
         <div class="card">
           <div class="card-head"><h2 class="card-title">Sites</h2>
             <span class="muted">daily limits, pauses and saved logins</span>
-            <button class="btn-ghost ml-auto" @click="loadSites()">Refresh</button></div>
-          <div class="card-body">
-            <p class="muted" x-show="!sites.length">No sites yet.</p>
+            <button class="btn-ghost ml-auto" @click="loadSites()"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Refresh</button></div>
+          <div class="px-5 py-2">
+            <p class="muted py-6 text-center" x-show="!sites.length">No sites yet.</p>
             <ul class="divide-y divide-slate-100 dark:divide-slate-800">
               <template x-for="s in sites" :key="s.domain">
                 <li class="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
@@ -662,7 +737,7 @@
                     <div class="mt-1 flex flex-wrap gap-1.5">
                       <span class="chip chip-blue" x-show="s.session"
                             x-text="(s.session?.kind === 'login' ? 'logged in' + (s.session?.account ? ' as ' + s.session.account : '') : 'human check passed') + ' · ' + Math.max(0, Math.round((s.session?.expires_in_hours || 0) / 24)) + ' days left'"></span>
-                      <span class="chip chip-gray" x-text="s.usage_today + ' of ' + s.budget + ' pages today'"></span>
+                      <span class="chip chip-gray" x-text="fmt(s.usage_today) + ' of ' + fmt(s.budget) + ' pages today'"></span>
                       <span class="chip chip-red" x-show="s.cooldown_left_min > 0" x-text="'paused ' + s.cooldown_left_min + ' min'"></span>
                       <span class="chip chip-red" x-show="s.settings?.blocked">never scrape</span>
                     </div>
@@ -673,7 +748,7 @@
                     <button class="btn-ghost" x-show="s.session" @click="forgetSession(s)">Remove login</button>
                     <button class="btn-ghost" x-show="s.cooldown_left_min > 0" @click="clearCooldown(s)">End pause</button>
                     <button class="btn-ghost" @click="toggleBlocked(s)" x-text="s.settings?.blocked ? 'Allow' : 'Never scrape'"></button>
-                    <button class="btn-ghost hover:text-rose-600" @click="deleteSiteData(s)">Delete data</button>
+                    <button class="btn-ghost hover:!text-rose-600" @click="deleteSiteData(s)">Delete data</button>
                   </div>
                 </li>
               </template>
@@ -681,18 +756,18 @@
           </div>
         </div>
 
-        <div class="card" x-show="advanced">
+        <div class="card" x-show="advanced" x-cloak>
           <details class="group" @toggle="if ($event.target.open) loadActivity()">
-            <summary class="card-head !border-b-0"><span class="card-title">Activity log</span>
-              <span class="muted">what was opened, downloaded and changed</span></summary>
+            <summary class="card-head !border-b-0"><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-4 w-4')"></span>
+              <span class="card-title">Activity log</span><span class="muted">what was opened, downloaded and changed</span></summary>
             <div class="border-t border-slate-100 px-5 pb-5 pt-3 dark:border-slate-800">
               <div class="mb-2 flex justify-end"><button class="btn-ghost" @click="loadActivity()">Refresh</button></div>
               <p class="muted" x-show="!activity.length">Nothing logged yet.</p>
-              <ul class="max-h-96 space-y-1 overflow-auto text-sm">
+              <ul class="max-h-96 space-y-0.5 overflow-auto text-sm">
                 <template x-for="(a, i) in activity" :key="i">
-                  <li class="flex gap-3 rounded-md px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                  <li class="flex gap-3 rounded-md px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/50">
                     <span class="w-20 shrink-0 text-xs tabular-nums text-slate-400" x-text="timeAgo(a.ts)"></span>
-                    <span class="w-48 shrink-0 font-medium text-slate-700 dark:text-slate-200" x-text="eventLabel(a.event)"></span>
+                    <span class="w-52 shrink-0 font-medium text-slate-700 dark:text-slate-200" x-text="eventLabel(a.event)"></span>
                     <span class="min-w-0 truncate text-slate-500" :title="eventDetail(a)" x-text="eventDetail(a)"></span>
                   </li>
                 </template>
@@ -703,64 +778,100 @@
 
         <div class="card">
           <div class="card-head"><h2 class="card-title">About</h2></div>
-          <div class="card-body grid gap-2 text-sm sm:grid-cols-2">
-            <div><span class="text-slate-500">AI:</span> <span x-text="status?.ai_enabled ? `${status.provider} · ${status.model}` : 'not set up (add a key to .env)'"></span></div>
-            <div><span class="text-slate-500">Browser loading:</span> <span x-text="status?.browser_available ? 'ready' : 'not installed'"></span></div>
-            <div><span class="text-slate-500">Polite wait between pages:</span> <span x-text="(status?.delay || []).join('–') + ' seconds'"></span></div>
-            <div><span class="text-slate-500">Daily page limit per site:</span> <span x-text="(status?.budget || [])[0]"></span></div>
-            <div><span class="text-slate-500">Saved logins expire after:</span> <span x-text="(status?.session_max_age_days || '') + ' days'"></span></div>
-            <div><span class="text-slate-500">Results are cleaned up after:</span> <span x-text="(status?.retention?.job_days || '') + ' days (unless kept)'"></span></div>
-          </div>
+          <dl class="grid gap-x-8 gap-y-3 p-5 text-sm sm:grid-cols-2">
+            <div class="flex justify-between gap-4"><dt class="text-slate-500">AI</dt><dd class="text-right font-medium" x-text="status?.ai_enabled ? `${status.provider} · ${status.model}` : 'Not set up (add a key to .env)'"></dd></div>
+            <div class="flex justify-between gap-4"><dt class="text-slate-500">Browser loading</dt><dd class="font-medium" x-text="status?.browser_available ? 'Ready' : 'Not installed'"></dd></div>
+            <div class="flex justify-between gap-4"><dt class="text-slate-500">Wait between pages</dt><dd class="font-medium" x-text="(status?.delay || []).join('–') + ' seconds'"></dd></div>
+            <div class="flex justify-between gap-4"><dt class="text-slate-500">Daily limit per site</dt><dd class="font-medium" x-text="fmt((status?.budget || [])[0]) + ' pages'"></dd></div>
+            <div class="flex justify-between gap-4"><dt class="text-slate-500">Saved logins expire after</dt><dd class="font-medium" x-text="(status?.session_max_age_days || '') + ' days'"></dd></div>
+            <div class="flex justify-between gap-4"><dt class="text-slate-500">Results kept for</dt><dd class="font-medium" x-text="(status?.retention?.job_days || '') + ' days'"></dd></div>
+          </dl>
         </div>
       </section>
     </main>
 
-    <footer class="px-8 pb-6 text-center text-xs text-slate-400">
-      Respects each site's crawling rules · never solves CAPTCHAs for you · passwords are never stored · personal data hidden by default
+    <footer class="border-t border-slate-200/70 px-4 py-4 text-center text-xs text-slate-400 dark:border-slate-800 sm:px-8">
+      Follows each site's crawling rules · never solves CAPTCHAs for you · passwords never stored · personal data hidden by default
     </footer>
   </div>
 </div>
 
-<!-- Toast -->
-<div x-show="notice" x-cloak x-transition
-     class="fixed bottom-5 right-5 z-50 max-w-sm rounded-xl bg-slate-900 px-4 py-3 text-sm text-white shadow-lg dark:bg-white dark:text-slate-900">
-  <div class="flex items-start gap-3"><span x-text="notice"></span><button class="opacity-60 hover:opacity-100" @click="notice=''">×</button></div>
+<!-- ===================================================== Toasts -->
+<div class="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
+  <template x-for="t in toasts" :key="t.id">
+    <div class="pointer-events-auto flex items-start gap-3 rounded-xl border bg-white p-3.5 text-sm shadow-pop animate-fade-up dark:bg-slate-900"
+         :class="t.type === 'error' ? 'border-rose-200 dark:border-rose-500/30' : 'border-slate-200 dark:border-slate-700'">
+      <span :class="t.type === 'error' ? 'text-rose-500' : t.type === 'info' ? 'text-brand-500' : 'text-emerald-500'"
+            x-html="icon(t.type === 'error' ? 'error' : t.type === 'info' ? 'info' : 'check', 'h-5 w-5')"></span>
+      <span class="flex-1 text-slate-700 dark:text-slate-200" x-text="t.msg"></span>
+      <button class="text-slate-400 hover:text-slate-600" @click="toasts = toasts.filter(x => x.id !== t.id)" aria-label="Dismiss"><span x-html="icon('x', 'h-4 w-4')"></span></button>
+    </div>
+  </template>
 </div>
 
-<!-- Visible browser window dialog -->
-<template x-if="win">
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-  <div class="card w-full max-w-lg">
-    <div class="card-head">
-      <div class="min-w-0 flex-1">
-        <h2 class="card-title" x-text="win?.mode === 'login' ? 'Log in to ' + win?.domain : 'Solve the check on ' + (win?.domain || '')"></h2>
-        <p class="truncate text-xs text-slate-500" x-text="win?.url"></p>
-      </div>
-      <span class="chip" :class="win?.status === 'open' ? 'chip-green' : (['error','timeout','cancelled'].includes(win?.status) ? 'chip-red' : 'chip-amber')" x-text="win?.status"></span>
-    </div>
-    <div class="card-body space-y-3 text-sm">
-      <p x-show="win?.status === 'starting'">Opening a browser window…</p>
-      <template x-if="win?.status === 'open'">
-        <div class="space-y-3">
-          <p x-show="win?.mode === 'login'">A browser window is open. <b>Log in there yourself.</b> The app never sees your password; it only keeps the login, encrypted, for this site.</p>
-          <p x-show="win?.mode !== 'login'">A browser window is open. <b>Solve the check yourself</b>, wait until the normal page shows, then come back here.</p>
-          <div x-show="win?.mode === 'login' || win?.kind === 'login'">
-            <label class="label">Account name <span class="hint">· optional label</span></label>
-            <input type="text" x-model="win.account" class="input" maxlength="120">
+<!-- ===================================================== Dialog (confirm / prompt) -->
+<template x-if="dialog">
+  <div class="overlay" @click.self="closeDialog(false)">
+    <div class="card w-full max-w-md animate-fade-up" role="dialog" aria-modal="true" :aria-label="dialog.title">
+      <form @submit.prevent="closeDialog(true)">
+        <div class="flex gap-4 p-6">
+          <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full"
+                :class="dialog.danger ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10' : 'bg-brand-50 text-brand-600 dark:bg-brand-500/10'"
+                x-html="icon(dialog.danger ? 'warn' : dialog.input ? 'pencil' : 'info', 'h-5 w-5')"></span>
+          <div class="min-w-0 flex-1">
+            <h2 class="text-base font-semibold text-slate-900 dark:text-white" x-text="dialog.title"></h2>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400" x-show="dialog.message && !dialog.input" x-text="dialog.message"></p>
+            <template x-if="dialog.input">
+              <div class="mt-3">
+                <label class="label" for="dialog-input" x-text="dialog.message"></label>
+                <input id="dialog-input" type="text" x-model="dialog.value" class="input" maxlength="300">
+              </div>
+            </template>
           </div>
         </div>
-      </template>
-      <p class="text-rose-600 dark:text-rose-400" x-show="['error','timeout'].includes(win?.status)" x-text="win?.message || 'The window closed.'"></p>
-    </div>
-    <div class="flex justify-end gap-2 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
-      <button class="btn" @click="cancelWindow()">Cancel</button>
-      <button class="btn btn-primary" @click="finishWindow()" :disabled="win?.status !== 'open' || busy === 'window'">
-        <span x-show="busy === 'window'" class="spinner"></span>
-        <span x-text="win?.mode === 'login' ? 'I’m logged in' : 'I’ve solved it'"></span>
-      </button>
+        <div class="flex justify-end gap-2 rounded-b-xl border-t border-slate-100 bg-slate-50/70 px-6 py-3.5 dark:border-slate-800 dark:bg-slate-900/60">
+          <button type="button" class="btn" @click="closeDialog(false)">Cancel</button>
+          <button id="dialog-ok" type="submit" class="btn" :class="dialog.danger ? 'btn-danger' : 'btn-primary'" x-text="dialog.confirmText"></button>
+        </div>
+      </form>
     </div>
   </div>
-</div>
+</template>
+
+<!-- ===================================================== Browser window dialog -->
+<template x-if="win">
+  <div class="overlay">
+    <div class="card w-full max-w-lg animate-fade-up" role="dialog" aria-modal="true">
+      <div class="card-head">
+        <div class="min-w-0 flex-1">
+          <h2 class="card-title" x-text="win?.mode === 'login' ? 'Log in to ' + win?.domain : 'Solve the check on ' + (win?.domain || '')"></h2>
+          <p class="truncate text-xs text-slate-500" x-text="win?.url"></p>
+        </div>
+        <span class="chip" :class="win?.status === 'open' ? 'chip-green' : (['error','timeout','cancelled'].includes(win?.status) ? 'chip-red' : 'chip-amber')" x-text="win?.status"></span>
+      </div>
+      <div class="card-body space-y-3 text-sm">
+        <p x-show="win?.status === 'starting'" class="flex items-center gap-2"><span class="spinner text-brand-600"></span> Opening a browser window…</p>
+        <template x-if="win?.status === 'open'">
+          <div class="space-y-3">
+            <p x-show="win?.mode === 'login'">A browser window is open. <b>Log in there yourself.</b> The app never sees your password; it only keeps the login, encrypted, for this site.</p>
+            <p x-show="win?.mode !== 'login'">A browser window is open. <b>Solve the check yourself</b>, wait for the normal page, then come back here.</p>
+            <div x-show="win?.mode === 'login' || win?.kind === 'login'">
+              <label class="label">Account name <span class="hint">· optional label</span></label>
+              <input type="text" x-model="win.account" class="input" maxlength="120">
+            </div>
+          </div>
+        </template>
+        <p class="text-rose-600 dark:text-rose-400" x-show="['error','timeout'].includes(win?.status)" x-text="win?.message || 'The window closed.'"></p>
+      </div>
+      <div class="flex justify-end gap-2 rounded-b-xl border-t border-slate-100 bg-slate-50/70 px-5 py-3.5 dark:border-slate-800 dark:bg-slate-900/60">
+        <button class="btn" @click="cancelWindow()">Cancel</button>
+        <button class="btn btn-primary" @click="finishWindow()" :disabled="win?.status !== 'open' || busy === 'window'">
+          <span x-show="busy === 'window'" class="spinner"></span>
+          <span x-text="win?.mode === 'login' ? 'I’m logged in' : 'I’ve solved it'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 </body>
 </html>

@@ -579,6 +579,24 @@ def clean_field_names(names: list[str]) -> list[str]:
     return out
 
 
+# Columns whose names promise a number (price, salary, volume ...). If their values contain no
+# digits the selector or regex caught the wrong part (e.g. only the "£" sign): ask the AI again.
+NUMERIC_FIELD_RE = re.compile(r"price|cost|amount|salary|mrp|fee|rent|volume|market_cap|change|percent|"
+                              r"qty|quantity|reviews|count|area|sqft|bedrooms|bathrooms|discount|pe_ratio", re.I)
+
+
+def non_numeric_fields(rows: list[dict], recipe: dict) -> list[str]:
+    out = []
+    for f in recipe["fields"]:
+        name = f["name"]
+        if not NUMERIC_FIELD_RE.search(name):
+            continue
+        values = [str(r.get(name)) for r in rows if r.get(name)]
+        if values and sum(1 for v in values if re.search(r"\d", v)) / len(values) < 0.5:
+            out.append(name)
+    return out
+
+
 AUTO_MIN_FILL = 0.2   # columns the AI added itself are dropped when filled in fewer than 20% of rows
 
 
@@ -736,8 +754,18 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
             # Columns you asked for must work; extra columns the AI chose were already filtered.
             judged = {k: v for k, v in report.items() if not auto or k in field_names} or report
             weak = [k for k, v in judged.items() if v < 0.5]
+            bad_numbers = non_numeric_fields(rows, recipe)
+            if bad_numbers and attempt == 1:
+                # Still wrong after a retry: drop AI-added columns, keep the ones you asked for.
+                keep = [f for f in recipe["fields"] if f["name"] not in bad_numbers or f["name"] in field_names]
+                if keep and len(keep) < len(recipe["fields"]):
+                    dropped += [f["name"] for f in recipe["fields"] if f not in keep]
+                    recipe = {**recipe, "fields": keep}
+                    rows = extractor.extract(html, recipe, url)
+                    report = extractor.field_report(rows, recipe)
+                bad_numbers = []
             enough_columns = len(report) >= (1 if field_names else 2)
-            if len(rows) >= 2 and enough_columns and len(weak) <= len(judged) // 2:
+            if len(rows) >= 2 and enough_columns and not bad_numbers and len(weak) <= len(judged) // 2:
                 notes = raw.get("notes", "")
                 if absent:
                     notes = (notes + f" | Not shown on this page: {', '.join(absent)}.").strip(" |")
@@ -751,8 +779,10 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
                         "page_type": page_type, "absent": absent}
             last_problem = (f"Testing that recipe on the page gave {len(rows)} rows. "
                             f"Fields filled in fewer than half the rows: {weak or 'none'}. "
-                            f"First rows: {json.dumps(rows[:2], ensure_ascii=False)[:1500]}"
-                            + _field_debug(html, recipe, weak))
+                            + (f"These columns should contain numbers but their values have no digits "
+                               f"(wrong element or regex): {', '.join(bad_numbers)}. " if bad_numbers else "")
+                            + f"First rows: {json.dumps(rows[:2], ensure_ascii=False)[:1500]}"
+                            + _field_debug(html, recipe, weak + bad_numbers))
             last_problem = privacy.shape(last_problem) if redact else privacy.mask_text(last_problem)
             if attempt == 1:
                 # Second attempt still weak: return it anyway so the user can fix it by hand.

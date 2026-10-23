@@ -6,6 +6,8 @@
 > **Built:** app shell (2.9), wizard (2.1), templates (2.2), saved scrapes (2.3), results viewer with
 > column picker and thumbnails (2.4), named exports (2.5), plain-language statuses (2.6) and errors (2.7),
 > sample-shop onboarding (2.8 partly), plain wording (2.10), Advanced switch (3.1).
+> **Also built:** bundled frontend assets with compiled Tailwind and no CDNs (1.7), professional
+> design pass (icons, dialogs, toasts, stats, loader, paging, themes).
 
 ## Context
 

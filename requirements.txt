@@ -15,3 +15,4 @@ regex>=2026.9
 cryptography>=50
 keyring>=25
 pip-audit>=2.7          # dev: python check.py
+pytailwindcss>=0.2      # dev: python tools/build_css.py (only to change the UI)

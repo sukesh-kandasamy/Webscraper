@@ -49,11 +49,26 @@ The app has five screens in the sidebar: **Home, New scrape, Saved scrapes, Resu
 6. **Saved scrapes.** Each setup is saved: **Run again** for fresh data, open the latest results,
    edit, rename, duplicate or delete.
 
+**Light / dark theme:** the button in the top bar cycles System → Light → Dark (also in Settings).
+
 **Advanced mode** (switch at the bottom of the sidebar) shows the technical parts: the column setup
 as JSON, per-site settings (page limits, waiting time, browser loading), logins and the activity log.
 
 Search pages are often blocked by a site's crawling rules (robots.txt); the app explains this and
 suggests a category page instead. For example, IndiaMART allows `dir.indiamart.com/impcat/...`.
+
+## Changing the UI
+
+Everything the page needs is served by the app itself (no CDNs), so it works offline and behind company
+firewalls. Styles are compiled from `static/src/app.css` with Tailwind:
+
+```bash
+python tools/build_css.py           # once
+python tools/build_css.py --watch   # while editing static/index.html or static/app.js
+```
+
+`pip install pytailwindcss` provides the Tailwind CLI (it downloads it on first use). The compiled
+`static/app.css` is committed, so running the app never needs this step.
 
 ## Logged-in pages, CAPTCHAs and personal data
 
@@ -130,7 +145,8 @@ it stopped without duplicating rows.
 | `app/jobs.py` | Background crawl jobs |
 | `app/db.py` | SQLite: recipes, jobs, records, page cache (`data/scraper.db`) |
 | `app/recipes/*.json` | Built-in recipes, loaded at startup |
-| `static/` | Single-page UI (Alpine.js) |
+| `static/` | Single-page UI: `index.html`, `app.js` (Alpine.js), compiled `app.css`, `vendor/alpine-*.min.js` |
+| `static/src/app.css`, `tailwind.config.js`, `tools/build_css.py` | Tailwind source and build (only needed when changing the UI) |
 | `tests/` | `python -m pytest tests` (runs offline on saved pages; `test_security.py` covers each threat) |
 | `check.py`, `tools/secret_scan.py`, `.githooks/` | Security report; secret scanning (also as a pre-commit hook) |
 

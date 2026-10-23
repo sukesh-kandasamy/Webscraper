@@ -261,3 +261,27 @@ def test_schema_validation_glitch_is_retried(monkeypatch):
         return "ok"
 
     assert recipe_builder._with_retries(flaky) == "ok" and calls["n"] == 2
+
+
+def test_numeric_columns_without_digits_are_flagged():
+    recipe = {"fields": [{"name": "price"}, {"name": "rating"}, {"name": "salary"}]}
+    rows = [{"price": "£", "rating": "Three", "salary": "₹ 12 LPA"}, {"price": "£", "rating": "One", "salary": "Not disclosed"}]
+    assert recipe_builder.non_numeric_fields(rows, recipe) == ["price"]
+
+
+def test_ai_is_asked_again_when_price_has_no_digits(monkeypatch):
+    html = "<ul>" + "".join(f"<li class='c'><b>Book number {i} with a long enough title</b><span class='p'>£{i}1.50</span></li>" for i in range(4)) + "</ul>"
+    wrong = {"item_selector": "li.c", "page_type": "ecommerce", "notes": "", "pagination": {"type": "none"},
+             "fields": [{"name": "name", "selector": "b"}, {"name": "price", "selector": "span.p", "regex": "(£)"}]}
+    right = {**wrong, "fields": [{"name": "name", "selector": "b"}, {"name": "price", "selector": "span.p", "regex": r"([\d.]+)"}]}
+    prompts = []
+
+    def fake_ask(messages, fields, auto=False):
+        prompts.append(messages[0]["content"])
+        return json.dumps(wrong if len(prompts) == 1 else right)
+
+    monkeypatch.setattr(recipe_builder, "_ask_model", fake_ask)
+    monkeypatch.setattr(recipe_builder.config, "ai_enabled", lambda: True)
+    out = recipe_builder.build_recipe(html, "https://x.test/", ["name", "price"])
+    assert len(prompts) == 2 and "should contain numbers" in prompts[1]
+    assert out["rows"][0]["price"] == "01.50"
