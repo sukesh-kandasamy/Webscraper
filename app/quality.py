@@ -12,7 +12,7 @@ _TOTAL_PATTERNS = [
     # "1-48 of over 10,000 results", "Showing 1–24 of 1,250", "21 to 40 of 812 jobs"
     re.compile(r"\b\d[\d,]*\s*(?:-|–|—|to)\s*\d[\d,]*\s+of\s+(?:over\s+|about\s+|around\s+)?(\d[\d,]*)", re.I),
     # "1,250 results", "812 jobs found", "Found 96 properties", "56 products"
-    re.compile(r"\b(?:found\s+)?(\d[\d,]*)\s+(?:results|jobs|products|properties|listings|items|ads|matches|"
+    re.compile(r"\b(?:found\s+)?(\d[\d,]*)\s+(?:results|jobs|products|properties|listings|ads|matches|"
                r"books|companies|homes|vacancies|openings)\b(?:\s+found)?", re.I),
 ]
 MAX_TEXT = 200_000
@@ -54,6 +54,8 @@ def build(rows: list[dict], names: list[str], types: dict[str, str], counters: d
     items_seen, duplicates, excluded, trimmed, failed [{url, error}], expected_total, details_*."""
     expected = counters.get("expected_total")
     seen = counters.get("items_seen", len(rows))
+    if expected and seen > expected * 1.1:
+        expected = None          # the number on the page wasn't the total (e.g. "25 items" per page)
     report = {
         "rows": len(rows),
         "items_seen": seen,

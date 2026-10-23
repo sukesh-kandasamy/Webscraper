@@ -99,6 +99,15 @@ const TEMPLATES = [
     prompt: "Collect all the important details of each item." },
 ];
 
+const AGENT_EXAMPLES = [
+  { label: "Mystery books", site: "books.toscrape.com",
+    goal: "Mystery books: title, price, rating and availability. Only books under £20, all pages." },
+  { label: "Quotes by tag", site: "quotes.toscrape.com",
+    goal: "Quotes tagged 'inspirational': the quote text, author and tags." },
+  { label: "Remote jobs", site: "weworkremotely.com",
+    goal: "Remote programming jobs: job title, company, region and posted date. Newest first." },
+];
+
 const TYPE_LABELS = { money: "price", number: "number", percent: "%", rating: "rating", date: "date", url: "link", image: "image" };
 const OP_LABELS = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", ne: "≠", contains: "contains", not_contains: "doesn't contain" };
 
@@ -116,7 +125,8 @@ const EVENT_LABELS = {
   window_opened: "Browser window opened", recipe_built: "AI set up the columns", recipe_saved: "Column setup saved",
   retention_purge: "Old data cleaned up", site_data_deleted: "Site data deleted", retry_after: "Waited as the site asked",
   scrape_saved: "Scrape saved", scrape_deleted: "Scrape deleted", detail_recipe_built: "AI set up item pages",
-  scrape_repaired: "Columns re-detected",
+  scrape_repaired: "Columns re-detected", agent_planned: "Agent made a plan", agent_started: "Agent started",
+  agent_refused: "Agent action refused", agent_handoff: "Agent handed results over", agent_finished: "Agent stopped",
 };
 
 function store(key, value) {
@@ -186,6 +196,17 @@ function scraper() {
     colMenu: false,
     pollTimer: null,
     resultTab: "data",
+
+    // ---- agent mode ----
+    agentShown: store("agentShown") !== false,
+    agentGoal: "",
+    agentSite: "",
+    agentRun: null,              // the run on screen (with its steps)
+    agentRuns: [],
+    agentNewCol: "",
+    agentLimits: { steps: 40, minutes: 10, ai_calls: 60 },
+    agentTimer: null,
+    agentExamples: AGENT_EXAMPLES,
     compare: null,
     compareError: "",
     compareView: "added",
@@ -203,6 +224,9 @@ function scraper() {
       } catch (e) { this.showError(e); }
       await Promise.all([this.loadJobs(), this.loadScrapes(), this.loadSites()]);
       this.$watch("advanced", v => store("advanced", v));
+      this.$watch("agentShown", v => store("agentShown", v));
+      if (this.status?.agent?.limits) this.agentLimits = { ...this.status.agent.limits };
+      this.loadAgentRuns();
       this.$watch("theme", v => { store("theme", v); applyTheme(v); });
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applyTheme(this.theme));
       this.$watch("busy", v => this.trackLoading(v));
@@ -217,7 +241,7 @@ function scraper() {
     icon(name, cls) { return iconSvg(name, cls); },
     viewTitle() {
       return { home: "Home", new: this.editingScrapeId ? "Edit scrape" : "New scrape", scrapes: "Saved scrapes",
-               runs: "Results", settings: "Settings" }[this.view] || "";
+               runs: "Results", settings: "Settings", agent: "Agent" }[this.view] || "";
     },
     cycleTheme() { this.theme = { system: "light", light: "dark", dark: "system" }[this.theme] || "system"; },
     themeIcon() { return { system: "monitor", light: "sun", dark: "moon" }[this.theme]; },
@@ -279,6 +303,7 @@ function scraper() {
       this.view = view; this.menuOpen = false; this.error = null;
       if (view === "settings") this.loadSites();
       if (view === "scrapes") this.loadScrapes();
+      if (view === "agent") this.loadAgentRuns();
       window.scrollTo({ top: 0 });
     },
     toast(msg, type = "success") {
@@ -970,6 +995,133 @@ function scraper() {
       const w = this.win;
       this.win = null; clearTimeout(this.winTimer);
       if (w?.mode === "login") await api("POST", `/api/sites/${w.domain}/login/cancel`).catch(() => {});
+    },
+
+    // ---------------------------------------------------------------- agent mode
+    agentEnabled() { return !!this.status?.agent?.enabled && this.agentShown; },
+    agentProblem() {
+      const a = this.status?.agent;
+      if (!a) return "";
+      if (!a.installed) return "The agent's environment isn't installed. In the project folder run:  python -m venv .venv-agent  then  .venv-agent\\Scripts\\pip install -r requirements-agent.txt";
+      if (!a.key_set) return `It needs an AI key for ${a.provider} in .env.`;
+      if (!a.browser) return "It needs Microsoft Edge or Google Chrome installed.";
+      return "";
+    },
+    agentBusyCount() { return this.agentRuns.filter(r => ["queued", "navigating", "collecting"].includes(r.status)).length; },
+    agentActive() { return ["queued", "navigating", "collecting"].includes(this.agentRun?.status); },
+    agentStatusLabel(s) {
+      return { draft: "Plan ready", queued: "Starting", navigating: "Finding the results", collecting: "Collecting",
+               done: "Finished", stopped: "Stopped", needs_you: "Needs you", limit: "Hit a limit", error: "Failed" }[s] || s;
+    },
+    agentChip(s) {
+      return { done: "chip-green", navigating: "chip-blue", collecting: "chip-blue", queued: "chip-amber", draft: "chip-gray",
+               needs_you: "chip-amber", limit: "chip-amber", stopped: "chip-gray", error: "chip-red" }[s] || "chip-gray";
+    },
+    agentSteps() { return this.agentRun?.steps_list || []; },
+    agentTiles() {
+      const r = this.agentRun || {};
+      const secs = r.elapsed_s || 0;
+      return [
+        { label: "Agent steps", value: `${r.steps || 0} / ${r.limits?.steps || "—"}` },
+        { label: "AI calls", value: `${r.ai_calls || 0} / ${r.limits?.ai_calls || "—"}` },
+        { label: "Time", value: secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s` },
+        { label: "Rows", value: this.fmt(r.job?.rows || 0) },
+      ];
+    },
+    async loadAgentRuns() {
+      if (!this.status?.agent?.enabled) return;
+      try { this.agentRuns = await api("GET", "/api/agent/runs"); } catch { /* not fatal */ }
+    },
+    newAgentRun() { clearTimeout(this.agentTimer); this.agentRun = null; this.error = null; },
+    async planAgent() {
+      if (!this.agentGoal.trim() || !this.agentSite.trim()) {
+        this.error = { title: "Say what to collect and on which site", hint: "Fill in both boxes, or click an example." }; return;
+      }
+      this.error = null; this.busy = "agent-plan";
+      try {
+        this.agentRun = await api("POST", "/api/agent/plan", { goal: this.agentGoal.trim(), site: this.agentSite.trim() });
+        this.agentLimits = { ...(this.status?.agent?.limits || this.agentLimits) };
+        this.loadAgentRuns();
+      } catch (e) { this.handleError(e); }
+      finally { this.busy = ""; }
+    },
+    agentRemoveColumn(name) {
+      const req = this.agentRun.plan.request;
+      req.columns = req.columns.filter(c => c.name !== name);
+      req.filters = req.filters.filter(f => f.column !== name);
+      if (req.sort.column === name) req.sort = { column: "", desc: false };
+    },
+    agentAddColumn() {
+      const req = this.agentRun.plan.request;
+      for (const raw of this.agentNewCol.split(",")) {
+        const name = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+        if (name && !req.columns.some(c => c.name === name)) req.columns.push({ name, meaning: raw.trim(), type: "", required: true });
+      }
+      this.agentNewCol = "";
+    },
+    async discardAgentPlan() {
+      const r = this.agentRun;
+      this.agentRun = null;
+      if (r?.status === "draft") { await api("DELETE", `/api/agent/runs/${r.id}`).catch(() => {}); this.loadAgentRuns(); }
+    },
+    async startAgent() {
+      const r = this.agentRun;
+      this.error = null; this.busy = "agent-start";
+      try {
+        r.plan.navigation = r.plan.navigation.map(s => s.trim()).filter(Boolean);
+        await api("PUT", `/api/agent/runs/${r.id}/plan`, { plan: r.plan });
+        this.agentRun = await api("POST", `/api/agent/runs/${r.id}/start`, this.agentLimits);
+        this.loadAgentRuns();
+        this.pollAgent();
+      } catch (e) { this.handleError(e); }
+      finally { this.busy = ""; }
+    },
+    async openAgentRun(id) {
+      clearTimeout(this.agentTimer);
+      try {
+        this.agentRun = await api("GET", `/api/agent/runs/${id}`);
+        if (this.agentActive()) this.pollAgent();
+      } catch (e) { this.showError(e); }
+    },
+    async pollAgent() {
+      clearTimeout(this.agentTimer);
+      const r = this.agentRun;
+      if (!r) return;
+      try {
+        const last = r.steps_list?.length ? r.steps_list[r.steps_list.length - 1].n : 0;
+        const fresh = await api("GET", `/api/agent/runs/${r.id}?after=${last}`);
+        if (this.agentRun?.id !== r.id) return;
+        fresh.steps_list = [...(r.steps_list || []), ...fresh.steps_list];
+        this.agentRun = fresh;
+        const was = this.agentRuns.find(x => x.id === fresh.id);
+        if (was && was.status !== fresh.status) this.loadAgentRuns();
+      } catch { /* server busy; try again */ }
+      if (this.agentActive()) this.agentTimer = setTimeout(() => this.pollAgent(), 2000);
+      else { this.loadAgentRuns(); this.loadJobs(); this.loadScrapes(); }
+    },
+    async stopAgent() {
+      try { this.agentRun = { ...this.agentRun, ...(await api("POST", `/api/agent/runs/${this.agentRun.id}/stop`)), steps_list: this.agentRun.steps_list }; }
+      catch (e) { this.showError(e); }
+    },
+    async retryAgent() {
+      const r = this.agentRun;
+      this.agentGoal = r.goal; this.agentSite = r.start_url;
+      this.agentRun = null;
+      await this.planAgent();
+    },
+    // A human check stopped the agent: solve it yourself in a visible window (same flow as Guided mode);
+    // the saved browser session is given to the agent's next run.
+    async solveForAgent() {
+      const r = this.agentRun;
+      this.blockedPage = { domain: r.site, url: r.final_url || r.start_url };
+      await this.startSiteSolve();
+    },
+    async openAgentResults() {
+      const id = this.agentRun?.job_id;
+      if (!id) return;
+      await this.loadJobs();
+      this.go("runs");
+      await this.openJob(this.jobs.find(j => j.id === id));
     },
 
     // ---------------------------------------------------------------- activity

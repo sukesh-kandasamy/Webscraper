@@ -63,6 +63,39 @@ The app has five screens in the sidebar: **Home, New scrape, Saved scrapes, Resu
    results, edit (step 1 shows your description, so changing "under ₹3,000" to "under ₹5,000" is one
    edit), rename, duplicate or delete.
 
+### Agent mode (new)
+
+For when you only know the goal. Open **Agent** in the sidebar (or *Let the agent do it* on Home), describe
+what to collect and name the website, for example *"Hockey teams whose name contains 'New': team name,
+year, wins, losses. All pages."* on `scrapethissite.com/pages/forms/`.
+
+1. **Make a plan**: the AI writes the steps it will take on the site (search, categories, filters, sort),
+   the columns with their types, conditions, pages and item pages. Change anything, then **Start the agent**.
+2. The agent ([browser-use](https://github.com/browser-use/browser-use)) opens the site in Edge / Chrome,
+   declines cookie pop-ups, uses the site's own search box and filters, and stops on the results list.
+   You see every step with small screenshots, and can **Stop** at any time.
+3. The normal engine collects the results (all pages, item pages, typed values, conditions, quality
+   report), and the run is saved as a normal saved scrape with an *Agent* chip. **Run again** needs no AI.
+
+The agent stays on the site you named, follows robots.txt, and only searches, filters and reads. The app
+checks every page and action first and refuses buying, contacting, applying, posting, signing up,
+logging in and typing personal data. Human checks (CAPTCHAs) are never solved: the run stops as *Needs
+you*; **Open to solve** lets you solve it yourself, then **Try again**. Each run has limits for steps,
+minutes and AI calls (Settings → Agent mode shows the defaults).
+
+Agent mode runs in its own environment, so its packages never mix with the app's:
+
+```bash
+python -m venv .venv-agent
+.venv-agent\Scripts\pip install -r requirements-agent.txt
+```
+
+It works best with an AI that can see screenshots: add `ANTHROPIC_API_KEY` (Claude is then used for the
+agent; Groq still does the rest). With only Groq it runs text-only on gpt-oss-120b, which worked on the
+test sites but is slower and less reliable on complex sites. If the filters only exist inside the page
+(the address doesn't change), phase 1 collects the page the agent reached; replaying the steps on later
+runs comes with recorded routes (phase 2 of [PLAN-agent.md](PLAN-agent.md)).
+
 **Light / dark theme:** the button in the top bar cycles System → Light → Dark (also in Settings).
 
 **Advanced mode** (switch in Settings) shows the technical parts: the column setup
@@ -170,6 +203,9 @@ with the price, brand or salary.
 | `app/structured.py` | JSON-LD and embedded app-state data in pages |
 | `app/quality.py` | Quality report per run: coverage, failures, duplicates, column fill; health check against the last run |
 | `app/jobs.py` | Background crawl jobs |
+| `app/agent/` | Agent mode: `planner.py` (goal → plan), `guard.py` (what the agent may do), `api.py` (UI + worker API), `handoff.py` (results page → engine), `runner.py` (starts the worker), `store.py` (runs and steps) |
+| `agent_worker.py` | The browser-use process (runs in `.venv-agent`, talks to the app's local API with a one-time token) |
+| `app/details.py` | Item-page set-up shared by Guided and Agent mode |
 | `app/db.py` | SQLite: recipes, jobs, records, page cache (`data/scraper.db`) |
 | `app/recipes/*.json` | Built-in recipes, loaded at startup |
 | `static/` | Single-page UI: `index.html`, `app.js` (Alpine.js), compiled `app.css`, `vendor/alpine-*.min.js` |
@@ -193,6 +229,10 @@ with the price, brand or salary.
 | `SCRAPER_JOB_RETENTION_DAYS` | 30 | Finished jobs are deleted after this unless kept |
 | `SCRAPER_ALLOW_HOSTS` / `SCRAPER_BLOCKED_DOMAINS` | — | Network-guard exceptions / do-not-scrape list |
 | `SCRAPER_CACHE_TTL_HOURS` | 24 | Page cache |
+| `SCRAPER_AGENT` | 1 | `0` turns Agent mode off |
+| `SCRAPER_AGENT_PROVIDER` / `SCRAPER_AGENT_MODEL` | `anthropic` + `claude-sonnet-5-5` if `ANTHROPIC_API_KEY` is set, else `groq` + gpt-oss-120b | The AI that drives the browser |
+| `SCRAPER_AGENT_MAX_STEPS` / `_MAX_MINUTES` / `_MAX_AI_CALLS` | 40 / 10 / 60 | Default limits per agent run |
+| `SCRAPER_AGENT_SHOW_BROWSER` | 0 | `1` shows the agent's browser window |
 
 ## What's next
 

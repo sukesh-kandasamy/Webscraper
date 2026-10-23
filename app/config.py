@@ -86,3 +86,23 @@ def ai_model() -> str:
 
 def ai_enabled() -> bool:
     return bool(GROQ_API_KEY if AI_PROVIDER == "groq" else ANTHROPIC_API_KEY)
+
+
+# ---- Agent mode (browser-use, in its own environment: .venv-agent) -----------------------
+AGENT_ENABLED = os.getenv("SCRAPER_AGENT", "1") != "0"
+AGENT_PYTHON = Path(os.getenv("SCRAPER_AGENT_PYTHON", ROOT / ".venv-agent" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")))
+AGENT_PROVIDER = os.getenv("SCRAPER_AGENT_PROVIDER", "anthropic" if ANTHROPIC_API_KEY else "groq").lower()
+AGENT_MODEL = os.getenv("SCRAPER_AGENT_MODEL", "claude-sonnet-5-5" if AGENT_PROVIDER == "anthropic" else GROQ_MODEL)
+AGENT_MAX_STEPS = int(os.getenv("SCRAPER_AGENT_MAX_STEPS", "40"))
+AGENT_MAX_MINUTES = float(os.getenv("SCRAPER_AGENT_MAX_MINUTES", "10"))
+AGENT_MAX_AI_CALLS = int(os.getenv("SCRAPER_AGENT_MAX_AI_CALLS", "60"))
+AGENT_SHOTS_DIR = DATA_DIR / "agent_shots"
+
+
+def agent_key() -> str:
+    return ANTHROPIC_API_KEY if AGENT_PROVIDER == "anthropic" else GROQ_API_KEY
+
+
+def agent_vision() -> bool:
+    """Models that can see screenshots. gpt-oss on Groq is text-only."""
+    return AGENT_PROVIDER == "anthropic"

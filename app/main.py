@@ -18,8 +18,9 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import (audit, browser, config, db, export, extractor, fetcher, jobs, logsafe, netguard,
+from . import (audit, browser, config, db, details, export, extractor, fetcher, jobs, logsafe, netguard,
                normalize, privacy, quality, recipe_builder, request_parser, robots, sessions)
+from .agent import api as agent_api, runner as agent_runner, store as agent_store
 
 PREVIEW_ROWS = 20
 
@@ -48,18 +49,22 @@ def _retention_loop(stop: threading.Event) -> None:
 async def lifespan(_: FastAPI):
     logsafe.install()
     db.init()
+    agent_store.init()
     _seed_builtin_recipes()
     stop = threading.Event()
     threading.Thread(target=_retention_loop, args=(stop,), daemon=True, name="retention").start()
     jobs.resume_pending()
     yield
     stop.set()
+    agent_runner.stop()
 
 
 app = FastAPI(title="Universal Scraper", version="0.2", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
 app.mount("/static", StaticFiles(directory=config.ROOT / "static"), name="static")
+app.include_router(agent_api.router)
+app.include_router(agent_api.worker)
 
 _LOCAL_NAMES = {"localhost", "127.0.0.1", "::1", "[::1]"} | set(config.ALLOWED_HOSTS)
 SECURITY_HEADERS = {
@@ -321,7 +326,8 @@ def status():
             "budget": [config.DAILY_BUDGET, config.DAILY_BUDGET_LOGGED_IN],
             "session_max_age_days": config.SESSION_MAX_AGE_DAYS,
             "retention": {"cache_hours": config.CACHE_TTL_HOURS, "job_days": config.JOB_RETENTION_DAYS},
-            "needs_you": [j["id"] for j in db.list_jobs(100) if j["status"] == "needs_you"]}
+            "needs_you": [j["id"] for j in db.list_jobs(100) if j["status"] == "needs_you"],
+            "agent": agent_runner.status()}
 
 
 # ---- routes: analyse / preview -------------------------------------------------------
@@ -409,14 +415,6 @@ def analyse(body: AnalyseIn):
                    built["notes"] + render_note + note, absent=built.get("absent", []))
 
 
-def _first_item_link(rows: list[dict], field: str) -> str:
-    for r in rows:
-        v = r.get(field)
-        if isinstance(v, str) and v.startswith(("http://", "https://")):
-            return v
-    return ""
-
-
 @app.post("/api/details")
 def analyse_details(body: DetailsIn):
     """Turn on item pages: open the first item's own page and let the AI find the extra columns.
@@ -425,41 +423,22 @@ def analyse_details(body: DetailsIn):
     recipe = _normalize_or_http_error(body.recipe)
     page = _fetch_or_http_error(url, recipe)
     rows = extractor.extract(page.html, recipe, page.final_url)
-    field = jobs.url_field(recipe)
-    link = _first_item_link(rows, field) if field else ""
-    if not link:
-        raise HTTPException(422, "The list has no link to each item's own page, so item pages can't be "
-                                 "opened. Add a 'url' column (the item's link) and try again.")
-    link = _clean_urls([link])[0]
-    if config.RESPECT_ROBOTS and not fetcher.robots_allows(link):
-        raise HTTPException(403, "The site's robots.txt does not allow opening its item pages.")
-    ai_allowed = db.get_site_settings(fetcher.domain_of(link)).get("ai_allowed", True)
-    if not config.ai_enabled() or not ai_allowed:
-        raise HTTPException(422, "Item pages need the AI to find their details, and AI is not available "
-                                 "for this site.")
-    item = _fetch_or_http_error(link, None)
-    have = [f["name"] for f in recipe["fields"]]
-    wanted = [{"name": recipe_builder.snake(str(c.get("name") or "")), "meaning": str(c.get("meaning") or ""),
-               "type": c.get("type") or ""} for c in body.columns if c.get("name")]
-    wanted = [c for c in wanted if c["name"] and c["name"] not in have]
     try:
-        built = recipe_builder.build_detail(item.html, item.final_url, wanted, have, body.auto,
-                                            redact=item.logged_in)
-    except recipe_builder.RecipeBuildError as e:
-        raise HTTPException(422, str(e))
+        got = details.add_item_pages(recipe, rows, body.columns, body.auto,
+                                     fetch=lambda link, r: _fetch_or_http_error(link, r))
+    except details.DetailError as e:
+        raise HTTPException(e.status, str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(502, logsafe.redact(f"AI request failed: {type(e).__name__}: {e}")[:400])
-    audit.log("detail_recipe_built", domain=fetcher.domain_of(link), columns=len(built["detail"]["fields"]))
-    recipe = {**recipe, "detail": {"url_field": field, **built["detail"]}}
-    recipe.pop("column_types", None)
+    recipe, first = got["recipe"], got["first"]
     # Preview: the first item with its item-page values merged in (listing values win).
-    first = next((r for r in rows if r.get(field) == link), rows[0] if rows else {})
-    merged = {**first, **{k: v for k, v in built["row"].items() if v and not first.get(k)}}
-    result = _result(fetcher.domain_of(page.final_url), page, recipe, "ai", rows,
-                     notes=built["notes"])
+    merged = {**first, **{k: v for k, v in got["row"].items() if v and not first.get(k)}}
+    result = _result(fetcher.domain_of(page.final_url), page, recipe, "ai", rows, notes=got["notes"])
     typed, types, _ = typed_preview([merged], {**recipe, "fields": recipe["fields"] + recipe["detail"]["fields"]})
-    result.update(detail_row=typed[0] if typed else {}, detail_missing=built["missing"],
-                  detail_columns=[f["name"] for f in recipe["detail"]["fields"]], detail_url=link)
+    result.update(detail_row=typed[0] if typed else {}, detail_missing=got["missing"],
+                  detail_columns=[f["name"] for f in recipe["detail"]["fields"]], detail_url=got["link"])
     result["column_types"] = {**types, **result["column_types"]}
     result["recipe"]["column_types"] = result["column_types"]
     return result
@@ -768,6 +747,7 @@ def list_scrapes():
                     "columns": [f["name"] for f in s["recipe"].get("fields", [])]
                     + [f["name"] for f in (s["recipe"].get("detail") or {}).get("fields", [])],
                     "request_summary": (s["recipe"].get("request") or {}).get("summary", ""),
+                    "mode": s.get("mode", "guided"),
                     "item_pages": bool(s["recipe"].get("detail")),
                     "domain": fetcher.domain_of(s["urls"][0]) if s["urls"] else ""})
     return out

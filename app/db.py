@@ -104,6 +104,9 @@ MIGRATIONS = [
     # column types ({"price": "money"}) and the quality report / run counters of a job
     ("jobs", "columns", "ALTER TABLE jobs ADD COLUMN columns TEXT NOT NULL DEFAULT '{}'"),
     ("jobs", "quality", "ALTER TABLE jobs ADD COLUMN quality TEXT NOT NULL DEFAULT '{}'"),
+    # which mode made a saved scrape (guided | agent) and, for agent scrapes, the recorded route
+    ("scrapes", "mode", "ALTER TABLE scrapes ADD COLUMN mode TEXT NOT NULL DEFAULT 'guided'"),
+    ("scrapes", "route", "ALTER TABLE scrapes ADD COLUMN route TEXT NOT NULL DEFAULT '[]'"),
 ]
 
 
@@ -239,16 +242,20 @@ def _scrape_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["urls"] = json.loads(d["urls"])
     d["recipe"] = json.loads(d["recipe"])
+    d["route"] = json.loads(d.get("route") or "[]")
+    d.setdefault("mode", "guided")
     return d
 
 
-def create_scrape(name: str, urls: list[str], recipe: dict, max_pages: int, page_type: str = "") -> int:
+def create_scrape(name: str, urls: list[str], recipe: dict, max_pages: int, page_type: str = "",
+                  mode: str = "guided", route: list | None = None) -> int:
     now = time.time()
     with tx() as c:
         cur = c.execute(
-            "INSERT INTO scrapes(name, urls, recipe, max_pages, page_type, created_at, updated_at) "
-            "VALUES(?,?,?,?,?,?,?)",
-            (name, json.dumps(urls), json.dumps(recipe), max_pages, page_type, now, now))
+            "INSERT INTO scrapes(name, urls, recipe, max_pages, page_type, created_at, updated_at, mode, route) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (name, json.dumps(urls), json.dumps(recipe), max_pages, page_type, now, now, mode,
+             json.dumps(route or [])))
         return cur.lastrowid
 
 

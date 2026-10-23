@@ -1,0 +1,1 @@
+browser-use==0.13.11   # Agent mode, installed in its own environment: .venv-agent (see README)

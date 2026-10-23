@@ -570,6 +570,59 @@ def _retry_prompt(prompt: str, previous: str, problem: str) -> str:
             "Return a corrected recipe, using only selectors visible in the HTML above.")
 
 
+LIST_COLUMN = re.compile(r"(tags|skills|categories|keywords|features|amenities|labels|genres|authors|colou?rs|sizes|"
+                         r"languages|benefits|perks|highlights|topics|badges|facilities|specialities|specialties)$", re.I)
+
+
+def mark_list_columns(html: str, recipe: dict) -> dict:
+    """Columns named like lists (tags, skills, amenities...) whose selector matches several elements in
+    most items collect all of them, joined with commas, instead of only the first."""
+    if recipe.get("source") == "json":
+        return recipe
+    items = extractor.parse_html(html).css(recipe["item_selector"])[:10]
+    if not items:
+        return recipe
+    for f in recipe["fields"]:
+        if f["kind"] != "text" or not f["selector"] or f.get("join") or not LIST_COLUMN.search(f["name"]):
+            continue
+        try:
+            multi = sum(1 for it in items if len(it.css(f["selector"])) > 1)
+        except Exception:
+            continue
+        if multi >= max(1, len(items) // 2):
+            f["join"] = True
+    return recipe
+
+
+def check_pagination(html: str, url: str, recipe: dict) -> dict:
+    """The AI's next-page selector must match something on the page. If it matches nothing (or the AI
+    saw no pagination) but the page has a "next" link or a link to page 2 of the same listing, use the
+    page's links instead: next_page_url only follows "next" links and same-listing page numbers."""
+    pag = recipe["pagination"]
+    if pag["type"] not in ("none", "next_link") or recipe.get("source") == "json":
+        return recipe
+    if pag["type"] == "next_link" and pag["selector"]:
+        try:
+            if extractor.parse_html(html).css(pag["selector"]):
+                return recipe
+        except Exception:
+            pass
+    loose = {**recipe, "pagination": {**pag, "type": "next_link", "selector": "a[href]"}}
+    nxt = extractor.next_page_url(html, loose, url, 0)
+    if nxt and (extractor._NEXT.search(nxt) or extractor._page_number_match(nxt, url, 2)
+                or _says_next(html, nxt)):
+        return loose
+    return recipe
+
+
+def _says_next(html: str, link: str) -> bool:
+    from urllib.parse import urljoin
+    for a in extractor.parse_html(html).css("a[href]"):
+        if extractor._NEXT.search(extractor._link_words(a)) and urljoin(link, a.attributes.get("href") or "") == link:
+            return True
+    return False
+
+
 def _drop_missing(recipe: dict) -> dict:
     recipe["fields"] = [f for f in recipe["fields"] if not (f.get("attr") == "none")]
     return recipe
@@ -828,6 +881,8 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
             else:
                 recipe = extractor.normalize_recipe(_drop_missing(raw))
             recipe["page_type"] = page_type
+            recipe = mark_list_columns(html, recipe)
+            recipe = check_pagination(html, url, recipe)
         except (json.JSONDecodeError, extractor.RecipeError) as e:
             last_problem = f"The recipe was invalid: {e}"
         else:

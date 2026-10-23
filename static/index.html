@@ -36,6 +36,11 @@
       <button class="nav-item" :class="view==='home' && 'nav-active'" @click="go('home')">
         <span x-html="icon('home', 'nav-icon')"></span> Home
       </button>
+      <button class="nav-item" :class="view==='agent' && 'nav-active'" @click="go('agent')" x-show="agentEnabled()" x-cloak>
+        <span x-html="icon('sparkles', 'nav-icon')"></span> Agent
+        <span class="ml-auto chip chip-blue" x-show="agentBusyCount()" x-cloak><span class="dot animate-pulse"></span><span x-text="agentBusyCount()"></span></span>
+        <span class="ml-auto rounded bg-brand-50 px-1.5 text-[10px] font-semibold uppercase text-brand-600 dark:bg-brand-500/10 dark:text-brand-300" x-show="!agentBusyCount()">New</span>
+      </button>
       <button class="nav-item" :class="view==='scrapes' && 'nav-active'" @click="go('scrapes')">
         <span x-html="icon('folder', 'nav-icon')"></span> Saved scrapes
         <span class="ml-auto text-xs tabular-nums text-slate-400" x-text="scrapes.length || ''"></span>
@@ -154,6 +159,17 @@
             </div>
           </div>
         </div>
+
+        <!-- agent mode -->
+        <button class="card group flex w-full items-center gap-4 p-5 text-left transition hover:border-brand-200 hover:shadow-pop dark:hover:border-brand-500/40"
+                x-show="agentEnabled()" x-cloak @click="go('agent')">
+          <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-violet-600 text-white shadow-sm" x-html="icon('sparkles', 'h-5 w-5')"></span>
+          <span class="min-w-0 flex-1">
+            <span class="flex items-center gap-2 font-semibold text-slate-900 dark:text-white">Let the agent do it <span class="chip chip-blue">New</span></span>
+            <span class="mt-0.5 block text-sm text-slate-500">Only know the goal? Name the site and what you need; the agent finds the results with the site's own search and filters, then collects them.</span>
+          </span>
+          <span class="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-brand-500" x-html="icon('chevron', 'h-5 w-5')"></span>
+        </button>
 
         <!-- templates -->
         <div>
@@ -633,7 +649,8 @@
                 <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"
                       x-html="icon(({ecommerce: 'cart', jobs: 'briefcase', real_estate: 'house', stocks_finance: 'chart', directory: 'building', news_articles: 'news'})[s.page_type] || 'table', 'h-[18px] w-[18px]')"></span>
                 <div class="min-w-0 flex-1">
-                  <div class="truncate font-semibold text-slate-900 dark:text-white" x-text="s.name"></div>
+                  <div class="flex items-center gap-1.5"><div class="truncate font-semibold text-slate-900 dark:text-white" x-text="s.name"></div>
+                    <span class="chip chip-blue shrink-0" x-show="s.mode === 'agent'" x-cloak title="Set up by the agent">Agent</span></div>
                   <div class="truncate text-xs text-slate-500" x-text="s.domain + (s.urls.length > 1 ? ` · ${s.urls.length} links` : '') + (s.page_type ? ' · ' + pageTypeLabel(s.page_type) : '')"></div>
                 </div>
                 <div class="relative" x-data="{ open: false }">
@@ -933,6 +950,203 @@
         </div>
       </section>
 
+      <!-- ===================================================== AGENT MODE -->
+      <section x-show="view==='agent'" x-cloak class="space-y-6 animate-fade-up">
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 class="page-title flex items-center gap-2">Agent <span class="chip chip-blue">New</span></h1>
+            <p class="muted mt-1">Tell it the goal and the site. It finds the results on the site, then the app collects them.</p>
+          </div>
+          <button class="btn" x-show="agentRun" x-cloak @click="newAgentRun()"><span x-html="icon('plus', 'h-4 w-4')"></span> New agent run</button>
+        </div>
+
+        <div class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+             x-show="agentProblem()" x-cloak>
+          <span class="mt-0.5 text-amber-500" x-html="icon('warn', 'h-5 w-5')"></span>
+          <div><div class="font-semibold">Agent mode isn't ready</div><p class="mt-0.5" x-text="agentProblem()"></p></div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_17rem]">
+          <div class="min-w-0 space-y-5">
+
+            <!-- 1 · goal -->
+            <div class="card" x-show="!agentRun">
+              <div class="card-body space-y-5">
+                <div>
+                  <label class="label" for="agent-goal">What should the agent collect?</label>
+                  <textarea id="agent-goal" x-model="agentGoal" rows="3" maxlength="2000" class="input text-[15px] leading-relaxed"
+                            placeholder="Example: 3BHK flats for rent in Whitefield, Bangalore under ₹40,000: price, area, furnishing, owner or agent, posted date. All pages."
+                            @keydown.ctrl.enter.prevent="planAgent()"></textarea>
+                  <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span class="mr-1 text-xs text-slate-500">Examples:</span>
+                    <template x-for="ex in agentExamples" :key="ex.label">
+                      <button class="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                              @click="agentGoal = ex.goal; agentSite = ex.site" x-text="ex.label"></button>
+                    </template>
+                  </div>
+                </div>
+                <div>
+                  <label class="label" for="agent-site">Website</label>
+                  <input id="agent-site" type="text" x-model="agentSite" class="input" placeholder="books.toscrape.com  or a link to start from"
+                         @keydown.enter.prevent="planAgent()">
+                  <p class="mt-1.5 text-xs text-slate-500">The agent stays on this site, follows its crawling rules, and only searches, filters and reads. It never logs in, buys, contacts or applies.</p>
+                </div>
+              </div>
+              <div class="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+                <button class="btn btn-primary btn-lg" @click="planAgent()" :disabled="!!busy || !!agentProblem()">
+                  <span x-show="busy==='agent-plan'" class="spinner"></span>
+                  <span x-text="busy==='agent-plan' ? 'Making a plan…' : 'Make a plan'"></span></button>
+              </div>
+            </div>
+
+            <!-- 2 · plan to approve -->
+            <template x-if="agentRun && agentRun.status === 'draft'">
+              <div class="card">
+                <div class="card-head"><h2 class="card-title">The agent's plan</h2><span class="muted">check it, change anything, then start</span></div>
+                <div class="card-body space-y-5">
+                  <p class="text-sm text-slate-600 dark:text-slate-300" x-text="agentRun.plan.summary"></p>
+                  <div x-show="agentRun.plan.question" class="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">
+                    <span class="mt-0.5 text-amber-500" x-html="icon('warn', 'h-4 w-4')"></span><span x-text="agentRun.plan.question"></span></div>
+                  <div>
+                    <label class="label">Start page</label>
+                    <input type="url" x-model="agentRun.plan.start_url" class="input font-mono text-xs">
+                  </div>
+                  <div>
+                    <span class="label">Steps on the site</span>
+                    <ol class="space-y-1.5">
+                      <template x-for="(s, i) in agentRun.plan.navigation" :key="i">
+                        <li class="flex items-center gap-2">
+                          <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500 dark:bg-slate-800" x-text="i + 1"></span>
+                          <input type="text" x-model="agentRun.plan.navigation[i]" class="input h-8 py-0 text-sm">
+                          <button class="rounded p-1 text-slate-400 hover:text-rose-600" @click="agentRun.plan.navigation.splice(i, 1)" aria-label="Remove step"><span x-html="icon('x', 'h-4 w-4')"></span></button>
+                        </li>
+                      </template>
+                    </ol>
+                    <button class="mt-2 text-xs link" @click="agentRun.plan.navigation.splice(Math.max(0, agentRun.plan.navigation.length - 1), 0, '')">+ Add a step</button>
+                  </div>
+                  <div>
+                    <span class="label">Columns</span>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <template x-for="c in agentRun.plan.request.columns" :key="c.name">
+                        <span class="inline-flex items-center gap-1 rounded-lg border bg-white py-0.5 pl-2 pr-0.5 text-sm shadow-sm dark:bg-slate-800"
+                              :class="c.auto_added ? 'border-dashed border-slate-300 text-slate-500 dark:border-slate-600' : 'border-slate-200 dark:border-slate-700'" :title="c.meaning">
+                          <span class="font-medium" x-text="pretty(c.name)"></span>
+                          <span class="type-badge" x-show="typeLabel(c.type)" x-text="typeLabel(c.type)"></span>
+                          <button class="rounded p-0.5 text-slate-400 hover:text-rose-600" @click="agentRemoveColumn(c.name)" :aria-label="'Remove ' + c.name"><span x-html="icon('x', 'h-3.5 w-3.5')"></span></button>
+                        </span>
+                      </template>
+                      <form @submit.prevent="agentAddColumn()"><input type="text" x-model="agentNewCol" class="input h-7 w-36 py-0 text-xs" placeholder="Add a column…" aria-label="Add a column"></form>
+                    </div>
+                  </div>
+                  <div x-show="agentRun.plan.request.filters.length || agentRun.plan.request.sort.column">
+                    <span class="label">Only keep</span>
+                    <div class="flex flex-wrap gap-1.5">
+                      <template x-for="(f, i) in agentRun.plan.request.filters" :key="i">
+                        <span class="chip chip-amber gap-1 pr-1"><span x-text="filterLabel(f)"></span>
+                          <button @click="agentRun.plan.request.filters.splice(i, 1)" aria-label="Remove condition"><span x-html="icon('x', 'h-3 w-3')"></span></button></span>
+                      </template>
+                      <span class="chip chip-gray gap-1 pr-1" x-show="agentRun.plan.request.sort.column">
+                        <span x-text="'sorted by ' + pretty(agentRun.plan.request.sort.column)"></span>
+                        <button @click="agentRun.plan.request.sort = {column: '', desc: false}" aria-label="Remove sorting"><span x-html="icon('x', 'h-3 w-3')"></span></button></span>
+                    </div>
+                  </div>
+                  <div class="grid gap-4 sm:grid-cols-2">
+                    <div><label class="label">Result pages to collect</label>
+                      <input type="number" min="1" max="50" x-model.number="agentRun.plan.pages" class="input"></div>
+                    <div><label class="label">Open each item's own page</label>
+                      <select x-model="agentRun.plan.item_pages" class="input">
+                        <option value="auto">If needed (columns not on the list)</option><option value="yes">Yes</option><option value="no">No</option>
+                      </select></div>
+                  </div>
+                  <details class="group">
+                    <summary class="text-sm"><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-4 w-4')"></span> Limits for this run</summary>
+                    <div class="mt-3 grid gap-4 sm:grid-cols-3">
+                      <div><label class="label">Max steps</label><input type="number" min="5" max="150" x-model.number="agentLimits.steps" class="input"></div>
+                      <div><label class="label">Max minutes</label><input type="number" min="1" max="60" x-model.number="agentLimits.minutes" class="input"></div>
+                      <div><label class="label">Max AI calls</label><input type="number" min="5" max="300" x-model.number="agentLimits.ai_calls" class="input"></div>
+                    </div>
+                  </details>
+                </div>
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+                  <div class="flex gap-2">
+                    <button class="btn" @click="discardAgentPlan()"><span x-html="icon('left', 'h-4 w-4')"></span> Change the goal</button>
+                  </div>
+                  <button class="btn btn-primary btn-lg" @click="startAgent()" :disabled="!!busy">
+                    <span x-show="busy==='agent-start'" class="spinner"></span><span x-show="busy!=='agent-start'" x-html="icon('play', 'h-4 w-4')"></span> Start the agent</button>
+                </div>
+              </div>
+            </template>
+
+            <!-- 3 · live run / result -->
+            <template x-if="agentRun && agentRun.status !== 'draft'">
+              <div class="space-y-4">
+                <div class="card p-5">
+                  <div class="flex flex-wrap items-start gap-3">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <h2 class="text-lg font-semibold text-slate-900 dark:text-white" x-text="agentRun.plan.summary || agentRun.goal"></h2>
+                        <span class="chip" :class="agentChip(agentRun.status)"><span class="dot" :class="agentActive() && 'animate-pulse'"></span><span x-text="agentStatusLabel(agentRun.status)"></span></span>
+                      </div>
+                      <p class="mt-1 text-sm text-slate-600 dark:text-slate-300" x-text="agentRun.summary || agentRun.message"></p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                      <button class="btn btn-sm" x-show="agentActive()" @click="stopAgent()"><span x-html="icon('stop', 'h-3.5 w-3.5')"></span> Stop</button>
+                      <button class="btn btn-primary btn-sm" x-show="agentRun.job_id && !agentActive()" @click="openAgentResults()"><span x-html="icon('table', 'h-3.5 w-3.5')"></span> Open results</button>
+                      <button class="btn btn-primary btn-sm" x-show="agentRun.status === 'needs_you'" @click="solveForAgent()" :disabled="!status?.browser_available">Open to solve</button>
+                      <button class="btn btn-sm" x-show="['needs_you','limit','error','stopped'].includes(agentRun.status)" @click="retryAgent()"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Try again</button>
+                    </div>
+                  </div>
+                  <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <template x-for="t in agentTiles()" :key="t.label">
+                      <div class="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/60">
+                        <div class="text-[11px] text-slate-500" x-text="t.label"></div>
+                        <div class="text-lg font-semibold tabular-nums text-slate-900 dark:text-white" x-text="t.value"></div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-head"><h2 class="card-title">What the agent did</h2><span class="ml-auto text-brand-600" x-show="agentActive()"><span class="spinner"></span></span></div>
+                  <ol class="divide-y divide-slate-100 dark:divide-slate-800">
+                    <template x-for="s in agentSteps()" :key="s.n">
+                      <li class="flex gap-3 px-5 py-3">
+                        <span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full"
+                              :class="{action: 'bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300', thought: 'bg-slate-100 text-slate-500 dark:bg-slate-800', info: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300', warn: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300'}[s.kind]"
+                              x-html="icon({action: 'bolt', thought: 'sparkles', info: 'check', warn: 'warn'}[s.kind] || 'info', 'h-3.5 w-3.5')"></span>
+                        <div class="min-w-0 flex-1">
+                          <div class="break-words text-sm [overflow-wrap:anywhere]" :class="s.kind === 'thought' ? 'text-slate-500 dark:text-slate-400 italic' : 'text-slate-800 dark:text-slate-100'" x-text="s.text"></div>
+                          <div class="truncate text-[11px] text-slate-400" x-show="s.url && s.kind !== 'thought'" x-text="s.url"></div>
+                        </div>
+                        <a x-show="s.shot" :href="`/api/agent/runs/${agentRun.id}/shots/${s.n}.jpg`" target="_blank" rel="noopener" class="shrink-0">
+                          <img :src="s.shot ? `/api/agent/runs/${agentRun.id}/shots/${s.n}.jpg` : ''" alt="Screenshot" loading="lazy"
+                               class="h-14 w-24 rounded-md object-cover object-top ring-1 ring-slate-200 dark:ring-slate-700"></a>
+                      </li>
+                    </template>
+                  </ol>
+                  <p class="muted p-6 text-center" x-show="!agentSteps().length">Waiting for the agent to start…</p>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- recent agent runs -->
+          <aside class="card h-fit min-w-0 p-1.5" x-show="agentRuns.length" x-cloak>
+            <div class="eyebrow px-2.5 pb-1 pt-2">Agent runs</div>
+            <template x-for="r in agentRuns" :key="r.id">
+              <button class="w-full rounded-lg px-2.5 py-2 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      :class="agentRun?.id === r.id && 'bg-brand-50 hover:bg-brand-50 dark:bg-brand-500/10'" @click="openAgentRun(r.id)">
+                <div class="flex items-center gap-2">
+                  <span class="min-w-0 flex-1 truncate text-sm font-medium text-slate-900 dark:text-slate-100" x-text="r.plan?.summary || r.goal"></span>
+                  <span class="h-2 w-2 shrink-0 rounded-full" :class="{done: 'bg-emerald-500', draft: 'bg-slate-300', queued: 'bg-amber-400', navigating: 'bg-brand-500 animate-pulse', collecting: 'bg-brand-500 animate-pulse', needs_you: 'bg-amber-500', limit: 'bg-amber-500', error: 'bg-rose-500', stopped: 'bg-slate-400'}[r.status]"></span>
+                </div>
+                <div class="mt-0.5 truncate text-xs text-slate-500" x-text="`${r.site} · ${agentStatusLabel(r.status)} · ${timeAgo(r.created_at)}`"></div>
+              </button>
+            </template>
+          </aside>
+        </div>
+      </section>
+
       <!-- ===================================================== SETTINGS -->
       <section x-show="view==='settings'" x-cloak class="space-y-6 animate-fade-up">
         <div><h1 class="page-title">Settings</h1><p class="muted mt-1">Sites you've used, appearance and app information.</p></div>
@@ -958,6 +1172,26 @@
               <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Show technical options</div>
               <p class="mt-0.5 text-xs text-slate-500">The column setup as JSON, per-site settings (page limits, waiting time, browser loading), logging in to sites and the activity log.</p>
             </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2 class="card-title">Agent mode</h2></div>
+          <div class="card-body space-y-4">
+            <div class="flex items-start gap-3">
+              <button type="button" role="switch" :aria-checked="agentEnabled()" aria-label="Agent mode" class="switch mt-0.5"
+                      :class="agentEnabled() && 'switch-on'" @click="agentShown = !agentShown" :disabled="!status?.agent?.enabled"><span></span></button>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Show Agent mode</div>
+                <p class="mt-0.5 text-xs text-slate-500">An AI agent (browser-use) finds the results on a site for you, then the app collects them. Guided mode stays as it is.</p>
+              </div>
+            </div>
+            <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+              <div class="flex justify-between gap-4"><dt class="text-slate-500">AI for the agent</dt><dd class="text-right font-medium" x-text="status?.agent ? `${status.agent.provider} · ${status.agent.model}` : '—'"></dd></div>
+              <div class="flex justify-between gap-4"><dt class="text-slate-500">Sees screenshots</dt><dd class="font-medium" x-text="status?.agent?.vision ? 'Yes' : 'No (text only)'"></dd></div>
+              <div class="flex justify-between gap-4"><dt class="text-slate-500">Installed</dt><dd class="font-medium" x-text="status?.agent?.installed ? 'Yes (.venv-agent)' : 'No'"></dd></div>
+              <div class="flex justify-between gap-4"><dt class="text-slate-500">Default limits</dt><dd class="text-right font-medium" x-text="status?.agent ? `${status.agent.limits.steps} steps · ${status.agent.limits.minutes} min · ${status.agent.limits.ai_calls} AI calls` : '—'"></dd></div>
+            </dl>
           </div>
         </div>
 

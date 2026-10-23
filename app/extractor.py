@@ -106,6 +106,7 @@ def normalize_recipe(recipe: dict) -> dict:
             "label_selector": f.get("label_selector") or "",
             "value_selector": f.get("value_selector") or "",
             "label": f.get("label") or "",
+            **({"join": True} if f.get("join") else {}),
         })
     if not fields:
         raise RecipeError("Recipe needs at least one field")
@@ -239,6 +240,10 @@ def _extract_field(item: LexborNode, f: dict, base_url: str, page_data=None) -> 
             value = "; ".join(f"{k}: {v}" for k, v in pairs if k or v)
         return _apply_regex(value, f["regex"])
 
+    if f.get("join") and f["selector"]:
+        # List-like columns (tags, skills, amenities): every match, joined.
+        values = [v for v in (_node_value(n, f["attr"], base_url) for n in item.css(f["selector"])) if v]
+        return _apply_regex(", ".join(dict.fromkeys(values)), f["regex"])
     node = item if not f["selector"] else item.css_first(f["selector"])
     if node is None:
         return ""
@@ -286,6 +291,28 @@ def _link_words(a: LexborNode) -> str:
                      a.attributes.get("aria-label") or "", (parent.attributes.get("class") or "") if parent else ""])
 
 
+def _same_listing(url: str, current: str) -> bool:
+    """Is url another page of the listing at current? Same address apart from numbers, or the
+    current address with a page part added (/tag/x/ -> /tag/x/page/2/)."""
+    a, b = urlsplit(url), urlsplit(current)
+    if a.netloc != b.netloc:
+        return False
+    # Every non-page parameter of this page (?q=New) must be kept: a link that drops the search isn't a next page.
+    shape = lambda q: {(k, re.sub(r"\d+", "#", v)) for k, v in parse_qsl(q, keep_blank_values=True)}
+    if not shape(b.query) <= shape(a.query):
+        return False
+    if re.sub(r"\d+", "#", a.path) == re.sub(r"\d+", "#", b.path):
+        return a.path != b.path or a.query != b.query
+    return a.path.startswith(b.path.rstrip("/") + "/") and re.search(r"\d", a.path[len(b.path):] + a.query) is not None
+
+
+def _page_number_match(url: str, current: str, wanted: int) -> bool:
+    """Does url carry page number `wanted` where it differs from the current address?"""
+    mine = re.findall(r"\d+", urlsplit(current).path + "?" + urlsplit(current).query)
+    return str(wanted) in [n for n in re.findall(r"\d+", urlsplit(url).path + "?" + urlsplit(url).query)
+                           if n not in mine or n == str(wanted)]
+
+
 def next_page_url(html: str, recipe: dict, current_url: str, page_index: int,
                   visited: set | None = None) -> str | None:
     """URL of the next page, or None. page_index is 0 for the first page fetched.
@@ -295,17 +322,32 @@ def next_page_url(html: str, recipe: dict, current_url: str, page_index: int,
     pag = recipe["pagination"]
     if pag["type"] == "next_link" and pag["selector"]:
         visited = visited or set()
-        options = []
+        options, numbered = [], {}
         for node in parse_html(html).css(pag["selector"]):
             href = node.attributes.get("href")
             if not href or href.startswith(("javascript:", "#")):
                 continue
             url = urljoin(current_url, href)
             words = _link_words(node)
+            label = clean_text(node.text())
+            if label.isdigit():
+                numbered.setdefault(label, url)      # page-number links: "1" -> its address
             if url == current_url or url in visited or (_PREV.search(words) and not _NEXT.search(words)):
                 continue
             options.append((0 if _NEXT.search(words) else 1, url))
-        return min(options, key=lambda o: o[0])[1] if options else None
+        # The link numbered like this page is this page under another address (?page_num=1 on the
+        # first results page): never "next", even when the site labels it so.
+        this_page = numbered.get(str(page_index + 1))
+        options = [(rank, u) for rank, u in options if u != this_page]
+        nexts = [u for rank, u in options if rank == 0]
+        if nexts:
+            return nexts[0]
+        if numbered.get(str(page_index + 2)) in [u for _, u in options]:
+            return numbered[str(page_index + 2)]
+        # No link says "next": only follow links shaped like this page's address, so a loose selector
+        # can't wander off to other categories or tags; prefer page n+1.
+        same = [u for _, u in options if _same_listing(u, current_url)]
+        return next((u for u in same if _page_number_match(u, current_url, page_index + 2)), same[0] if same else None)
     if pag["type"] == "url_param" and pag["param"]:
         parts = urlsplit(current_url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))

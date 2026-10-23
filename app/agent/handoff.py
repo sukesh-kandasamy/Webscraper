@@ -1,0 +1,134 @@
+"""The agent reached the results list: hand the page to the normal engine.
+
+1. The recipe builder reads the rendered page with the plan's request (columns, meanings, types).
+2. If opening the final URL again shows the same results, the filters live in the address: the scrape is
+   that URL and runs like any Guided scrape (pages, item pages, typing, quality report).
+   Otherwise the filters exist only inside the page: the agent's page is collected as a one-page run
+   (recorded routes that replay the clicks come in phase 2).
+3. Item pages are switched on when the plan asks for them, or when requested columns aren't on the list.
+4. A saved scrape (mode "agent") and its run are created; the run finishes like any other.
+"""
+import threading
+import time
+
+from .. import audit, config, db, details, extractor, fetcher, jobs, logsafe, recipe_builder, sessions
+from . import guard, store
+
+
+def _log(run_id: int, kind: str, text: str, **detail) -> None:
+    store.add_step(run_id, kind, text, detail=detail or None)
+
+
+def start(run_id: int, url: str, html: str, note: str = "") -> None:
+    threading.Thread(target=_safe, args=(run_id, url, html, note), daemon=True, name=f"handoff-{run_id}").start()
+
+
+def _safe(run_id: int, url: str, html: str, note: str) -> None:
+    try:
+        _handoff(run_id, url, html, note)
+    except Exception as e:  # keep the run meaningful instead of stuck on "collecting"
+        msg = logsafe.redact(f"{type(e).__name__}: {e}")[:400]
+        store.update(run_id, status="error", message=f"Collecting failed: {msg}", finished_at=time.time())
+        _log(run_id, "warn", f"Collecting failed: {msg}")
+
+
+def _same_results(a: list[dict], b: list[dict]) -> bool:
+    """Do two extractions show the same items (at least half of the agent's first items)?"""
+    if not a or not b:
+        return False
+    sig = lambda r: tuple(str(v) for v in list(r.values())[:2])
+    first = {sig(r) for r in a[:10]}
+    return len(b) >= max(1, len(a) // 2) and len(first & {sig(r) for r in b}) >= max(1, len(first) // 2)
+
+
+def _handoff(run_id: int, url: str, html: str, note: str) -> None:
+    run = store.get(run_id)
+    plan = run["plan"]
+    request = plan["request"]
+    ok, why = guard.check_url(url, run["site"])
+    if not ok:
+        raise RuntimeError(f"The results page can't be used: {why}")
+    store.update(run_id, status="collecting", final_url=url, message="Setting up the columns on the results page")
+    _log(run_id, "info", "Reached the results list" + (f": {note}" if note else "") + ". Setting up the columns…", url=url)
+    session = sessions.for_host(fetcher.host_of(url))
+    logged_in = bool(session and session.get("kind") == sessions.KIND_LOGIN)
+
+    try:
+        built = recipe_builder.build_recipe(html, url, [], rendered=True, redact=logged_in, request=request)
+    except recipe_builder.RecipeBuildError as e:
+        raise RuntimeError(f"No list of items could be read on the page the agent reached ({e})") from e
+    recipe = built["recipe"]
+    agent_rows = built["rows"]
+    audit.log("recipe_built", domain=fetcher.domain_of(url), provider=config.AI_PROVIDER, rows=len(agent_rows),
+              by="agent", run_id=run_id)
+    _log(run_id, "info", f"Columns found: {', '.join(f['name'] for f in recipe['fields'])} "
+                         f"({len(agent_rows)} items on the page).")
+
+    # Does the address alone bring back these results?
+    by_url = False
+    try:
+        page = fetcher.fetch_smart(url, recipe)
+        by_url = _same_results(agent_rows, extractor.extract(page.html, recipe, page.final_url))
+    except (fetcher.NeedsHuman, fetcher.BlockedError, fetcher.BudgetExceeded):
+        raise
+    except fetcher.FetchError:
+        by_url = False
+    _log(run_id, "info", "The filters are in the page address, so every page can be collected."
+         if by_url else "The filters exist only inside the page, so the page the agent reached is collected "
+                        "(replaying the clicks on later runs comes with recorded routes).")
+
+    # Item pages, when the plan asks for them or requested columns aren't on the list.
+    absent = built.get("absent") or []
+    if plan.get("item_pages") == "yes" or (plan.get("item_pages") == "auto" and absent):
+        wanted = [c for c in request["columns"] if c["name"] in absent] or \
+            [c for c in request["columns"] if c["name"] not in {f["name"] for f in recipe["fields"]}]
+        store.update(run_id, message="Opening an item page for more details")
+        try:
+            got = details.add_item_pages(recipe, agent_rows, wanted, auto=not wanted)
+            recipe = got["recipe"]
+            _log(run_id, "info", "Item pages on: " + ", ".join(f["name"] for f in recipe["detail"]["fields"])
+                 + (f" (not found: {', '.join(got['missing'])})" if got["missing"] else ""), url=got["link"])
+        except (details.DetailError, fetcher.FetchError, recipe_builder.RecipeBuildError) as e:
+            _log(run_id, "warn", f"Item pages could not be set up: {e}")
+
+    name = (request.get("summary") or run["goal"])[:110]
+    pages = int(plan.get("pages") or 3) if by_url else 1
+    scrape_id = db.create_scrape(name, [url], extractor.normalize_recipe(recipe), pages,
+                                 built.get("page_type") or "", mode="agent")
+    store.update(run_id, scrape_id=scrape_id)
+    if by_url:
+        if config.RESPECT_ROBOTS and not fetcher.robots_allows(url):
+            raise RuntimeError("robots.txt disallows the results page")
+        job_id = jobs.start([url], extractor.normalize_recipe(recipe), pages, logged_in=logged_in,
+                            scrape_id=scrape_id)
+    else:
+        rendered = fetcher.Page(url, url, 200, html, False, rendered=True, logged_in=logged_in)
+        job_id = jobs.collect_page([url], extractor.normalize_recipe(recipe), rendered, scrape_id, logged_in)
+    store.update(run_id, job_id=job_id, message="Collecting")
+    audit.log("agent_handoff", run_id=run_id, job_id=job_id, domain=fetcher.domain_of(url), by_url=by_url)
+    _log(run_id, "info", f"Collecting{' up to ' + str(pages) + ' pages' if by_url else ''}…")
+
+
+def refresh(run: dict) -> dict:
+    """Finish a collecting run when its job has finished (called when the run is read)."""
+    if run["status"] != "collecting" or not run.get("job_id"):
+        return run
+    job = db.get_job(run["job_id"])
+    if not job or job["status"] in ("queued", "running"):
+        return run
+    q = job.get("quality") or {}
+    bits = [f"Collected {job['rows']:,} rows from {job['pages_done']} page(s)"]
+    if q.get("coverage") is not None:
+        bits.append(f"{round(q['coverage'] * 100)}% of the ~{q['expected_total']:,} the site lists")
+    if q.get("excluded"):
+        bits.append(f"{q['excluded']:,} didn't match your conditions")
+    if (q.get("details") or {}).get("done"):
+        bits.append(f"{q['details']['done']} item pages read")
+    bits.append(f"the agent used {run['steps']} steps and {run['ai_calls']} AI calls")
+    status = "done" if job["status"] == "done" else ("needs_you" if job["status"] == "needs_you" else "error")
+    summary = "; ".join(bits) + "."
+    if status != "done":
+        summary = f"Collecting ended as '{job['status']}': {job['message']}"
+    store.update(run["id"], status=status, summary=summary, message=summary, finished_at=time.time())
+    _log(run["id"], "info" if status == "done" else "warn", summary)
+    return store.get(run["id"])

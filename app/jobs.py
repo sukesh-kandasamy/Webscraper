@@ -361,3 +361,28 @@ def _run(job_id: int) -> None:
         saved(status="blocked", message=f"Blocked: {e} ({run.rows_total} rows saved)", finished_at=time.time())
     except Exception as e:  # keep the job record meaningful instead of stuck on "running"
         saved(status="error", message=f"{type(e).__name__}: {e}", finished_at=time.time())
+
+
+def collect_page(urls: list[str], recipe: dict, page: fetcher.Page, scrape_id: int | None = None,
+                 logged_in: bool = False) -> int:
+    """A finished one-page job from a page that was loaded elsewhere (the page the agent reached,
+    whose filters exist only inside the page). Same typing, filters, item pages and quality report."""
+    job_id = db.create_job(urls, recipe, 1, logged_in=logged_in, scrape_id=scrape_id)
+    _stop_flags[job_id] = threading.Event()
+    try:
+        run = _Run(job_id, db.get_job(job_id))
+        db.update_job(job_id, status="running", message="Collecting the page the agent reached")
+        run.q["expected_total"] = quality.stated_total(page.html)
+        produced = run.process(page)
+        db.add_job_page(job_id, page.final_url, produced)
+        run.done_pages[page.final_url] = produced
+        run.pages_done = 1
+        q = run.finish()
+        db.update_job(job_id, status="done", pages_done=1, pages_total=1, rows=run.rows_total,
+                      message=f"Done: {run.rows_total} rows from the page the agent reached.",
+                      finished_at=time.time(), quality=_dumps(q))
+    except Exception as e:
+        db.update_job(job_id, status="error", message=f"{type(e).__name__}: {e}", finished_at=time.time())
+    finally:
+        _stop_flags.pop(job_id, None)
+    return job_id
