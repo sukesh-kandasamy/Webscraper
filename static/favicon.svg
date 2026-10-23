@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Universal Scraper">
+  <title>Universal Scraper</title>
+  <defs>
+    <linearGradient id="us-bg" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="us-shine" x1="16" y1="0" x2="16" y2="16" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- tile -->
+  <rect width="32" height="32" rx="8" fill="url(#us-bg)"/>
+  <rect width="32" height="16" rx="8" fill="url(#us-shine)"/>
+  <!-- structured data: three table cells -->
+  <rect x="7" y="7" width="8" height="8" rx="2.2" fill="#ffffff"/>
+  <rect x="7" y="17" width="8" height="8" rx="2.2" fill="#ffffff" fill-opacity=".72"/>
+  <rect x="17" y="17" width="8" height="8" rx="2.2" fill="#ffffff" fill-opacity=".9"/>
+  <!-- AI spark filling the fourth cell -->
+  <path d="M21 6.2c.55 2.9 1.35 3.7 4.25 4.25-2.9.55-3.7 1.35-4.25 4.25-.55-2.9-1.35-3.7-4.25-4.25 2.9-.55 3.7-1.35 4.25-4.25Z" fill="#ffffff"/>
+</svg>

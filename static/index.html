@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Universal Scraper</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%234f46e5'/%3E%3Cpath fill='white' d='M6 7h12v2H6zm0 4h8v2H6zm0 4h12v2H6z'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" href="/static/logo.svg">
   <link rel="stylesheet" href="/static/app.css">
   <script defer src="/static/app.js"></script>
   <script defer src="/static/vendor/alpine-3.14.1.min.js"></script>
@@ -18,9 +19,7 @@
   <aside class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-slate-200/80 bg-slate-50 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-900 lg:translate-x-0"
          :class="menuOpen ? 'translate-x-0 shadow-pop' : '-translate-x-full'">
     <div class="flex items-center gap-2.5 px-4 pb-4 pt-5">
-      <div class="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm">
-        <svg viewBox="0 0 24 24" class="h-[18px] w-[18px]" fill="currentColor"><path d="M5 6h14v2H5zm0 5h9v2H5zm0 5h14v2H5z"/></svg>
-      </div>
+      <img src="/static/logo.svg" alt="" class="h-8 w-8 shrink-0 drop-shadow-sm" width="32" height="32">
       <div class="leading-tight">
         <div class="text-[15px] font-semibold text-slate-900 dark:text-white">Universal Scraper</div>
         <div class="text-[11px] text-slate-500">Web data, made simple</div>
