@@ -14,6 +14,15 @@ from . import config, extractor, privacy
 
 DROP_TAGS = ["script", "style", "svg", "noscript", "iframe", "link", "meta", "head", "template"]
 KEEP_ATTRS = {"class", "id", "href", "src", "itemprop", "title", "aria-label", "role", "data-src"}
+# data-* attributes that usually carry values worth extracting (ratings, prices, ids of products);
+# others (tracking ids, render ids, UUIDs, widget config) are noise that hides the real content.
+VALUE_DATA_ATTR = re.compile(r"^data-(rating|stars?|score|price|amount|currency|reviews?|count|qty|"
+                             r"stock|brand|title|name|asin|sku|product-?id|value|src)$", re.I)
+_ID_LIKE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-|^amzn1\.|^[A-Za-z0-9_\-]{24,}$")
+
+
+def _keep_data_attr(name: str, value: str) -> bool:
+    return bool(VALUE_DATA_ATTR.match(name)) and len(value) <= 40 and not _ID_LIKE.match(value)
 MAX_SAMPLE_CHARS = 8000
 MAX_CANDIDATES = 4
 
@@ -69,10 +78,9 @@ def _compact(node: LexborNode) -> str:
             n.decompose()
     for n in html.css("*"):
         for attr in list(n.attributes):
-            # data-* attributes often hold values (data-rating="4"), so keep the short ones.
-            keep = attr in KEEP_ATTRS or (attr.startswith("data-") and
-                                          len(n.attributes[attr] or "") <= 40)
             value = n.attributes[attr] or ""
+            # Keep value-like data-* attributes (data-rating="4"); drop tracking ones.
+            keep = attr in KEEP_ATTRS or (attr.startswith("data-") and _keep_data_attr(attr, value))
             if not keep:
                 del n.attrs[attr]
             elif attr in ("href", "src", "data-src"):
@@ -86,6 +94,89 @@ def _compact(node: LexborNode) -> str:
     text = re.sub(r"<!--.*?-->", "", text or "", flags=re.S)
     text = re.sub(r"\s+", " ", text)
     return text[:MAX_SAMPLE_CHARS]
+
+
+OUTLINE_LINES = 45
+_OUTLINE_ATTRS = ("aria-label", "title", "alt", "itemprop", "datetime", "content")
+_SEMANTIC_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6", "a", "img", "button", "time", "li", "dt", "dd",
+                  "td", "th", "p", "strong", "b"}
+
+
+def _rel_path(el: LexborNode, item: LexborNode, depth: int = 3) -> str:
+    """CSS path of el inside item, built from the nearest meaningful ancestors (descendant form)."""
+    parts, cur = [], el
+    while cur is not None and cur is not item and cur.mem_id != item.mem_id:
+        sig = _sig(cur)
+        if cur is el or "." in sig or cur.tag in _SEMANTIC_TAGS:
+            parts.append(sig)
+        if len(parts) >= depth:
+            break
+        cur = cur.parent
+    return " ".join(reversed(parts)) or el.tag
+
+
+def outline(item: LexborNode) -> list[dict]:
+    """The useful parts of one listing card, compactly: for every element that has its own text,
+    a link, an image or a value attribute, its CSS path inside the card plus what it holds.
+    Big cards (shops wrap each product in dozens of layout divs) fit in a few hundred characters."""
+    lines, seen = [], set()
+    for el in item.css("*"):
+        if el.tag in DROP_TAGS:
+            continue
+        own = extractor.clean_text(el.text(deep=False))
+        attrs = []
+        if el.tag == "a" and el.attributes.get("href"):
+            attrs.append(("href", short_url(el.attributes["href"])))
+        if el.tag == "img":
+            attrs.append(("src", "…"))
+        for k, v in el.attributes.items():
+            v = (v or "").strip()
+            if v and (k in _OUTLINE_ATTRS or (k.startswith("data-") and _keep_data_attr(k, v))):
+                attrs.append((k, extractor.clean_text(v)[:50]))
+        if not own and not attrs:
+            continue
+        entry = {"path": _rel_path(el, item, depth=2), "attrs": attrs, "text": own[:60]}
+        key = (entry["path"], tuple(attrs), entry["text"])
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(entry)
+        if len(lines) >= OUTLINE_LINES:
+            break
+    return lines
+
+
+OUTLINE_CARDS = 4
+
+
+def merged_outline(items: list[LexborNode]) -> list[dict]:
+    """Outline of several cards combined: each distinct element (same path and attribute names)
+    appears once, with an example from the first card that has it. Cards differ (one shows a price,
+    the next says "See options"), so looking at a few of them shows every field that exists."""
+    merged, index = [], {}
+    for item in items[:OUTLINE_CARDS]:
+        for e in outline(item):
+            key = (e["path"], tuple(k for k, _ in e["attrs"]), bool(e["text"]))
+            if key not in index:
+                index[key] = len(merged)
+                merged.append(e)
+    return merged[:OUTLINE_LINES + 15]
+
+
+def render_outline(entries: list[dict], text_fn, max_chars: int) -> str:
+    out, used = [], 0
+    for e in entries:
+        line = e["path"]
+        for k, v in e["attrs"]:
+            line += f' [{k}="{text_fn(v) if k not in ("href", "src") else v}"]'
+        if e["text"]:
+            line += f' → "{text_fn(e["text"])}"'
+        if used + len(line) > max_chars:
+            out.append("…")
+            break
+        out.append(line)
+        used += len(line) + 1
+    return "\n".join(out)
 
 
 def find_candidates(html: str) -> list[dict]:
@@ -125,7 +216,8 @@ def find_candidates(html: str) -> list[dict]:
             continue
         seen.update((hint, key))
         out.append({"selector_hint": hint, "count": len(nodes), "page_counts": counts,
-                    "samples": [_compact(n) for n in nodes[:2]]})
+                    "samples": [_compact(n) for n in nodes[:2]],
+                    "outline": merged_outline(nodes) if len(out) < 2 else []})
         if len(out) >= MAX_CANDIDATES:
             break
     return out
@@ -437,6 +529,9 @@ def _make_prompt(candidates: list[dict], pag: list[str], url: str, field_names: 
                  rendered: bool, redact: bool, total_budget: int) -> str:
     """Build the prompt so that *everything* (instructions, samples, pagination hints) fits in
     total_budget characters: the samples get whatever room is left."""
+    text_fn = privacy.shape if redact else privacy.mask_text
+    outline_caps = [int(total_budget * 0.38), int(total_budget * 0.12)]
+
     def assemble(samples: list[list[str]]) -> str:
         parts = [f"Page URL: {short_url(url)}",
                  f"Fields to extract: {', '.join(field_names)}",
@@ -447,6 +542,10 @@ def _make_prompt(candidates: list[dict], pag: list[str], url: str, field_names: 
                  "Each shows a CSS path hint, how many siblings matched, and samples of cleaned HTML "
                  "(only class/id/href/src/itemprop/title/aria-label/role and short data-* attributes kept; "
                  "long samples are cut off; long links are shortened and end in …). "
+                 "For the top candidates an outline comes first: one line per element that holds "
+                 "text, a link, an image or a value, as `CSS path inside the item [attributes] → "
+                 "\"text\"`. Outline paths are descendant selectors you can use directly; prefer "
+                 "them when the HTML sample is cut off before the field you need. "
                  "Values can live in attributes, e.g. a rating in data-rating: use attr for that."]
         if redact:
             parts.insert(3, "Text content has been replaced by its shape (letters shown as x) for "
@@ -458,6 +557,9 @@ def _make_prompt(candidates: list[dict], pag: list[str], url: str, field_names: 
             if c.get("page_counts"):
                 parts.append("Matches on the whole page: " +
                              ", ".join(f"`{sel}` = {n}" for sel, n in c["page_counts"]))
+            if c.get("outline") and i < len(outline_caps):
+                parts.append(f"Outline of the first {min(c['count'], OUTLINE_CARDS)} items combined:\n```\n" +
+                             render_outline(c["outline"], text_fn, outline_caps[i]) + "\n```")
             for j, sample in enumerate(samples[i], 1):
                 parts.append(f"Sample {j}:\n```html\n{sample}\n```")
         parts.append("\n### Possible pagination links\n" + ("\n".join(pag) if pag else "(none found)"))

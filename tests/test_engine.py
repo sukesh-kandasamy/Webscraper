@@ -194,3 +194,18 @@ def test_too_large_prompt_is_shrunk_and_retried(monkeypatch):
     out = recipe_builder.build_recipe(html, "https://dir.indiamart.com/impcat/pvc-pipes.html", ["name", "price"])
     assert len(sizes) == 2 and sizes[1] < sizes[0] * 0.7
     assert out["rows"] and "trimmed" in out["notes"]
+
+
+def test_outline_merges_cards_and_skips_tracking_attributes():
+    card = ('<div class="card" data-uuid="17f54919-6c87-465b-8002-dd11e3ae40cb" data-asin="B07CRG94G3">'
+            + '<div class="wrap">' * 30 + '<h2 class="title"><a href="/dp/B07?ref=x&crid=y">Drive {n}</a></h2><p class="desc">Portable USB 3.0 external hard drive for backups</p>{price}'
+            + '</div>' * 30 + '</div>')
+    html = "<div class='list'>" + "".join(
+        card.format(n=n, price='<span class="a-price"><span class="off">INR 8,420</span></span>' if n == 2 else
+                    '<a class="opt">See options</a>') for n in range(1, 6)) + "</div>"
+    cands = recipe_builder.find_candidates(html)
+    text = recipe_builder.render_outline(cands[0]["outline"], lambda s: s, 3000)
+    assert 'h2.title a [href="/dp/B07?ref=x&…"] → "Drive 1"' in text
+    assert 'span.a-price span.off → "INR 8,420"' in text        # only card 2 has a price
+    assert "data-uuid" not in text and 'data-asin="B07CRG94G3"' in text
+    assert "data-uuid" not in cands[0]["samples"][0]
