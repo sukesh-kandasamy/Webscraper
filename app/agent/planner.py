@@ -91,7 +91,7 @@ def make_plan(goal: str, site: str, pages: int | None = None) -> dict:
         raise PlanError("Describe what the agent should collect.")
     start = start_url_for(site)
     if not config.ai_enabled():
-        raise PlanError("Agent mode needs an AI key. Add GROQ_API_KEY or ANTHROPIC_API_KEY to .env.")
+        raise PlanError(f"Agent mode needs an AI key. Add {config.ai_key_name()} to .env.")
     raw = recipe_builder.ask_json(
         SYSTEM, f"Website: {start}\nWhat the person wants:\n\"\"\"\n{goal}\n\"\"\"", _schema(), "agent_plan")
     plan = clean_plan(raw, goal, site)

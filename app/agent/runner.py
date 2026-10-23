@@ -59,6 +59,7 @@ def _env(app_url: str) -> dict:
         "AGENT_PROVIDER": config.AGENT_PROVIDER,
         "AGENT_MODEL": config.AGENT_MODEL,
         "AGENT_API_KEY": config.agent_key(),
+        "AGENT_BASE_URL": config.OPENAI_BASE_URL if config.AGENT_PROVIDER == "openai" else "",
         "AGENT_VISION": "1" if config.agent_vision() else "0",
         "AGENT_BROWSER": installed_browser(),
         "AGENT_SHOW_BROWSER": os.getenv("SCRAPER_AGENT_SHOW_BROWSER", "0"),

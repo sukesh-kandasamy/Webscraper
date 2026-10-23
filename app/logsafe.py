@@ -5,6 +5,7 @@ import re
 _PATTERNS = [
     (re.compile(r"gsk_[A-Za-z0-9]{16,}"), "gsk_[REDACTED]"),
     (re.compile(r"sk-ant-[A-Za-z0-9_\-]{16,}"), "sk-ant-[REDACTED]"),
+    (re.compile(r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{20,}"), "sk-[REDACTED]"),
     (re.compile(r"\b(sk|pk|rk)_(live|test)_[A-Za-z0-9]{16,}"), r"\1_\2_[REDACTED]"),
     (re.compile(r"(?i)\b(authorization|cookie|set-cookie|x-api-key|api[_-]?key|proxy-authorization)"
                 r"(\"?\s*[:=]\s*\"?)([^\s\"',;]+[^\n\"']*)"), r"\1\2[REDACTED]"),

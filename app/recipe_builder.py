@@ -494,16 +494,52 @@ def _ask_groq(messages: list[dict], schema: dict, system: str = SYSTEM, name: st
     return resp.choices[0].message.content or ""
 
 
+class OpenAIError(Exception):
+    """An error answer from the OpenAI API (status_code / response feed the retry logic)."""
+
+    def __init__(self, message: str, status_code: int, response=None):
+        super().__init__(message)
+        self.status_code, self.response = status_code, response
+
+
+def _ask_openai(messages: list[dict], schema: dict, system: str = SYSTEM, name: str = "recipe") -> str:
+    """OpenAI Chat Completions with strict structured output (plain HTTPS: no extra package)."""
+    import httpx
+
+    r = httpx.post(f"{config.OPENAI_BASE_URL}/chat/completions", timeout=180,
+                   headers={"Authorization": f"Bearer {config.OPENAI_API_KEY}"},
+                   json={"model": config.OPENAI_MODEL,
+                         "messages": [{"role": "system", "content": system}, *messages],
+                         "max_completion_tokens": 16000,
+                         "response_format": {"type": "json_schema",
+                                             "json_schema": {"name": name, "strict": True, "schema": schema}}})
+    if r.status_code != 200:
+        try:
+            detail = r.json().get("error", {}).get("message", "")
+        except ValueError:
+            detail = r.text[:300]
+        if r.status_code == 400 and "context_length" in r.text:
+            r.status_code = 413          # same handling as "request too large"
+        raise OpenAIError(f"Error code: {r.status_code} - {detail}", r.status_code, r)
+    choice = r.json()["choices"][0]
+    if choice["message"].get("refusal"):
+        raise _Refused()
+    return choice["message"].get("content") or ""
+
+
+_ASK = {"groq": _ask_groq, "anthropic": _ask_claude, "openai": _ask_openai}
+
+
 def _ask_model(messages: list[dict], field_names: list[str], auto: bool = False) -> str:
     """Send the conversation to the configured provider and return its JSON text."""
-    ask = _ask_groq if config.AI_PROVIDER == "groq" else _ask_claude
+    ask = _ASK.get(config.AI_PROVIDER, _ask_claude)
     return _with_retries(ask, messages, _schema(field_names, auto))
 
 
 def ask_json(system: str, prompt: str, schema: dict, name: str) -> dict:
     """One structured AI call with its own instructions and schema (used for reading requests and
     item pages). Raises RecipeBuildError when the answer can't be used."""
-    ask = _ask_groq if config.AI_PROVIDER == "groq" else _ask_claude
+    ask = _ASK.get(config.AI_PROVIDER, _ask_claude)
     try:
         text = _with_retries(ask, [{"role": "user", "content": prompt}], schema, system, name)
     except _Refused:
@@ -828,8 +864,7 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
            auto: bool = False, request: dict | None = None) -> dict:
     """Return {"recipe", "rows", "report", "notes"} or raise RecipeBuildError."""
     if not config.ai_enabled():
-        key = "GROQ_API_KEY" if config.AI_PROVIDER == "groq" else "ANTHROPIC_API_KEY"
-        raise RecipeBuildError(f"No {key} set. Add it to .env, or write a recipe by hand.")
+        raise RecipeBuildError(f"No {config.ai_key_name()} set. Add it to .env, or write a recipe by hand.")
     candidates = find_candidates(html)
     try:
         json_lists = [] if redact else structured.find_lists(html)
@@ -1028,8 +1063,7 @@ def build_detail(html: str, url: str, columns: list[dict], have: list[str] | Non
     auto     also add other useful details the page shows
     """
     if not config.ai_enabled():
-        key = "GROQ_API_KEY" if config.AI_PROVIDER == "groq" else "ANTHROPIC_API_KEY"
-        raise RecipeBuildError(f"No {key} set: item pages need the AI to find their details.")
+        raise RecipeBuildError(f"No {config.ai_key_name()} set: item pages need the AI to find their details.")
     names = [c["name"] for c in columns]
     have = have or []
     budget = config.ai_prompt_budget()

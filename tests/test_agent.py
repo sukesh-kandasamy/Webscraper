@@ -241,3 +241,37 @@ def test_missing_next_selector_falls_back_to_page_links():
                                          "pagination": {"type": "next_link", "selector": "a[rel=next]"}})
     fixed = recipe_builder.check_pagination(html, "https://s.test/pages/forms/?q=New", recipe)
     assert fixed["pagination"]["selector"] == "a[href]"
+
+
+def test_openai_provider_structured_call(monkeypatch):
+    """SCRAPER_AI_PROVIDER=openai: strict JSON schema over plain HTTPS; errors keep their status for retries."""
+    import httpx
+    sent = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        sent.update(url=url, body=json, auth=headers["Authorization"])
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"ok": true}'}}]})
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(config, "AI_PROVIDER", "openai")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-test")
+    assert config.ai_enabled() and config.ai_key_name() == "OPENAI_API_KEY"
+    out = recipe_builder.ask_json("sys", "hello", {"type": "object", "properties": {"ok": {"type": "boolean"}},
+                                                   "required": ["ok"], "additionalProperties": False}, "t")
+    assert out == {"ok": True} and sent["url"].endswith("/chat/completions") and sent["auth"] == "Bearer sk-test"
+    assert sent["body"]["response_format"]["json_schema"]["strict"] is True
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(401, json={"error": {"message": "bad key"}}))
+    with pytest.raises(recipe_builder.OpenAIError) as e:
+        recipe_builder._ask_openai([{"role": "user", "content": "x"}], {}, "s", "t")
+    assert e.value.status_code == 401 and "bad key" in str(e.value)
+
+
+def test_openai_keys_are_redacted_and_scanned():
+    import sys
+    from pathlib import Path
+    from app import logsafe
+    key = "sk-proj-" + "Ab1_-" * 10
+    assert key not in logsafe.redact(f"auth {key}")
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+    import secret_scan
+    assert any(p.search(f"OPENAI_API_KEY={key}") for _, p in secret_scan.PATTERNS)

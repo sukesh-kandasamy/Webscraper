@@ -26,12 +26,19 @@ USER_AGENT = os.getenv(
     "(KHTML, like Gecko) Chrome/130.0 Safari/537.36",
 )
 
-# AI recipe builder (optional). Provider: "groq" or "anthropic".
+# AI recipe builder (optional). Provider: "groq", "anthropic" or "openai".
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("SCRAPER_GROQ_MODEL", "openai/gpt-oss-120b")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("SCRAPER_CLAUDE_MODEL", "claude-opus-5-5")
-AI_PROVIDER = os.getenv("SCRAPER_AI_PROVIDER", "groq" if GROQ_API_KEY else "anthropic").lower()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("SCRAPER_OPENAI_MODEL", "gpt-5-mini")
+OPENAI_BASE_URL = os.getenv("SCRAPER_OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+AI_PROVIDER = os.getenv("SCRAPER_AI_PROVIDER", "groq" if GROQ_API_KEY else "openai" if OPENAI_API_KEY
+                        else "anthropic").lower()
+_KEYS = {"groq": lambda: GROQ_API_KEY, "anthropic": lambda: ANTHROPIC_API_KEY, "openai": lambda: OPENAI_API_KEY}
+_MODELS = {"groq": lambda: GROQ_MODEL, "anthropic": lambda: CLAUDE_MODEL, "openai": lambda: OPENAI_MODEL}
+KEY_NAMES = {"groq": "GROQ_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
 
 # Columns pre-filled in the UI. Empty: the AI picks the important columns for each page itself.
 DEFAULT_FIELDS: list[str] = []
@@ -81,18 +88,25 @@ def ai_prompt_budget() -> int:
 
 
 def ai_model() -> str:
-    return GROQ_MODEL if AI_PROVIDER == "groq" else CLAUDE_MODEL
+    return _MODELS.get(AI_PROVIDER, _MODELS["anthropic"])()
 
 
 def ai_enabled() -> bool:
-    return bool(GROQ_API_KEY if AI_PROVIDER == "groq" else ANTHROPIC_API_KEY)
+    return bool(_KEYS.get(AI_PROVIDER, _KEYS["anthropic"])())
+
+
+def ai_key_name() -> str:
+    return KEY_NAMES.get(AI_PROVIDER, "ANTHROPIC_API_KEY")
 
 
 # ---- Agent mode (browser-use, in its own environment: .venv-agent) -----------------------
 AGENT_ENABLED = os.getenv("SCRAPER_AGENT", "1") != "0"
 AGENT_PYTHON = Path(os.getenv("SCRAPER_AGENT_PYTHON", ROOT / ".venv-agent" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")))
-AGENT_PROVIDER = os.getenv("SCRAPER_AGENT_PROVIDER", "anthropic" if ANTHROPIC_API_KEY else "groq").lower()
-AGENT_MODEL = os.getenv("SCRAPER_AGENT_MODEL", "claude-sonnet-5-5" if AGENT_PROVIDER == "anthropic" else GROQ_MODEL)
+# The agent drives a browser step by step: a model that sees screenshots works best (Claude, OpenAI).
+AGENT_PROVIDER = os.getenv("SCRAPER_AGENT_PROVIDER", "anthropic" if ANTHROPIC_API_KEY else "openai" if OPENAI_API_KEY
+                           else "groq").lower()
+AGENT_MODEL = os.getenv("SCRAPER_AGENT_MODEL", {"anthropic": "claude-sonnet-5-5", "openai": OPENAI_MODEL}
+                        .get(AGENT_PROVIDER, GROQ_MODEL))
 AGENT_MAX_STEPS = int(os.getenv("SCRAPER_AGENT_MAX_STEPS", "40"))
 AGENT_MAX_MINUTES = float(os.getenv("SCRAPER_AGENT_MAX_MINUTES", "10"))
 AGENT_MAX_AI_CALLS = int(os.getenv("SCRAPER_AGENT_MAX_AI_CALLS", "60"))
@@ -100,9 +114,9 @@ AGENT_SHOTS_DIR = DATA_DIR / "agent_shots"
 
 
 def agent_key() -> str:
-    return ANTHROPIC_API_KEY if AGENT_PROVIDER == "anthropic" else GROQ_API_KEY
+    return _KEYS.get(AGENT_PROVIDER, _KEYS["groq"])()
 
 
 def agent_vision() -> bool:
     """Models that can see screenshots. gpt-oss on Groq is text-only."""
-    return AGENT_PROVIDER == "anthropic"
+    return AGENT_PROVIDER in ("anthropic", "openai")

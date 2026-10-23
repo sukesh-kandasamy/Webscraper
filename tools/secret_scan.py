@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PATTERNS = [
     ("Groq API key", re.compile(r"gsk_[A-Za-z0-9]{20,}")),
     ("Anthropic API key", re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}")),
-    ("OpenAI-style key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9]{32,}")),
+    ("OpenAI-style key", re.compile(r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}")),
     ("AWS access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b")),
     ("GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),

@@ -90,8 +90,8 @@ python -m venv .venv-agent
 .venv-agent\Scripts\pip install -r requirements-agent.txt
 ```
 
-It works best with an AI that can see screenshots: add `ANTHROPIC_API_KEY` (Claude is then used for the
-agent; Groq still does the rest). With only Groq it runs text-only on gpt-oss-120b, which worked on the
+It works best with an AI that can see screenshots: add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` (it is
+then used for the agent; Groq still does the rest unless `SCRAPER_AI_PROVIDER` says otherwise). With only Groq it runs text-only on gpt-oss-120b, which worked on the
 test sites but is slower and less reliable on complex sites.
 
 **Running it again needs no AI.** If the filters end up in the page address, the saved scrape is just that
@@ -227,6 +227,7 @@ with the price, brand or salary.
 | `SCRAPER_AI_PROVIDER` | `groq` if `GROQ_API_KEY` is set, else `anthropic` | |
 | `GROQ_API_KEY` / `SCRAPER_GROQ_MODEL` | — / `openai/gpt-oss-120b` | |
 | `ANTHROPIC_API_KEY` / `SCRAPER_CLAUDE_MODEL` | — / `claude-opus-5-5` | |
+| `OPENAI_API_KEY` / `SCRAPER_OPENAI_MODEL` | — / `gpt-5-mini` | `SCRAPER_AI_PROVIDER=openai` uses it for columns, requests and item pages |
 | `SCRAPER_AI_PROMPT_CHARS` | 11000 (Groq), 60000 (Claude) | Size of the whole AI prompt. Long links are shortened, and if the provider still says "too large" the app trims the sample and retries by itself |
 | `SCRAPER_MIN_DELAY` / `SCRAPER_MAX_DELAY` | 2 / 5 s | Wait between requests to the same site |
 | `SCRAPER_MAX_PAGES` | 10 | Per start URL (or scroll / click rounds) |
@@ -237,7 +238,7 @@ with the price, brand or salary.
 | `SCRAPER_ALLOW_HOSTS` / `SCRAPER_BLOCKED_DOMAINS` | — | Network-guard exceptions / do-not-scrape list |
 | `SCRAPER_CACHE_TTL_HOURS` | 24 | Page cache |
 | `SCRAPER_AGENT` | 1 | `0` turns Agent mode off |
-| `SCRAPER_AGENT_PROVIDER` / `SCRAPER_AGENT_MODEL` | `anthropic` + `claude-sonnet-5-5` if `ANTHROPIC_API_KEY` is set, else `groq` + gpt-oss-120b | The AI that drives the browser |
+| `SCRAPER_AGENT_PROVIDER` / `SCRAPER_AGENT_MODEL` | `anthropic` + `claude-sonnet-5-5` if `ANTHROPIC_API_KEY` is set, else `openai` + `SCRAPER_OPENAI_MODEL` if `OPENAI_API_KEY` is set, else `groq` + gpt-oss-120b | The AI that drives the browser |
 | `SCRAPER_AGENT_MAX_STEPS` / `_MAX_MINUTES` / `_MAX_AI_CALLS` | 40 / 10 / 60 | Default limits per agent run |
 | `SCRAPER_AGENT_SHOW_BROWSER` | 0 | `1` shows the agent's browser window |
 

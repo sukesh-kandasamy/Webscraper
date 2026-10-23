@@ -52,6 +52,9 @@ def make_llm():
     if provider == "anthropic":
         from browser_use import ChatAnthropic
         return ChatAnthropic(model=model, api_key=key)
+    if provider == "openai":
+        from browser_use import ChatOpenAI
+        return ChatOpenAI(model=model, api_key=key, base_url=os.environ.get("AGENT_BASE_URL") or None)
     from browser_use import ChatGroq
     return ChatGroq(model=model, api_key=key)
 
