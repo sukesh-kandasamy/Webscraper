@@ -306,7 +306,7 @@ split values like "Price: 150 INR/Piece" into price "150" and unit "Piece".
 labels and values inside the item, label picks one pair by its label text (e.g. "MOQ"). Leave label "" \
 to return all pairs. For kind "text", leave label_selector, value_selector and label as "".
 - If a requested field does not exist in the HTML, still include it with selector "" and attr "none".
-- pagination: "next_link" with a selector for the next-page anchor; "url_param" with the query \
+- pagination: "next_link" with a selector that matches ONLY the next-page anchor (e.g. "li.next a", "a[rel=next]"), never the previous-page link or the page numbers; "url_param" with the query \
 parameter name; "click" with the selector of a "Load more" / "Show more" button (the scraper will \
 press it in a real browser); "scroll" if the page clearly loads more items on scrolling and has no \
 links or button; "none" if you cannot see any pagination.
@@ -449,9 +449,10 @@ def _with_retries(call, *args):
                 raise
             delay = 0.5 if "json_validate_failed" in str(e) else _retry_delay(e, attempt) + 0.5
             if waited + delay > MAX_AI_WAIT_S:
+                wait = (f"about {round(delay / 60)} minutes" if delay >= 90 else f"{delay:.0f} seconds")
                 raise RecipeBuildError(
-                    f"The AI provider is rate-limited (asked to wait {delay:.0f}s). "
-                    "Try again in a minute.") from e
+                    f"The AI provider is rate-limited: it asks to wait {wait} before the next request. "
+                    "Your plan's limit may be used up for now.") from e
             time.sleep(delay)
             waited += delay
 

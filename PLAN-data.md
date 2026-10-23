@@ -1,5 +1,11 @@
 # Plan: complete, accurate data + "Describe what you need" prompt before analysing
 
+> **Status: built.** A1–A5, B1–B4, C1–C7 and D1–D2 are in the app (see README → How to use).
+> Differences from the plan: typed values replace the text in each column (no `<col>_text` copy); money
+> columns get `<col>_currency` / `<col>_unit` instead. Item-page values are merged before a page's rows
+> are stored (no separate second pass). "Re-detect columns" is a button on a run whose columns went
+> empty, not an automatic rebuild.
+
 ## Context
 
 The app now collects listings well from many sites and looks professional, but two gaps remain:

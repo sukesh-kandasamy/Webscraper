@@ -266,7 +266,7 @@
         </ol>
 
         <!-- loading state while the page is read -->
-        <div class="card p-6" x-show="['analyse','ai','add'].includes(busy)" x-cloak>
+        <div class="card p-6" x-show="['analyse','ai','add','details'].includes(busy)" x-cloak>
           <div class="flex items-start gap-4">
             <span class="spinner mt-1 h-5 w-5 text-brand-600"></span>
             <div class="min-w-0 flex-1">
@@ -303,25 +303,88 @@
                         placeholder="One link per line, for example other categories of the same site"></textarea>
             </div>
 
-            <div>
-              <span class="label">What kind of data is it? <span class="hint">· optional</span></span>
-              <div class="flex flex-wrap gap-2">
+            <div x-show="!listMode">
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <label class="label mb-0" for="prompt">Describe what you need</label>
+                <button class="text-xs link" @click="listMode = true">or just list the columns</button>
+              </div>
+              <textarea id="prompt" x-model="prompt" rows="3" maxlength="2000" class="input mt-1.5 text-[15px] leading-relaxed"
+                        :placeholder="promptPlaceholder()" @keydown.ctrl.enter.prevent="next()" @keydown.meta.enter.prevent="next()"></textarea>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="mr-1 text-xs text-slate-500">Start from an example:</span>
                 <template x-for="t in templates" :key="t.id">
-                  <button class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition"
-                          :class="template?.id === t.id ? 'border-brand-300 bg-brand-50 text-brand-700 ring-1 ring-brand-500/20 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
+                  <button class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition"
+                          :class="template?.id === t.id ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
                                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'"
                           @click="pickTemplate(t)">
-                    <span x-html="icon(t.icon, 'h-4 w-4')"></span><span x-text="t.name"></span></button>
+                    <span x-html="icon(t.icon, 'h-3.5 w-3.5')"></span><span x-text="t.name"></span></button>
                 </template>
               </div>
+              <p class="mt-2 text-xs text-slate-500">Say which details you want, and any conditions: <span class="italic">“only men's shoes under ₹3,000, cheapest first”</span>. Ctrl+Enter to continue.</p>
             </div>
 
-            <div>
-              <label class="label" for="fields">Columns you want <span class="hint">· optional, separated by commas</span></label>
-              <input id="fields" type="text" x-model="fieldsText" class="input" placeholder="Leave empty and the AI picks the important ones">
+            <div x-show="listMode" x-cloak>
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <label class="label mb-0" for="fields">Columns you want <span class="hint">· optional, separated by commas</span></label>
+                <button class="text-xs link" @click="listMode = false">describe it in your own words instead</button>
+              </div>
+              <input id="fields" type="text" x-model="fieldsText" class="input mt-1.5" placeholder="Leave empty and the AI picks the important ones"
+                     @keydown.enter.prevent="analyse(false)">
               <label class="mt-2.5 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                 <input type="checkbox" x-model="autoColumns" class="checkbox"> Also add any other important columns the AI finds
               </label>
+            </div>
+
+            <!-- what the AI understood: editable before the page is read -->
+            <div x-show="!listMode && request && requestFor === prompt.trim()" x-cloak
+                 class="rounded-xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/5">
+              <div class="flex items-start gap-2">
+                <span class="mt-0.5 text-brand-600 dark:text-brand-300" x-html="icon('sparkles', 'h-4 w-4')"></span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-semibold text-slate-900 dark:text-white">Here's what we'll collect</div>
+                  <p class="text-xs text-slate-600 dark:text-slate-300" x-show="request?.summary" x-text="request?.summary"></p>
+                </div>
+              </div>
+              <div x-show="request?.question" x-cloak class="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">
+                <span class="mt-0.5 text-amber-500" x-html="icon('warn', 'h-4 w-4')"></span>
+                <span><span x-text="request?.question"></span> <span class="text-amber-700/80 dark:text-amber-200/80">Add the answer to your description and continue again.</span></span>
+              </div>
+              <div class="mt-3">
+                <div class="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">Columns</div>
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <template x-for="c in request?.columns || []" :key="c.name">
+                    <span class="inline-flex items-center gap-1 rounded-lg border bg-white py-0.5 pl-2 pr-0.5 text-sm shadow-sm dark:bg-slate-800"
+                          :class="c.auto_added ? 'border-dashed border-slate-300 text-slate-500 dark:border-slate-600' : 'border-slate-200 dark:border-slate-700'"
+                          :title="(c.meaning || '') + (c.auto_added ? ' (added automatically: removes duplicates and lets item pages open)' : '')">
+                      <button class="font-medium hover:text-brand-600" @click="renameReqColumn(c)" x-text="pretty(c.name)"></button>
+                      <span class="type-badge" x-show="typeLabel(c.type)" x-text="typeLabel(c.type)"></span>
+                      <button class="rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
+                              @click="removeReqColumn(c.name)" :aria-label="'Remove ' + c.name"><span x-html="icon('x', 'h-3.5 w-3.5')"></span></button>
+                    </span>
+                  </template>
+                  <form class="flex items-center gap-1" @submit.prevent="addReqColumn()">
+                    <input type="text" x-model="newReqColumn" class="input h-7 w-36 py-0 text-xs" placeholder="Add a column…" aria-label="Add a column">
+                  </form>
+                  <span class="chip chip-blue" x-show="request?.auto" x-cloak title="The AI also adds other important columns it finds">+ other important columns</span>
+                </div>
+              </div>
+              <div class="mt-3" x-show="request?.filters?.length || request?.sort?.column || request?.limit" x-cloak>
+                <div class="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">Only keep</div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="(f, i) in request?.filters || []" :key="i">
+                    <span class="chip chip-amber gap-1 pr-1"><span x-text="filterLabel(f)"></span>
+                      <button class="rounded hover:text-rose-600" @click="removeFilter(i)" aria-label="Remove condition"><span x-html="icon('x', 'h-3 w-3')"></span></button></span>
+                  </template>
+                  <span class="chip chip-gray gap-1 pr-1" x-show="request?.sort?.column">
+                    <span x-text="'sorted by ' + pretty(request?.sort?.column || '') + ' (' + sortWords() + ')'"></span>
+                    <button class="rounded hover:text-rose-600" @click="request.sort = {column: '', desc: false}" aria-label="Remove sorting"><span x-html="icon('x', 'h-3 w-3')"></span></button></span>
+                  <span class="chip chip-gray gap-1 pr-1" x-show="request?.limit">
+                    <span x-text="'first ' + request?.limit"></span>
+                    <button class="rounded hover:text-rose-600" @click="request.limit = 0" aria-label="Remove limit"><span x-html="icon('x', 'h-3 w-3')"></span></button></span>
+                </div>
+              </div>
+              <p class="mt-3 text-xs text-slate-500" x-show="request?.details_hint" x-cloak>
+                Some of this is usually on each item's own page. After the page is read you can switch on <span class="font-medium">item pages</span>.</p>
             </div>
 
             <div x-show="blockedPage" x-cloak class="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
@@ -333,22 +396,31 @@
               </div>
             </div>
           </div>
-          <div class="flex justify-end border-t border-slate-100 px-5 py-4 dark:border-slate-800">
-            <button class="btn btn-primary btn-lg" @click="analyse(false)" :disabled="!!busy">Find the data</button>
+          <div class="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+            <span class="text-xs text-slate-400" x-show="needsUnderstanding()" x-cloak>The AI reads your description first (a few seconds).</span>
+            <button class="btn btn-primary btn-lg" @click="next()" :disabled="!!busy">
+              <span x-show="busy==='understand'" class="spinner"></span>
+              <span x-text="busy==='understand' ? 'Reading your request…' : needsUnderstanding() ? 'Continue' : 'Find the data'"></span></button>
           </div>
         </div>
 
         <!-- Step 2 -->
-        <div class="space-y-5" x-show="step === 2 && !['analyse','ai','add'].includes(busy)">
+        <div class="space-y-5" x-show="step === 2 && !['analyse','ai','add','details'].includes(busy)">
           <div class="card">
             <div class="card-body space-y-5">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <div class="text-lg font-semibold text-slate-900 dark:text-white">
-                  Found <span class="tabular-nums" x-text="fmt(analysis?.row_count)"></span> items</div>
+                  Found <span class="tabular-nums" x-text="fmt(analysis?.row_count)"></span> items<span x-show="analysis?.request_labels?.length && analysis?.match_count !== analysis?.row_count" x-cloak> ·
+                  <span class="tabular-nums text-brand-600 dark:text-brand-300" x-text="fmt(analysis?.match_count)"></span> match your request</span></div>
                 <span class="muted" x-text="'on ' + (analysis?.domain || '')"></span>
                 <span class="chip chip-green" x-show="analysis?.page_type" x-text="pageTypeLabel(analysis?.page_type)"></span>
                 <span class="chip chip-blue" x-show="analysis?.logged_in" x-cloak><span x-html="icon('lock', 'h-3 w-3')"></span> using your login</span>
                 <span class="chip chip-gray" x-show="advanced" x-cloak x-text="'setup: ' + (analysis?.source || '')"></span>
+              </div>
+
+              <div x-show="analysis?.request_labels?.length" x-cloak class="flex flex-wrap items-center gap-1.5 text-sm">
+                <span class="text-slate-500">Your request:</span>
+                <template x-for="l in analysis?.request_labels || []" :key="l"><span class="chip chip-amber" x-text="l"></span></template>
               </div>
 
               <div>
@@ -362,6 +434,7 @@
                           :title="fillOf(c) === null ? '' : `Found in ${Math.round(fillOf(c) * 100)}% of items`">
                       <span class="h-2 w-2 rounded-full" :class="fillClass(c)"></span>
                       <button class="font-medium text-slate-700 hover:text-brand-600 dark:text-slate-200" @click="renameColumn(c)" x-text="pretty(c)" :disabled="!!busy"></button>
+                      <span class="type-badge" x-show="typeLabel(analysis?.column_types?.[c])" x-text="typeLabel(analysis?.column_types?.[c])"></span>
                       <span class="text-xs tabular-nums text-slate-400" x-show="fillOf(c) !== null" x-text="Math.round(fillOf(c) * 100) + '%'"></span>
                       <button class="rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
                               @click="removeColumn(c)" :disabled="!!busy" :aria-label="'Remove ' + c"><span x-html="icon('x', 'h-3.5 w-3.5')"></span></button>
@@ -376,8 +449,8 @@
 
               <div x-show="analysis?.absent?.length" x-cloak class="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
                 <span class="mt-0.5 text-slate-400" x-html="icon('info', 'h-4 w-4')"></span>
-                <span>Not on this page: <span class="font-medium" x-text="(analysis?.absent || []).map(pretty).join(', ')"></span>.
-                  <span class="text-slate-400">These may only appear on each item's own page.</span></span>
+                <span>Not on this list page: <span class="font-medium" x-text="(analysis?.absent || []).map(pretty).join(', ')"></span>.
+                  <span class="text-slate-500">They're probably on each item's own page: switch on <span class="font-medium">item pages</span> below.</span></span>
               </div>
               <p x-show="advanced && analysis?.notes" x-cloak x-text="analysis?.notes"
                  class="rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400"></p>
@@ -390,8 +463,37 @@
             </div>
           </div>
 
+          <div class="card" x-show="analysis?.row_count">
+            <div class="card-body">
+              <div class="flex items-start gap-3">
+                <button type="button" role="switch" :aria-checked="detailOn()" class="switch mt-0.5" :class="detailOn() && 'switch-on'"
+                        @click="toggleDetails()" :disabled="!!busy || (!detailOn() && (!status?.ai_enabled || !analysis?.url_field))"
+                        aria-label="Also open each item's page"><span></span></button>
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Also open each item's own page for more details</div>
+                  <p class="mt-0.5 text-xs text-slate-500" x-show="!detailOn()">Collects things listing cards leave out: full specs, description, seller details, salary… Slower: one extra page per item, with the same polite pauses.</p>
+                  <p class="mt-0.5 text-xs text-amber-700 dark:text-amber-300" x-show="!detailOn() && !analysis?.url_field" x-cloak>Needs a column with each item's link (url).</p>
+                  <div x-show="detailOn()" x-cloak class="mt-2 space-y-2">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span class="text-xs text-slate-500">From item pages:</span>
+                      <template x-for="c in detailColumns()" :key="c">
+                        <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                          <span x-text="pretty(c)"></span>
+                          <span class="text-slate-400" x-show="detailSample()[c] !== undefined && detailSample()[c] !== ''" x-text="'= ' + shortText(detailSample()[c])"></span>
+                        </span>
+                      </template>
+                    </div>
+                    <p class="text-xs text-amber-700 dark:text-amber-300" x-show="analysis?.detail_missing?.length" x-cloak
+                       x-text="'Not found on the first item page: ' + (analysis?.detail_missing || []).map(pretty).join(', ')"></p>
+                    <p class="text-xs text-slate-500" x-text="detailEstimate()"></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="card">
-            <div class="card-head"><h2 class="card-title">Preview</h2><span class="muted">first 10 rows from the page</span>
+            <div class="card-head"><h2 class="card-title">Preview</h2><span class="muted" x-text="analysis?.request_labels?.length ? 'first 10 matching rows, as they will be saved' : 'first 10 rows, as they will be saved'"></span>
               <span class="ml-auto text-brand-600" x-show="busy==='preview'" x-cloak><span class="spinner"></span></span></div>
             <div class="p-3">
               <div class="table-wrap max-h-[26rem]" x-show="analysis?.rows?.length">
@@ -403,7 +505,7 @@
                         <td>
                           <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700" alt="" loading="eager" referrerpolicy="no-referrer"></template>
                           <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link inline-flex items-center gap-1" :href="r[c]" target="_blank" rel="noopener noreferrer">Open <span x-html="icon('external', 'h-3 w-3')"></span></a></template>
-                          <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :title="r[c]" x-text="r[c]"></span></template>
+                          <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :class="typeof r[c] === 'number' && 'tabular-nums'" :title="r[c]" x-text="cellText(r[c])"></span></template>
                         </td>
                       </template></tr>
                     </template>
@@ -478,8 +580,13 @@
                     <label class="label" for="pages">Pages to collect</label>
                     <span class="text-sm font-semibold tabular-nums text-slate-900 dark:text-white" x-text="maxPages + (urls().length > 1 ? ' per link' : '')"></span>
                   </div>
-                  <input id="pages" type="range" min="1" :max="Math.min(50, status?.max_pages || 10)" x-model.number="maxPages" class="w-full accent-brand-600">
+                  <input id="pages" type="range" min="1" :max="Math.min(50, status?.max_pages || 10)" x-model.number="maxPages" class="w-full accent-brand-600"
+                         :disabled="allPages" :class="allPages && 'opacity-40'">
+                  <label class="mt-2 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300" x-show="hasPaging()">
+                    <input type="checkbox" x-model="allPages" class="checkbox"> Collect all pages <span class="text-xs text-slate-400">(up to 50, stops when no new items appear)</span></label>
                   <p class="mt-1 text-xs text-slate-500" x-text="paginationHint()"></p>
+                  <p class="mt-1 text-xs text-slate-500" x-show="analysis?.stated_total" x-cloak
+                     x-text="`The site says it has about ${fmt(analysis?.stated_total)} items; this page shows ${fmt(analysis?.row_count)}.`"></p>
                 </div>
                 <div x-show="analysis?.personal_fields?.length" x-cloak class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
                   <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Collect personal data?</div>
@@ -499,7 +606,11 @@
                 <div><dt class="text-slate-500">Site</dt><dd class="font-medium text-slate-900 dark:text-white" x-text="(analysis?.domain || '') + (urls().length > 1 ? ` · ${urls().length} links` : '')"></dd></div>
                 <div><dt class="text-slate-500">Type</dt><dd class="font-medium text-slate-900 dark:text-white" x-text="pageTypeLabel(analysis?.page_type) || '—'"></dd></div>
                 <div><dt class="text-slate-500">Columns</dt>
-                  <dd class="mt-1 flex flex-wrap gap-1"><template x-for="c in recipeColumns()" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template></dd></div>
+                  <dd class="mt-1 flex flex-wrap gap-1"><template x-for="c in recipeColumns()" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template>
+                    <template x-for="c in detailColumns()" :key="'d-' + c"><span class="chip chip-blue" title="From each item's own page" x-text="pretty(c)"></span></template></dd></div>
+                <div x-show="analysis?.request_labels?.length" x-cloak><dt class="text-slate-500">Only keep</dt>
+                  <dd class="mt-1 flex flex-wrap gap-1"><template x-for="l in analysis?.request_labels || []" :key="l"><span class="chip chip-amber" x-text="l"></span></template></dd></div>
+                <div><dt class="text-slate-500">Item pages</dt><dd class="text-slate-700 dark:text-slate-300" x-text="detailOn() ? 'Opened for more details' : 'Not opened'"></dd></div>
                 <div><dt class="text-slate-500">Pace</dt><dd class="text-slate-700 dark:text-slate-300">Short polite pauses between pages</dd></div>
               </dl>
             </aside>
@@ -551,6 +662,7 @@
                   </div>
                 </div>
               </div>
+              <p class="mt-3 line-clamp-2 text-sm text-slate-600 dark:text-slate-300" x-show="s.request_summary" x-cloak x-text="s.request_summary"></p>
               <div class="mt-3 flex flex-wrap gap-1">
                 <template x-for="c in s.columns.slice(0, 6)" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template>
                 <span class="chip chip-gray" x-show="s.columns.length > 6" x-text="'+' + (s.columns.length - 6)"></span>
@@ -616,6 +728,8 @@
                       <button class="btn btn-primary btn-sm" x-show="selectedJob.status==='needs_you'" @click="startJobSolve(selectedJob)">Open to solve</button>
                       <button class="btn btn-sm" x-show="['queued','running','needs_you'].includes(selectedJob.status)" @click="stopJob(selectedJob)"><span x-html="icon('stop', 'h-3.5 w-3.5')"></span> Stop</button>
                       <button class="btn btn-sm" x-show="['stopped','blocked','error'].includes(selectedJob.status) && selectedJob.pages_done < selectedJob.pages_total" @click="resumeJob(selectedJob)">Continue</button>
+                      <button class="btn btn-sm" x-show="selectedJob.status==='done' && selectedJob.quality?.pages_failed?.length" @click="resumeJob(selectedJob)"
+                              :title="(selectedJob.quality?.pages_failed || []).map(f => f.url).join('\n')"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Retry failed pages</button>
                       <button class="btn btn-sm" x-show="selectedJob.scrape_id && !['queued','running'].includes(selectedJob.status)" @click="runAgainFromJob(selectedJob)"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Run again</button>
                     </div>
                   </div>
@@ -624,9 +738,138 @@
                       <div class="h-full rounded-full bg-brand-500 transition-all duration-500" :style="`width:${progressPct(selectedJob)}%`"></div>
                     </div>
                   </div>
+                  <div class="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+                       x-show="selectedJob.quality?.health?.broken?.length" x-cloak>
+                    <span class="mt-0.5 text-rose-500" x-html="icon('warn', 'h-4 w-4')"></span>
+                    <div class="flex-1"><span x-text="selectedJob.quality?.health?.message"></span>
+                      <div class="mt-2"><button class="btn btn-sm" @click="repairScrape(selectedJob)" :disabled="!!busy || !status?.ai_enabled">
+                        <span x-show="busy==='repair'" class="spinner"></span> Re-detect columns</button></div></div>
+                  </div>
                 </div>
 
-                <div class="card">
+                <div class="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm dark:bg-slate-800/70" role="tablist">
+                  <template x-for="t in resultTabs()" :key="t.id">
+                    <button role="tab" class="flex-1 rounded-lg px-3 py-1.5 font-medium transition sm:flex-none"
+                            :class="resultTab === t.id ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
+                            :aria-selected="resultTab === t.id" @click="openResultTab(t.id)">
+                      <span x-text="t.label"></span>
+                      <span class="ml-1 rounded-full px-1.5 text-[11px] tabular-nums" x-show="t.badge" x-cloak
+                            :class="t.warn ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'" x-text="t.badge"></span>
+                    </button>
+                  </template>
+                </div>
+
+                <!-- Quality -->
+                <div class="space-y-4" x-show="resultTab==='quality'" x-cloak>
+                  <p class="card p-6 text-center muted" x-show="!selectedJob.quality?.columns"
+                     x-text="['queued','running'].includes(selectedJob.status) ? 'The quality report appears when the run finishes.' : 'No quality report for this run (it was made with an older version).'"></p>
+                  <template x-if="selectedJob.quality?.columns">
+                    <div class="space-y-4">
+                      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+                        <template x-for="s in qualityTiles()" :key="s.label">
+                          <div class="card p-4">
+                            <div class="text-xs text-slate-500" x-text="s.label"></div>
+                            <div class="mt-1 text-xl font-semibold tabular-nums" :class="s.warn ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'" x-text="s.value"></div>
+                            <div class="mt-0.5 text-[11px] text-slate-400" x-show="s.note" x-text="s.note"></div>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="card p-4" x-show="selectedJob.quality?.warnings?.length">
+                        <ul class="space-y-1.5 text-sm">
+                          <template x-for="w in selectedJob.quality?.warnings || []" :key="w">
+                            <li class="flex items-start gap-2 text-slate-700 dark:text-slate-300"><span class="mt-0.5 text-amber-500" x-html="icon('warn', 'h-4 w-4')"></span><span x-text="w"></span></li>
+                          </template>
+                        </ul>
+                      </div>
+                      <div class="card p-4 text-sm text-emerald-700 dark:text-emerald-300" x-show="!selectedJob.quality?.warnings?.length">
+                        <span class="inline-flex items-center gap-2"><span x-html="icon('check', 'h-4 w-4')"></span> No problems found in this run.</span></div>
+                      <div class="card">
+                        <div class="card-head"><h2 class="card-title">Columns</h2><span class="muted">how complete each one is</span></div>
+                        <div class="p-3"><div class="table-wrap">
+                          <table class="tbl">
+                            <thead><tr><th>Column</th><th>Type</th><th>Filled</th><th>Different values</th><th>Unreadable</th></tr></thead>
+                            <tbody>
+                              <template x-for="[name, c] in Object.entries(selectedJob.quality?.columns || {})" :key="name">
+                                <tr>
+                                  <td class="font-medium" x-text="pretty(name)"></td>
+                                  <td><span class="type-badge" x-text="typeLabel(c.type) || 'text'"></span></td>
+                                  <td><div class="flex items-center gap-2">
+                                    <div class="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                      <div class="h-full rounded-full" :class="c.fill >= 0.8 ? 'bg-emerald-500' : c.fill >= 0.4 ? 'bg-amber-400' : 'bg-rose-400'" :style="`width:${Math.round(c.fill * 100)}%`"></div></div>
+                                    <span class="tabular-nums text-xs text-slate-500" x-text="Math.round(c.fill * 100) + '%'"></span></div></td>
+                                  <td class="tabular-nums" x-text="fmt(c.distinct)"></td>
+                                  <td class="tabular-nums" :class="c.unreadable && 'text-amber-600'" x-text="c.unreadable || '—'"></td>
+                                </tr>
+                              </template>
+                            </tbody>
+                          </table>
+                        </div></div>
+                      </div>
+                      <div class="card p-4" x-show="selectedJob.quality?.pages_failed?.length">
+                        <div class="text-sm font-medium text-slate-900 dark:text-white">Pages that could not be read</div>
+                        <ul class="mt-2 space-y-1 text-xs">
+                          <template x-for="f in selectedJob.quality?.pages_failed || []" :key="f.url">
+                            <li class="break-all"><a class="link" :href="f.url" target="_blank" rel="noopener noreferrer" x-text="f.url"></a>
+                              <span class="text-slate-500" x-text="' · ' + f.error"></span></li>
+                          </template>
+                        </ul>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Changes since the previous run -->
+                <div class="space-y-4" x-show="resultTab==='changes'" x-cloak>
+                  <div class="card p-6 text-center" x-show="busy==='compare'"><span class="spinner text-brand-600"></span></div>
+                  <p class="card p-6 text-center muted" x-show="compareError" x-text="compareError"></p>
+                  <template x-if="compare && busy!=='compare'">
+                    <div class="space-y-4">
+                      <p class="muted text-sm" x-text="`Compared with the run of ${timeAgo(compare.previous_at)} · items matched by ${compare.key === 'whole row' ? 'all their values' : pretty(compare.key)}`"></p>
+                      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        <template x-for="k in ['added','removed','changed','same']" :key="k">
+                          <button class="card p-4 text-left transition" :class="compareView === k && 'ring-2 ring-brand-500/40'" @click="compareView = k" :disabled="k === 'same'">
+                            <div class="text-xs capitalize text-slate-500" x-text="{added: 'New items', removed: 'Gone', changed: 'Changed', same: 'Unchanged'}[k]"></div>
+                            <div class="mt-1 text-xl font-semibold tabular-nums" :class="{added: 'text-emerald-600', removed: 'text-rose-600', changed: 'text-amber-600', same: 'text-slate-900 dark:text-white'}[k]" x-text="fmt(compare.counts[k])"></div>
+                          </button>
+                        </template>
+                      </div>
+                      <div class="card">
+                        <div class="p-3">
+                          <p class="muted p-6 text-center" x-show="!compareRows().length">Nothing here.</p>
+                          <div class="table-wrap max-h-[55vh]" x-show="compareRows().length">
+                            <table class="tbl">
+                              <thead><tr>
+                                <template x-for="c in compareColumns()" :key="c"><th x-text="pretty(c)"></th></template>
+                                <th x-show="compareView==='changed'">What changed</th>
+                              </tr></thead>
+                              <tbody>
+                                <template x-for="(item, i) in compareRows().slice(0, 100)" :key="i">
+                                  <tr>
+                                    <template x-for="c in compareColumns()" :key="c">
+                                      <td>
+                                        <template x-if="isImage(rowOf(item)[c])"><img :src="rowOf(item)[c]" class="h-10 w-10 rounded-md object-cover" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
+                                        <template x-if="isUrl(rowOf(item)[c]) && !isImage(rowOf(item)[c])"><a class="link" :href="rowOf(item)[c]" target="_blank" rel="noopener noreferrer">Open</a></template>
+                                        <template x-if="!isUrl(rowOf(item)[c])"><span class="line-clamp-2" x-text="cellText(rowOf(item)[c])"></span></template>
+                                      </td>
+                                    </template>
+                                    <td x-show="compareView==='changed'">
+                                      <template x-for="[col, v] in Object.entries(item.changes || {})" :key="col">
+                                        <div class="whitespace-nowrap text-xs"><span class="font-medium" x-text="pretty(col) + ': '"></span>
+                                          <span class="text-rose-600 line-through" x-text="cellText(v[0])"></span> → <span class="text-emerald-600" x-text="cellText(v[1])"></span></div>
+                                      </template>
+                                    </td>
+                                  </tr>
+                                </template>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <div class="card" x-show="resultTab==='data'">
                   <div class="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3 dark:border-slate-800">
                     <div class="relative min-w-[12rem] flex-1">
                       <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" x-html="icon('search', 'h-4 w-4')"></span>
@@ -678,7 +921,7 @@
                               <td>
                                 <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
                                 <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link inline-flex items-center gap-1" :href="r[c]" target="_blank" rel="noopener noreferrer">Open <span x-html="icon('external', 'h-3 w-3')"></span></a></template>
-                                <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :title="r[c]" x-text="r[c]"></span></template>
+                                <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :class="typeof r[c] === 'number' && 'tabular-nums'" :title="r[c]" x-text="cellText(r[c])"></span></template>
                               </td>
                             </template></tr>
                           </template>

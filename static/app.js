@@ -78,19 +78,29 @@ async function api(method, path, body) {
 
 const TEMPLATES = [
   { id: "products", icon: "cart", name: "Products & prices", hint: "Shops, marketplaces, B2B catalogues",
-    columns: ["name", "price", "rating", "reviews", "seller", "url"] },
+    columns: ["name", "price", "rating", "reviews", "seller", "url"],
+    prompt: "I need the product name, image, price, rating and number of reviews of each product." },
   { id: "jobs", icon: "briefcase", name: "Job listings", hint: "Job boards, career pages",
-    columns: ["title", "company", "location", "salary", "experience", "posted", "url"] },
+    columns: ["title", "company", "location", "salary", "experience", "posted", "url"],
+    prompt: "I need the job title, company, location, salary, experience and posted date of each job." },
   { id: "real_estate", icon: "house", name: "Real estate", hint: "Flats, houses, rentals",
-    columns: ["title", "price", "location", "area_sqft", "bedrooms", "url"] },
+    columns: ["title", "price", "location", "area_sqft", "bedrooms", "url"],
+    prompt: "I need the title, price, location, area in sq.ft and number of bedrooms of each property." },
   { id: "stocks", icon: "chart", name: "Stock & market tables", hint: "Tickers, prices, indices",
-    columns: ["symbol", "name", "price", "change", "change_percent", "volume"] },
+    columns: ["symbol", "name", "price", "change", "change_percent", "volume"],
+    prompt: "I need the symbol, company name, price, change, change % and volume of each stock." },
   { id: "directory", icon: "building", name: "Business directory", hint: "Suppliers, companies, shops",
-    columns: ["name", "category", "location", "rating", "url"] },
+    columns: ["name", "category", "location", "rating", "url"],
+    prompt: "I need the business name, category, location and rating of each listing." },
   { id: "news", icon: "news", name: "News & articles", hint: "Headlines, blogs, press",
-    columns: ["title", "summary", "published", "url"] },
-  { id: "auto", icon: "sparkles", name: "Anything else", hint: "Let the AI decide the columns", columns: [] },
+    columns: ["title", "summary", "published", "url"],
+    prompt: "I need the headline, summary and published date of each article." },
+  { id: "auto", icon: "sparkles", name: "Anything else", hint: "Let the AI decide the columns", columns: [],
+    prompt: "Collect all the important details of each item." },
 ];
+
+const TYPE_LABELS = { money: "price", number: "number", percent: "%", rating: "rating", date: "date", url: "link", image: "image" };
+const OP_LABELS = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", ne: "≠", contains: "contains", not_contains: "doesn't contain" };
 
 const PAGE_TYPES = {
   ecommerce: "Products & prices", jobs: "Job listings", real_estate: "Real estate",
@@ -105,7 +115,8 @@ const EVENT_LABELS = {
   cooldown: "Site paused for a while", cooldown_cleared: "Site pause ended", challenge_solved: "Human check solved by you",
   window_opened: "Browser window opened", recipe_built: "AI set up the columns", recipe_saved: "Column setup saved",
   retention_purge: "Old data cleaned up", site_data_deleted: "Site data deleted", retry_after: "Waited as the site asked",
-  scrape_saved: "Scrape saved", scrape_deleted: "Scrape deleted",
+  scrape_saved: "Scrape saved", scrape_deleted: "Scrape deleted", detail_recipe_built: "AI set up item pages",
+  scrape_repaired: "Columns re-detected",
 };
 
 function store(key, value) {
@@ -141,6 +152,12 @@ function scraper() {
     showExtra: false,
     fieldsText: "",
     autoColumns: true,
+    prompt: "",
+    request: null,               // what the AI understood from the prompt (editable)
+    requestFor: "",              // the prompt text that request belongs to
+    listMode: false,             // list columns instead of describing the data
+    newReqColumn: "",
+    allPages: false,
     analysis: null,
     recipeText: "",
     newColumn: "",
@@ -168,6 +185,10 @@ function scraper() {
     hiddenCols: [],
     colMenu: false,
     pollTimer: null,
+    resultTab: "data",
+    compare: null,
+    compareError: "",
+    compareView: "added",
 
     // ---- browser window dialog ----
     win: null,
@@ -224,14 +245,15 @@ function scraper() {
 
     // Step-by-step messages while the page is being read, so waiting doesn't feel stuck.
     loadingSteps() {
-      return this.busy === "add"
-        ? ["Opening the page…", "Looking for the new column…", "Checking it on every item…"]
-        : ["Opening the page…", "Finding the list of items…", "Choosing the important columns…", "Checking the result…"];
+      if (this.busy === "add") return ["Opening the page…", "Looking for the new column…", "Checking it on every item…"];
+      if (this.busy === "details") return ["Opening the first item's page…", "Finding the extra details…", "Checking them…"];
+      return ["Opening the page…", "Finding the list of items…",
+              this.request ? "Matching the columns you described…" : "Choosing the important columns…", "Checking the result…"];
     },
     trackLoading(v) {
       clearInterval(this.loadTimer);
       this.loadStep = 0;
-      if (["analyse", "ai", "add"].includes(v)) {
+      if (["analyse", "ai", "add", "details"].includes(v)) {
         this.loadTimer = setInterval(() => { this.loadStep = Math.min(this.loadStep + 1, this.loadingSteps().length - 1); }, 2600);
       }
     },
@@ -319,7 +341,10 @@ function scraper() {
         hint: "Use a page that shows many similar items (search results, a category, a table). Single product pages won't work.", raw: msg };
       if (/no AI|AI is turned off|API key/i.test(msg)) return { title: "The AI is not available",
         hint: "Add an AI key to .env, or set up the columns by hand in Advanced mode.", raw: msg };
-      if (/rate-limited/i.test(msg)) return { title: "The AI is busy", hint: "Wait a minute and try again.", raw: msg };
+      if (/rate-limited/i.test(msg)) {
+        const m = msg.match(/wait (about \d+ minutes|\d+ seconds)/);
+        return { title: "The AI is busy", hint: m ? `Its provider asks to wait ${m[1]}. Try again after that.` : "Wait a minute and try again.", raw: msg };
+      }
       if (e.status === 502) return { title: "Couldn't open that page", hint: "Check the link in your browser. The site may be down or blocking automated visits.", raw: msg };
       if (e.status === 400 && /local|private|http\(s\)/i.test(msg)) return { title: "That link can't be used", hint: msg };
       return { title: "Something went wrong", hint: msg };
@@ -338,15 +363,78 @@ function scraper() {
       this.analysis = null; this.recipeText = ""; this.blockedPage = null;
       this.urlMain = url || ""; this.urlsExtra = ""; this.showExtra = false;
       this.fieldsText = template ? template.columns.join(", ") : "";
+      this.prompt = template?.prompt || ""; this.request = null; this.requestFor = ""; this.listMode = false;
       this.autoColumns = true; this.scrapeName = ""; this.personalChoice = {}; this.personalPurpose = "";
-      this.maxPages = Math.min(3, this.status?.max_pages || 3);
-      if (url) this.analyse(false);
+      this.maxPages = Math.min(3, this.status?.max_pages || 3); this.allPages = false;
+      if (url) this.next();
     },
 
     pickTemplate(t) {
-      this.template = this.template?.id === t.id ? null : t;
+      const prev = this.template;
+      this.template = prev?.id === t.id ? null : t;
       this.fieldsText = this.template ? this.template.columns.join(", ") : "";
+      // Replace the description only if it is empty or still the previous example.
+      if (!this.prompt.trim() || this.prompt === prev?.prompt) this.prompt = this.template?.prompt || "";
     },
+
+    promptPlaceholder() {
+      return "Example: I need the image, price and brand of each shoe. Only men's shoes under ₹3,000, cheapest first.";
+    },
+    needsUnderstanding() {
+      return !this.listMode && !!this.prompt.trim() && (!this.request || this.requestFor !== this.prompt.trim());
+    },
+    // Step 1's main button: read the description first, then find the data.
+    async next() {
+      if (!this.urlMain.trim()) { this.error = { title: "Paste a link first", hint: "Copy the address of a page that lists items." }; return; }
+      if (this.needsUnderstanding()) return this.understand();
+      return this.analyse(false);
+    },
+    async understand() {
+      this.error = null; this.busy = "understand";
+      try {
+        this.request = await api("POST", "/api/understand", { prompt: this.prompt.trim(), url: this.urls()[0] || "" });
+        this.requestFor = this.prompt.trim();
+      } catch (e) { this.handleError(e); }
+      finally { this.busy = ""; }
+    },
+    typeLabel(t) { return TYPE_LABELS[t] || ""; },
+    filterLabel(f) { return `${this.pretty(f.column)} ${OP_LABELS[f.op] || f.op} ${f.value}`; },
+    removeReqColumn(name) {
+      this.request.columns = this.request.columns.filter(c => c.name !== name);
+      this.request.filters = this.request.filters.filter(f => f.column !== name);
+      if (this.request.sort?.column === name) this.request.sort = { column: "", desc: false };
+      if (!this.request.columns.length) this.request.auto = true;
+    },
+    async renameReqColumn(c) {
+      const next = await this.promptDialog("Rename column", `New name for “${this.pretty(c.name)}”`, c.name, "Rename");
+      const clean = (next || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      if (!clean || clean === c.name || this.request.columns.some(x => x.name === clean)) return;
+      this.request.filters.forEach(f => { if (f.column === c.name) f.column = clean; });
+      if (this.request.sort?.column === c.name) this.request.sort.column = clean;
+      c.name = clean; delete c.auto_added;
+    },
+    addReqColumn() {
+      for (const raw of this.newReqColumn.split(",")) {
+        const name = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+        if (name && !this.request.columns.some(c => c.name === name)) {
+          this.request.columns.push({ name, meaning: raw.trim(), type: "", required: true });
+        }
+      }
+      this.newReqColumn = "";
+    },
+    removeFilter(i) { this.request.filters.splice(i, 1); },
+    sortWords() {
+      const s = this.request?.sort || {};
+      const kind = (this.request?.columns || []).find(c => c.name === s.column)?.type;
+      if (kind === "date") return s.desc ? "newest first" : "oldest first";
+      if (["text", "url", "image"].includes(kind)) return s.desc ? "Z → A" : "A → Z";
+      return s.desc ? "high → low" : "low → high";
+    },
+    cellText(v) {
+      if (typeof v === "number") return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      return v;
+    },
+    shortText(v) { const s = String(this.cellText(v) ?? ""); return s.length > 40 ? s.slice(0, 38) + "…" : s; },
 
     trySample() { this.startWizard(TEMPLATES[0], "https://books.toscrape.com/"); },
 
@@ -354,8 +442,10 @@ function scraper() {
       if (!this.urlMain.trim()) { this.error = { title: "Paste a link first", hint: "Copy the address of a page that lists items." }; return; }
       this.error = null; this.blockedPage = null; this.busy = forceAi ? "ai" : "analyse";
       try {
+        const useRequest = !this.listMode && this.request && this.requestFor === this.prompt.trim();
         this.analysis = await api("POST", "/api/analyse",
-          { url: this.urls()[0], fields: this.fields(), auto: this.autoColumns, force_ai: forceAi });
+          { url: this.urls()[0], fields: this.fields(), auto: this.autoColumns, force_ai: forceAi,
+            request: useRequest ? this.request : null });
         this.afterAnalysis();
         this.step = 2;
       } catch (e) {
@@ -411,6 +501,17 @@ function scraper() {
         const r = this.parseRecipe();
         r.fields = (r.fields || []).filter(f => f.name !== name);
         if (!r.fields.length) { this.error = { title: "Keep at least one column" }; return; }
+        if (r.detail) {
+          r.detail.fields = r.detail.fields.filter(f => f.name !== name);
+          if (!r.detail.fields.length) delete r.detail;
+        }
+        if (r.request) {
+          r.request.columns = r.request.columns.filter(c => c.name !== name);
+          r.request.filters = r.request.filters.filter(f => f.column !== name);
+          if (r.request.sort?.column === name) r.request.sort = { column: "", desc: false };
+          this.request = r.request;
+        }
+        if (r.column_types) delete r.column_types[name];
         this.recipeText = JSON.stringify(r, null, 2);
         await this.previewRecipe();
       } catch (e) { this.showError(e); }
@@ -425,6 +526,15 @@ function scraper() {
         const r = this.parseRecipe();
         if (r.fields.some(f => f.name === clean)) { this.error = { title: "That column name is already used" }; return; }
         r.fields.forEach(f => { if (f.name === name) f.name = clean; });
+        (r.detail?.fields || []).forEach(f => { if (f.name === name) f.name = clean; });
+        if (r.detail?.url_field === name) r.detail.url_field = clean;
+        if (r.request) {
+          r.request.columns.forEach(c => { if (c.name === name) c.name = clean; });
+          r.request.filters.forEach(f => { if (f.column === name) f.column = clean; });
+          if (r.request.sort?.column === name) r.request.sort.column = clean;
+          this.request = r.request;
+        }
+        if (r.column_types && name in r.column_types) { r.column_types[clean] = r.column_types[name]; delete r.column_types[name]; }
         this.recipeText = JSON.stringify(r, null, 2);
         await this.previewRecipe();
       } catch (e) { this.showError(e); }
@@ -433,11 +543,23 @@ function scraper() {
     async addColumn() {
       const name = this.newColumn.trim();
       if (!name) return;
-      const wanted = [...new Set([...this.recipeColumns(), ...name.split(",").map(s => s.trim()).filter(Boolean)])];
+      const added = name.split(",").map(s => s.trim()).filter(Boolean);
+      const wanted = [...new Set([...this.recipeColumns(), ...added])];
+      let request = null;
+      try { request = this.parseRecipe().request || null; } catch { request = null; }
+      if (request) {
+        request = JSON.parse(JSON.stringify(request));
+        for (const raw of added) {
+          const n = raw.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+          if (n && !request.columns.some(c => c.name === n)) request.columns.push({ name: n, meaning: raw, type: "", required: true });
+        }
+        request.auto = false;
+      }
       this.error = null; this.busy = "add";
       try {
         this.analysis = await api("POST", "/api/analyse",
-          { url: this.urls()[0], fields: wanted, auto: false, force_ai: true });
+          { url: this.urls()[0], fields: wanted, auto: false, force_ai: true, request });
+        if (request) { this.request = request; }
         this.afterAnalysis();
         this.newColumn = "";
       } catch (e) { this.handleError(e); }
@@ -445,6 +567,41 @@ function scraper() {
     },
 
     personalFieldsChosen() { return Object.entries(this.personalChoice).filter(([, v]) => v).map(([k]) => k); },
+
+    // ---- item pages (optional per scrape)
+    detailOn() { try { return !!JSON.parse(this.recipeText).detail; } catch { return false; } },
+    detailColumns() { try { return (JSON.parse(this.recipeText).detail?.fields || []).map(f => f.name); } catch { return []; } },
+    detailSample() { return this.analysis?.detail_row || {}; },
+    detailEstimate() {
+      const n = this.analysis?.row_count || 0;
+      const d = this.status?.delay || [2, 5];
+      const per = (d[0] + d[1]) / 2 + 1;
+      const mins = Math.max(1, Math.round(n * per / 60));
+      return `About ${mins} extra minute${mins === 1 ? "" : "s"} for every page of ${n} items.`;
+    },
+    async toggleDetails() {
+      let r;
+      try { r = this.parseRecipe(); } catch (e) { return this.showError(e); }
+      if (r.detail) {
+        delete r.detail;
+        this.recipeText = JSON.stringify(r, null, 2);
+        return this.previewRecipe();
+      }
+      // Ask for the columns the list page doesn't have (from the description), plus anything useful.
+      const have = new Set((r.fields || []).map(f => f.name));
+      const wanted = (r.request?.columns || []).filter(c => !have.has(c.name));
+      for (const name of this.analysis?.absent || []) if (!wanted.some(c => c.name === name)) wanted.push({ name, meaning: "", type: "" });
+      this.error = null; this.busy = "details";
+      try {
+        this.analysis = await api("POST", "/api/details",
+          { url: this.urls()[0], recipe: r, columns: wanted, auto: !r.request || r.request.auto || !wanted.length });
+        this.afterAnalysis();
+        this.toast("Item pages are on. Each run will open every item's page for these details.");
+      } catch (e) { this.handleError(e); }
+      finally { this.busy = ""; }
+    },
+    hasPaging() { return ["next_link", "url_param", "scroll", "click"].includes(this.analysis?.recipe?.pagination?.type); },
+    pagesToCollect() { return this.allPages && this.hasPaging() ? 50 : this.maxPages; },
 
     paginationHint() {
       const t = this.analysis?.recipe?.pagination?.type;
@@ -465,12 +622,12 @@ function scraper() {
         let jobId = null;
         if (this.editingScrapeId) {
           await api("PUT", `/api/scrapes/${this.editingScrapeId}`,
-            { name: this.scrapeName, urls: this.urls(), recipe, max_pages: this.maxPages });
+            { name: this.scrapeName, urls: this.urls(), recipe, max_pages: this.pagesToCollect() });
           if (run) jobId = (await api("POST", `/api/scrapes/${this.editingScrapeId}/run`,
             { personal_fields: chosen, personal_purpose: this.personalPurpose })).job_id;
         } else {
           const r = await api("POST", "/api/scrapes", {
-            name: this.scrapeName || "My scrape", urls: this.urls(), recipe, max_pages: this.maxPages,
+            name: this.scrapeName || "My scrape", urls: this.urls(), recipe, max_pages: this.pagesToCollect(),
             page_type: this.analysis?.page_type || "", run,
             personal_fields: chosen, personal_purpose: this.personalPurpose,
           });
@@ -509,7 +666,11 @@ function scraper() {
       try {
         const full = await api("GET", `/api/scrapes/${s.id}`);
         this.startWizard();
-        this.editingScrapeId = full.id; this.scrapeName = full.name; this.maxPages = full.max_pages;
+        this.editingScrapeId = full.id; this.scrapeName = full.name;
+        this.allPages = full.max_pages >= 50; this.maxPages = Math.min(full.max_pages, Math.min(50, this.status?.max_pages || 10));
+        const req = full.recipe.request;
+        this.request = req || null; this.prompt = req?.prompt || ""; this.requestFor = this.prompt.trim();
+        this.listMode = !req; this.fieldsText = req ? "" : (full.recipe.fields || []).map(f => f.name).join(", ");
         this.urlMain = full.urls[0] || ""; this.urlsExtra = full.urls.slice(1).join("\n");
         this.showExtra = full.urls.length > 1;
         this.recipeText = JSON.stringify(full.recipe, null, 2);
@@ -534,6 +695,18 @@ function scraper() {
       if (!await this.confirmDialog(`Delete “${s.name}”?`, "The saved setup is removed. Its past results stay under Results until you delete them.")) return;
       try { await api("DELETE", `/api/scrapes/${s.id}`); await this.loadScrapes(); }
       catch (e) { this.showError(e); }
+    },
+
+    async repairScrape(job) {
+      this.busy = "repair";
+      try {
+        await api("POST", `/api/scrapes/${job.scrape_id}/repair`);
+        await this.loadScrapes();
+        if (await this.confirmDialog("Columns re-detected", "The AI looked at the page again and updated this scrape's setup. Run it again now?", "Run again", false)) {
+          await this.runAgainFromJob(job);
+        }
+      } catch (e) { this.handleError(e); }
+      finally { this.busy = ""; }
     },
 
     async openLatestRun(s) {
@@ -563,6 +736,7 @@ function scraper() {
     async openJob(j) {
       if (!j) return;
       this.selectedJob = j; this.search = ""; this.sortKey = ""; this.showPersonal = false; this.page = 1;
+      this.resultTab = "data"; this.compare = null; this.compareError = "";
       this.hiddenCols = store("hidden:" + (j.scrape_id || j.id)) || [];
       await this.loadRecords();
     },
@@ -607,6 +781,46 @@ function scraper() {
       const s = this.scrapes.find(x => x.id === j.scrape_id);
       if (s) return this.runScrape(s);
     },
+
+    resultTabs() {
+      const q = this.selectedJob?.quality || {};
+      const warn = (q.warnings || []).length;
+      const tabs = [{ id: "data", label: "Data", badge: this.fmt(this.selectedJob?.rows) },
+                    { id: "quality", label: "Quality", badge: warn ? String(warn) : "", warn: !!warn }];
+      if (this.selectedJob?.scrape_id) tabs.push({ id: "changes", label: "Changes" });
+      return tabs;
+    },
+    openResultTab(id) {
+      this.resultTab = id;
+      if (id === "changes" && !this.compare) this.loadCompare();
+    },
+    qualityTiles() {
+      const q = this.selectedJob?.quality || {};
+      const tiles = [
+        { label: "Rows saved", value: this.fmt(q.rows) },
+        { label: "Pages read", value: this.fmt(q.pages_ok), note: q.pages_failed?.length ? `${q.pages_failed.length} failed` : "", warn: !!q.pages_failed?.length },
+        { label: "Duplicates removed", value: this.fmt(q.duplicates) },
+        { label: "Didn't match request", value: this.fmt(q.excluded), note: q.trimmed ? `${this.fmt(q.trimmed)} over the limit` : "" },
+      ];
+      if (q.coverage !== null && q.coverage !== undefined) {
+        tiles.push({ label: "Coverage", value: Math.round(q.coverage * 100) + "%", note: `of about ${this.fmt(q.expected_total)} on the site`, warn: q.coverage < 0.9 });
+      }
+      if (q.details?.done || q.details?.failed) {
+        tiles.push({ label: "Item pages read", value: this.fmt(q.details.done), note: q.details.failed ? `${q.details.failed} failed` : "", warn: !!q.details.failed });
+      }
+      return tiles;
+    },
+    async loadCompare() {
+      this.busy = "compare"; this.compareError = ""; this.compare = null;
+      try {
+        this.compare = await api("GET", `/api/jobs/${this.selectedJob.id}/compare?show_personal=${this.showPersonal}`);
+        this.compareView = this.compare.counts.added ? "added" : this.compare.counts.changed ? "changed" : "removed";
+      } catch (e) { this.compareError = e.status === 404 ? "This is the first finished run of this scrape, so there is nothing to compare with yet." : this.explain(e).hint; }
+      finally { this.busy = ""; }
+    },
+    compareRows() { return this.compare?.[this.compareView] || []; },
+    rowOf(item) { return item.row || item; },
+    compareColumns() { return this.columns(this.compareRows().slice(0, 50).map(i => this.rowOf(i))).filter(c => !/_(currency|unit)$/.test(c)).slice(0, 8); },
 
     sortBy(c) { if (this.sortKey === c) this.sortAsc = !this.sortAsc; else { this.sortKey = c; this.sortAsc = true; } },
     filtered() {

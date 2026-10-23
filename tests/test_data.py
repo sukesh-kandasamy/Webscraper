@@ -261,3 +261,25 @@ def test_understand_endpoint_without_ai(client, monkeypatch):
     monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "")
     r = client.post("/api/understand", json={"prompt": "title, company and salary"}).json()
     assert [c["name"] for c in r["columns"]] == ["title", "company", "salary", "url"]
+
+
+def test_next_link_skips_previous_and_visited_pages():
+    page2 = ('<ul class="pager"><li class="previous"><a href="page-1.html">previous</a></li>'
+             '<li class="current">Page 2 of 50</li><li class="next"><a href="page-3.html">next</a></li></ul>')
+    recipe = extractor.normalize_recipe({"item_selector": "li", "fields": [{"name": "x", "selector": ""}],
+                                         "pagination": {"type": "next_link", "selector": "a[href*='page-']"}})
+    base = "https://books.test/catalogue/page-2.html"
+    assert extractor.next_page_url(page2, recipe, base, 1) == "https://books.test/catalogue/page-3.html"
+    only_prev = '<li class="previous"><a href="page-1.html">previous</a></li>'
+    assert extractor.next_page_url(only_prev, recipe, base, 1) is None
+    numbers = '<a href="page-1.html">1</a><a href="page-2.html">2</a><a href="page-3.html">3</a>'
+    assert extractor.next_page_url(numbers, recipe, base, 1, {"https://books.test/catalogue/page-1.html"}) == \
+        "https://books.test/catalogue/page-3.html"
+
+
+def test_cut_off_text_uses_the_full_title_attribute():
+    html = ('<ul><li class="c"><h3><a href="/a" title="Tastes Like Fear (DI Marnie Rome #3)">Tastes Like Fear (DI ...'
+            '</a></h3></li><li class="c"><h3><a href="/b" title="Something else">Short one</a></h3></li></ul>')
+    recipe = extractor.normalize_recipe({"item_selector": "li.c", "fields": [{"name": "title", "selector": "h3 a"}]})
+    assert [r["title"] for r in extractor.extract(html, recipe, "https://x.test/")] == \
+        ["Tastes Like Fear (DI Marnie Rome #3)", "Short one"]

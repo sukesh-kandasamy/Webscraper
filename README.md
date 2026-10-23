@@ -34,20 +34,34 @@ The app has five screens in the sidebar: **Home, New scrape, Saved scrapes, Resu
 1. **Home → paste a link** (or pick a type of data: products, jobs, real estate, stock tables,
    directories, news, anything else). Use a page that *lists* many items: a category, search
    results or a table. No link handy? *Try a sample bookshop*.
-2. **New scrape, step 1 · Link.** Optionally add more links from the same site, choose the type of
-   data, or type the columns you want. Leave columns empty and the AI picks the important ones.
-   Click **Find the data**.
-3. **Step 2 · Columns.** See how many items were found, the page type, and the columns as chips:
-   click a name to rename it, **×** to remove it (instant), or *Add a column…* and the AI finds it
-   (it tells you when the page doesn't show it). Coloured dots show how often each column was found.
-   The preview shows the first rows, with image thumbnails. *Ask the AI again* if it looks wrong.
-4. **Step 3 · Collect.** Name the scrape, choose how many pages, then **Start collecting** (or *Save
-   for later*). It runs in the background, with polite pauses between pages.
-5. **Results.** Every run, with plain-language progress ("Collecting page 2 of 3 · 40 rows so far").
-   Search, sort, choose which columns to show, and download **Excel** or **CSV** (only the columns
-   you show; the file is named after the scrape).
-6. **Saved scrapes.** Each setup is saved: **Run again** for fresh data, open the latest results,
-   edit, rename, duplicate or delete.
+2. **New scrape, step 1 · Link + what you need.** Paste the link and **describe the data you need**
+   in your own words, for example *"I need the image, price and brand of each shoe. Only men's shoes
+   under ₹3,000, cheapest first."* (the example buttons fill in a starting point). Click **Continue**:
+   the AI turns it into **Here's what we'll collect**: columns (hover for what each one means, and
+   its type: price, number, date, rating, link, image), conditions ("price < 3000", "name contains
+   men"), sorting and a limit. Rename, remove or add any of them, then **Find the data**. Prefer a
+   plain list? *or just list the columns* gives the comma-separated box (empty = the AI picks).
+3. **Step 2 · Columns.** See how many items were found and how many **match your request**, the
+   columns as chips (rename, **×** remove, *Add a column…*), how often each was found, and the
+   preview exactly as it will be saved: prices and counts as numbers, dates as dates, sorted and
+   filtered. A column that isn't on the list page is named, with the suggestion to switch on
+   **Also open each item's own page**: the AI reads one item page, finds the missing details (specs,
+   description, salary, seller…) and shows them from the first item. Runs then open every item's
+   page (slower, same polite pauses).
+4. **Step 3 · Collect.** Name the scrape, choose how many pages or tick **Collect all pages** (up to
+   50; it stops when no new items appear), then **Start collecting** (or *Save for later*). When the
+   site states a total ("1,000 results"), you see it here.
+5. **Results.** Every run, with plain-language progress. Three tabs:
+   - **Data**: search, sort, choose columns, download **Excel** (real number and date cells) or **CSV**.
+   - **Quality**: rows saved, pages read and failed, duplicates removed, items that didn't match your
+     request, **coverage** (collected vs. the site's stated total) and how complete each column is,
+     with plain warnings. Failed pages are retried once automatically; **Retry failed pages** tries
+     again later. If columns that used to be full come out empty, the site probably changed:
+     **Re-detect columns** lets the AI set them up again.
+   - **Changes**: new, gone and changed items since the scrape's previous run (e.g. price changes).
+6. **Saved scrapes.** Each setup keeps your description: **Run again** for fresh data, open the latest
+   results, edit (step 1 shows your description, so changing "under ₹3,000" to "under ₹5,000" is one
+   edit), rename, duplicate or delete.
 
 **Light / dark theme:** the button in the top bar cycles System → Light → Dark (also in Settings).
 
@@ -126,6 +140,15 @@ At most `SCRAPER_MAX_JOBS` (default 2) jobs crawl at the same time; others wait 
 stopped while waiting. Every fetched page is recorded, so a job interrupted by a restart resumes where
 it stopped without duplicating rows.
 
+Each page's rows are typed (`₹ 1,62,499` → 162499 plus `price_currency` INR; `2.5 Lakh` → 250000;
+`4.5 out of 5` → 4.5; `2d ago` → a date), de-duplicated by the item's link, filtered by your request,
+completed from item pages when that is on, and stored. At the end the request's sort and limit are
+applied and the quality report is saved with the run.
+
+Pages that carry their data as JSON (schema.org JSON-LD, `__NEXT_DATA__`, `window.__INITIAL_STATE__`)
+are read from it when it is cleaner than the HTML; item pages often have a JSON-LD Product / JobPosting
+with the price, brand or salary.
+
 ## Project layout
 
 | Path | What it does |
@@ -140,8 +163,12 @@ it stopped without duplicating rows.
 | `app/fetcher.py` | HTTP client: robots.txt, per-site throttling, retries, cache, block detection; `fetch_smart` picks HTTP or browser |
 | `app/browser.py` | Headless Chromium rendering (Playwright): wait for the page, click "load more" / scroll, detect challenge pages |
 | `app/robots.py` | robots.txt parser with `*` / `$` wildcard support |
-| `app/extractor.py` | Applies a recipe to HTML; pagination; field fill-rate report |
-| `app/recipe_builder.py` | Finds repeated listing blocks, asks the AI (Groq or Claude) for a recipe, tests it, retries once with feedback |
+| `app/extractor.py` | Applies a recipe to HTML or embedded JSON; pagination; field fill-rate report |
+| `app/recipe_builder.py` | Finds repeated listing blocks, asks the AI (Groq or Claude) for a recipe, tests it, retries once with feedback; item-page recipes |
+| `app/request_parser.py` | "Describe what you need" → columns with meanings and types, filters, sort, limit; applies them to rows |
+| `app/normalize.py` | Typed values: money (currencies, lakh / crore), numbers, ratings, percentages, dates |
+| `app/structured.py` | JSON-LD and embedded app-state data in pages |
+| `app/quality.py` | Quality report per run: coverage, failures, duplicates, column fill; health check against the last run |
 | `app/jobs.py` | Background crawl jobs |
 | `app/db.py` | SQLite: recipes, jobs, records, page cache (`data/scraper.db`) |
 | `app/recipes/*.json` | Built-in recipes, loaded at startup |
@@ -174,6 +201,7 @@ it stopped without duplicating rows.
   encrypted login sessions, pause-and-resume on CAPTCHAs, personal-data protection).
 - Features: [PLAN-v2.md](PLAN-v2.md): browser rendering for JavaScript sites, detail-page crawling, clean numeric
 output, recipe auto-repair, scheduled re-runs with price history, a point-and-click field picker.
+- Complete data and the describe-what-you-need prompt: [PLAN-data.md](PLAN-data.md) (built).
 
 ## Ground rules built in
 

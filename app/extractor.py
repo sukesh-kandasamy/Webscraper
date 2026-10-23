@@ -189,9 +189,24 @@ def _apply_regex(value: str, pattern: str) -> str:
     return clean_text(m.group(1) if m.groups() else m.group(0))
 
 
+_CUT = re.compile(r"\s*(\.\.\.|…)$")
+
+
 def _node_value(node: LexborNode, attr: str, base_url: str) -> str:
     if attr == "text":
-        return clean_text(node.text(separator=" "))
+        text = clean_text(node.text(separator=" "))
+        # Sites shorten long titles on cards ("Tastes Like Fear (DI ...") and keep the full text in a
+        # title / aria-label attribute: use that when it starts with the visible part.
+        if _CUT.search(text):
+            prefix = _CUT.sub("", text).lower()
+            for n in (node, node.css_first("[title]"), node.css_first("[aria-label]")):
+                if n is None:
+                    continue
+                for a in ("title", "aria-label"):
+                    full = clean_text(n.attributes.get(a) or "")
+                    if len(full) > len(prefix) and full.lower().startswith(prefix):
+                        return full
+        return text
     val = node.attributes.get(attr) or ""
     if attr in URL_ATTRS and val:
         val = urljoin(base_url, val.strip())
@@ -261,16 +276,36 @@ def extract_detail(html: str, detail: dict, base_url: str) -> dict:
     return rows[0] if rows else {}
 
 
-def next_page_url(html: str, recipe: dict, current_url: str, page_index: int) -> str | None:
-    """URL of the next page, or None. page_index is 0 for the first page fetched."""
+_PREV = re.compile(r"\bprev|previous|«|‹|←|\bback\b|\bfirst\b", re.I)
+_NEXT = re.compile(r"\bnext\b|»|›|→", re.I)
+
+
+def _link_words(a: LexborNode) -> str:
+    parent = a.parent
+    return " ".join([clean_text(a.text()), a.attributes.get("rel") or "", a.attributes.get("class") or "",
+                     a.attributes.get("aria-label") or "", (parent.attributes.get("class") or "") if parent else ""])
+
+
+def next_page_url(html: str, recipe: dict, current_url: str, page_index: int,
+                  visited: set | None = None) -> str | None:
+    """URL of the next page, or None. page_index is 0 for the first page fetched.
+
+    A next_link selector can match more than the "next" link (page numbers, "previous"): links that
+    say previous / first, and pages already visited, are skipped; a link that says next wins."""
     pag = recipe["pagination"]
     if pag["type"] == "next_link" and pag["selector"]:
-        node = parse_html(html).css_first(pag["selector"])
-        href = node.attributes.get("href") if node else None
-        if href and not href.startswith(("javascript:", "#")):
+        visited = visited or set()
+        options = []
+        for node in parse_html(html).css(pag["selector"]):
+            href = node.attributes.get("href")
+            if not href or href.startswith(("javascript:", "#")):
+                continue
             url = urljoin(current_url, href)
-            return url if url != current_url else None
-        return None
+            words = _link_words(node)
+            if url == current_url or url in visited or (_PREV.search(words) and not _NEXT.search(words)):
+                continue
+            options.append((0 if _NEXT.search(words) else 1, url))
+        return min(options, key=lambda o: o[0])[1] if options else None
     if pag["type"] == "url_param" and pag["param"]:
         parts = urlsplit(current_url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))

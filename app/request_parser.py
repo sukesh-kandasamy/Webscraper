@@ -168,12 +168,22 @@ def understand(prompt: str, url: str = "") -> dict:
     return clean_request(raw, prompt)
 
 
+def sort_words(request: dict) -> str:
+    sort = request.get("sort") or {}
+    kind = next((c.get("type") for c in request.get("columns", []) if c["name"] == sort.get("column")), "")
+    if kind == "date":
+        return "newest first" if sort.get("desc") else "oldest first"
+    if kind in ("text", "url", "image"):
+        return "Z → A" if sort.get("desc") else "A → Z"
+    return "high → low" if sort.get("desc") else "low → high"
+
+
 def describe(request: dict) -> list[str]:
     """Short human labels for the request's filters, sort and limit."""
     out = [f"{f['column']} {OP_LABELS[f['op']]} {f['value']}" for f in request.get("filters", [])]
     sort = request.get("sort") or {}
     if sort.get("column"):
-        out.append(f"sorted by {sort['column']} ({'high → low' if sort.get('desc') else 'low → high'})")
+        out.append(f"sorted by {sort['column']} ({sort_words(request)})")
     if request.get("limit"):
         out.append(f"first {request['limit']}")
     return out

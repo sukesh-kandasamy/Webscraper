@@ -765,7 +765,10 @@ def list_scrapes():
     out = []
     for s in db.list_scrapes():
         out.append({**{k: v for k, v in s.items() if k != "recipe"},
-                    "columns": [f["name"] for f in s["recipe"].get("fields", [])],
+                    "columns": [f["name"] for f in s["recipe"].get("fields", [])]
+                    + [f["name"] for f in (s["recipe"].get("detail") or {}).get("fields", [])],
+                    "request_summary": (s["recipe"].get("request") or {}).get("summary", ""),
+                    "item_pages": bool(s["recipe"].get("detail")),
                     "domain": fetcher.domain_of(s["urls"][0]) if s["urls"] else ""})
     return out
 

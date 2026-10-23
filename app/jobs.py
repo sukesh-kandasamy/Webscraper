@@ -264,7 +264,7 @@ class _Run:
                 self.pages_done += 1
             produced = self.done_pages[url]
 
-            nxt = extractor.next_page_url(page.html, self.recipe, page.final_url, page_index)
+            nxt = extractor.next_page_url(page.html, self.recipe, page.final_url, page_index, visited)
             page_index += 1
             # A page with no new items means pagination ran past the end.
             if nxt and produced and page_index < self.job["max_pages"] and nxt not in visited:
