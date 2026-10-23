@@ -101,7 +101,8 @@ async def same_origin_only(request: Request, call_next):
 
 class AnalyseIn(BaseModel):
     url: str
-    fields: list[str] = Field(default_factory=lambda: list(config.DEFAULT_FIELDS))
+    fields: list[str] = Field(default_factory=list)   # columns you want (always included)
+    auto: bool = True          # let the AI add every other important column it finds
     force_ai: bool = False
 
 
@@ -208,7 +209,7 @@ def _starter_recipe(html: str, fields: list[str]) -> dict:
     cands = recipe_builder.find_candidates(html)
     item = cands[0]["selector_hint"].split(" > ")[-1] if cands else "CHANGE-ME"
     return {"item_selector": item,
-            "fields": [{"name": f, "selector": "", "attr": "text"} for f in fields],
+            "fields": [{"name": f, "selector": "", "attr": "text"} for f in (fields or ["name", "url"])],
             "pagination": {"type": "none"}}
 
 
@@ -223,7 +224,8 @@ def _result(domain: str, page: fetcher.Page, recipe: dict, source: str, rows: li
             "logged_in": page.logged_in, "session": session,
             "personal_fields": personal,
             "row_count": len(rows), "rows": privacy.mask_rows(rows[:PREVIEW_ROWS]),
-            "report": extractor.field_report(rows, recipe)}
+            "report": extractor.field_report(rows, recipe),
+            "page_type": recipe.get("page_type") or ""}
 
 
 @functools.lru_cache(maxsize=1)
@@ -265,7 +267,7 @@ def status():
 def analyse(body: AnalyseIn):
     """Get a recipe for the page: the saved one if it still works, otherwise ask the AI."""
     url = _clean_urls([body.url])[0]
-    fields = [f.strip() for f in body.fields if f.strip()] or list(config.DEFAULT_FIELDS)
+    fields = recipe_builder.clean_field_names(body.fields)
     domain = fetcher.domain_of(url)
     saved = db.get_recipe(domain)
     saved_recipe = None
@@ -275,12 +277,18 @@ def analyse(body: AnalyseIn):
     domain = fetcher.domain_of(page.final_url)
     render_note = _remember_render(domain, page)
 
+    missing: list[str] = []
     if saved_recipe:
+        have = {f["name"] for f in saved_recipe["fields"]}
+        missing = [f for f in fields if f not in have]
         rows = extractor.extract(page.html, saved_recipe, page.final_url)
-        if rows:
-            return _result(domain, page, saved_recipe, saved["source"], rows,
-                           "Using the saved recipe for this site. Click 'Re-analyse with AI' "
-                           "to build a new one for your fields." + render_note)
+        # Use the saved recipe unless you asked for columns it doesn't have (then the AI rebuilds it).
+        if rows and not (missing and config.ai_enabled()):
+            note = ("Using the saved recipe for this site. Click 'Re-analyse with AI' to let the AI "
+                    "pick the columns again.")
+            if missing:
+                note += f" It has no column for: {', '.join(missing)} (no AI key to add them)."
+            return _result(domain, page, saved_recipe, saved["source"], rows, note + render_note)
 
     ai_allowed = db.get_site_settings(domain).get("ai_allowed", True)
     if not config.ai_enabled() or not ai_allowed:
@@ -293,7 +301,7 @@ def analyse(body: AnalyseIn):
 
     try:
         built = recipe_builder.build_recipe(page.html, page.final_url, fields, page.rendered,
-                                            redact=page.logged_in)
+                                            redact=page.logged_in, auto=body.auto)
     except recipe_builder.RecipeBuildError as e:
         raise HTTPException(422, {"message": str(e), "domain": domain,
                                   "starter_recipe": _starter_recipe(page.html, fields)})
@@ -302,6 +310,8 @@ def analyse(body: AnalyseIn):
     audit.log("recipe_built", domain=domain, provider=config.AI_PROVIDER, redacted=page.logged_in,
               rows=len(built["rows"]))
     note = " Page text was redacted before it was sent to the AI." if page.logged_in else ""
+    if missing:
+        note += f" Rebuilt because the saved recipe had no column for: {', '.join(missing)}."
     return _result(domain, page, built["recipe"], "ai", built["rows"],
                    built["notes"] + render_note + note)
 

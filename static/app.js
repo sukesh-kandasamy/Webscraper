@@ -35,6 +35,8 @@ function scraper() {
     status: null,
     urlsText: "",
     fieldsText: "",
+    autoColumns: true,
+    newColumn: "",
     maxPages: 3,
     busy: "",
     error: "",
@@ -132,7 +134,7 @@ function scraper() {
       this.error = ""; this.notice = ""; this.blockedPage = null; this.busy = forceAi ? "ai" : "analyse";
       try {
         this.analysis = await api("POST", "/api/analyse",
-          { url: this.urls()[0], fields: this.fields(), force_ai: forceAi });
+          { url: this.urls()[0], fields: this.fields(), auto: this.autoColumns, force_ai: forceAi });
         this.afterAnalysis();
       } catch (e) {
         if (e.detail?.starter_recipe) {
@@ -152,6 +154,42 @@ function scraper() {
       this.personalChoice = Object.fromEntries((this.analysis.personal_fields || []).map(f => [f, false]));
       this.personalPurpose = "";
       this.loadSites();
+    },
+
+    pageTypeLabel(t) {
+      return { ecommerce: "E-commerce", jobs: "Jobs", real_estate: "Real estate",
+               stocks_finance: "Stocks / finance", directory: "Directory", news_articles: "News / articles",
+               events: "Events", other: "Other listing" }[t] || t;
+    },
+
+    recipeColumns() {
+      try { return (JSON.parse(this.recipeText).fields || []).map(f => f.name); } catch { return []; }
+    },
+
+    // Remove a column: edit the recipe and re-run the preview (no AI needed).
+    async removeColumn(name) {
+      try {
+        const r = this.parseRecipe();
+        r.fields = (r.fields || []).filter(f => f.name !== name);
+        if (!r.fields.length) { this.error = "Keep at least one column."; return; }
+        this.recipeText = JSON.stringify(r, null, 2);
+        await this.previewRecipe();
+      } catch (e) { this.error = e.message; }
+    },
+
+    // Add a column: ask the AI to rebuild with the current columns plus the new one.
+    async addColumn() {
+      const name = this.newColumn.trim();
+      if (!name) return;
+      const wanted = [...new Set([...this.recipeColumns(), ...name.split(",").map(s => s.trim()).filter(Boolean)])];
+      this.error = ""; this.busy = "add";
+      try {
+        this.analysis = await api("POST", "/api/analyse",
+          { url: this.urls()[0], fields: wanted, auto: false, force_ai: true });
+        this.afterAnalysis();
+        this.newColumn = "";
+      } catch (e) { this.handleError(e, () => this.addColumn()); }
+      finally { this.busy = ""; }
     },
 
     async previewRecipe() {

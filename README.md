@@ -35,10 +35,16 @@ changes), `--no-browser`.
 
    Both sites block their **search** pages in robots.txt, so the app refuses them. Category pages
    are allowed. Add several category URLs to one job to cover more products.
-2. **Analyse page.** The app uses the saved recipe for that site if one works. Otherwise it asks
-   the AI model to write one (once per site). *Re-analyse with AI* ignores the saved recipe.
-3. **Check the preview.** The fill-rate bars show how often each field was found. Fix the recipe JSON if
-   needed and click *Preview again*.
+   **Columns are optional.** Leave the box empty and the AI decides what kind of page it is (jobs,
+   e-commerce, real estate, stocks / finance tables, directories, news, events) and picks every
+   important column itself. Type columns (e.g. `salary, experience`) to make sure they are included;
+   with *Let the AI also find every other important column* ticked, it adds the rest too.
+2. **Analyse page.** The app uses the saved recipe for that site if one works and has the columns you
+   typed; otherwise the AI writes a new one. *Re-analyse with AI* ignores the saved recipe.
+3. **Check the preview.** The page type and the columns are shown as chips: click **×** to drop a
+   column (instant, no AI), or type a name in *add a column…* and the AI finds it (it tells you when
+   the page doesn't show it). The fill-rate bars show how often each column was found. Columns the AI
+   added itself that are mostly empty or duplicate another column are left out automatically.
 4. **Approve & scrape.** The job runs in the background (2–5 s between requests) and the results
    appear as they arrive. Search, sort, and download CSV or Excel.
 

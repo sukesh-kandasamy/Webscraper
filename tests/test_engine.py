@@ -183,7 +183,7 @@ def test_too_large_prompt_is_shrunk_and_retried(monkeypatch):
     recipe = json.loads((ROOT / "app" / "recipes" / "dir.indiamart.com.json").read_text(encoding="utf-8"))
     sizes = []
 
-    def fake_ask(messages, fields):
+    def fake_ask(messages, fields, auto=False):
         sizes.append(len(messages[0]["content"]))
         if len(sizes) == 1:
             raise recipe_builder.PromptTooLarge("too large", limit=8000, requested=12000)
@@ -209,3 +209,55 @@ def test_outline_merges_cards_and_skips_tracking_attributes():
     assert 'span.a-price span.off → "INR 8,420"' in text        # only card 2 has a price
     assert "data-uuid" not in text and 'data-asin="B07CRG94G3"' in text
     assert "data-uuid" not in cands[0]["samples"][0]
+
+
+def test_auto_schema_allows_ai_named_columns():
+    fixed = recipe_builder._schema(["name", "price"])
+    free = recipe_builder._schema(["name"], auto=True)
+    item = lambda s: s["properties"]["fields"]["items"]["properties"]["name"]
+    assert item(fixed)["enum"] == ["name", "price"] and "enum" not in item(free)
+    assert "page_type" in free["required"]
+
+
+def test_field_names_become_snake_case():
+    assert recipe_builder.clean_field_names(["Job Title", "salary (INR)", "job title", "3BHK"]) == \
+        ["job_title", "salary_inr", "f_3bhk"]
+
+
+def test_auto_columns_drop_empty_and_duplicate_but_keep_required():
+    html = "<ul>" + "".join(
+        f"<li class='c'><a href='/j/{i}'>Job {i}</a><span class='co'>Acme</span><span class='co2'>Acme</span>"
+        f"<i class='rare'>{'x' if i == 0 else ''}</i></li>" for i in range(10)) + "</ul>"
+    raw = {"item_selector": "li.c", "pagination": {"type": "none"}, "fields": [
+        {"name": "Title", "selector": "a"}, {"name": "company", "selector": "span.co"},
+        {"name": "company_copy", "selector": "span.co2"}, {"name": "rare", "selector": "i.rare"},
+        {"name": "salary", "selector": "b.none"}]}
+    recipe, dropped = recipe_builder._tidy_auto_fields(raw, html, "https://x.test/", ["salary"])
+    names = [f["name"] for f in recipe["fields"]]
+    assert names == ["title", "company", "salary"]           # salary kept: you asked for it
+    assert set(dropped) == {"company_copy", "rare"}
+
+
+def test_table_cells_get_column_positions_in_outline():
+    rows = "".join(f"<tr><td><a href='/s/{s}'>{s}</a></td><td>Company {s} Incorporated</td><td>{p}</td></tr>"
+                   for s, p in [("AAA", "10.5"), ("BBB", "20.1"), ("CCC", "30.2"), ("DDD", "40.9"), ("EEE", "5.0")])
+    cands = recipe_builder.find_candidates(f"<table><tbody>{rows}</tbody></table>")
+    text = recipe_builder.render_outline(cands[0]["outline"], lambda s: s, 2000)
+    assert 'td:nth-child(1) a [href="/s/AAA"] → "AAA"' in text
+    assert 'td:nth-child(3) → "10.5"' in text
+
+
+def test_schema_validation_glitch_is_retried(monkeypatch):
+    monkeypatch.setattr(recipe_builder.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    class Glitch(Exception):
+        status_code = 400
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise Glitch("Error code: 400 - {'code': 'json_validate_failed'}")
+        return "ok"
+
+    assert recipe_builder._with_retries(flaky) == "ok" and calls["n"] == 2

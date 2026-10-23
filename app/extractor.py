@@ -108,7 +108,7 @@ def normalize_recipe(recipe: dict) -> dict:
     if pagination["type"] == "click" and not pagination["selector"]:
         raise RecipeError("pagination.type 'click' needs a selector for the load-more button")
     out = {"item_selector": item, "fields": fields, "pagination": pagination}
-    for key in ("site", "notes"):
+    for key in ("site", "notes", "page_type"):
         if recipe.get(key):
             out[key] = recipe[key]
     # Fail early on bad CSS instead of halfway through a crawl.

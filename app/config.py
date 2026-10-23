@@ -33,7 +33,8 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("SCRAPER_CLAUDE_MODEL", "claude-opus-5-5")
 AI_PROVIDER = os.getenv("SCRAPER_AI_PROVIDER", "groq" if GROQ_API_KEY else "anthropic").lower()
 
-DEFAULT_FIELDS = ["name", "price", "unit", "min_order", "seller", "city", "rating", "url"]
+# Columns pre-filled in the UI. Empty: the AI picks the important columns for each page itself.
+DEFAULT_FIELDS: list[str] = []
 
 
 def _csv(name: str, default: str = "") -> set[str]:

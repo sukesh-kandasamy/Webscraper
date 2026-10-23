@@ -107,6 +107,11 @@ def _rel_path(el: LexborNode, item: LexborNode, depth: int = 3) -> str:
     parts, cur = [], el
     while cur is not None and cur is not item and cur.mem_id != item.mem_id:
         sig = _sig(cur)
+        if cur.tag in ("td", "th") and cur.parent is not None:
+            cells = [c for c in cur.parent.iter() if c.tag in ("td", "th")]
+            pos = next((i for i, c in enumerate(cells, 1) if c.mem_id == cur.mem_id), 0)
+            if pos:
+                sig += f":nth-child({pos})"
         if cur is el or "." in sig or cur.tag in _SEMANTIC_TAGS:
             parts.append(sig)
         if len(parts) >= depth:
@@ -305,11 +310,36 @@ to return all pairs. For kind "text", leave label_selector, value_selector and l
 parameter name; "click" with the selector of a "Load more" / "Show more" button (the scraper will \
 press it in a real browser); "scroll" if the page clearly loads more items on scrolling and has no \
 links or button; "none" if you cannot see any pagination.
-- Only use selectors that you can see in the provided HTML."""
+- Only use selectors that you can see in the provided HTML.
+- Table rows: when items are <tr> rows, td:nth-child(n) / th:nth-child(n) selectors are fine.
+
+Choosing columns (when asked to find the important fields yourself):
+- First decide page_type from what the items are.
+- Include every field the items actually show that a person collecting this data would want, as
+  separate columns (aim for 5-15). Skip decoration: badges like "Sponsored", button labels, icons.
+- Typical columns by page type (use the ones that exist on the page, add others you see):
+  ecommerce: name, brand, price, original_price, discount, currency, rating, reviews, availability,
+             delivery, seller, url, image
+  jobs: title, company, location, salary, experience, job_type, work_mode, skills, posted, url
+  real_estate: title, price, price_per_sqft, location, area_sqft, bedrooms, bathrooms, property_type,
+               furnishing, builder_or_agent, posted, url
+  stocks_finance: symbol, name, price, change, change_percent, volume, market_cap, pe_ratio, high, low
+  directory (B2B / local businesses): name, company, category, location, rating, reviews, years, url
+  news_articles: title, summary, author, published, category, url
+  events: title, date, time, venue, city, price, organizer, url
+- Column names: short snake_case English (e.g. "salary", "posted", "area_sqft"). Split combined
+  values with regex when it helps (price vs currency, "3 BHK" -> bedrooms "3").
+- Fields the user asked for must always be included (use selector "" and attr "none" if absent)."""
 
 
-def _schema(field_names: list[str]) -> dict:
+PAGE_TYPES = ["ecommerce", "jobs", "real_estate", "stocks_finance", "directory", "news_articles",
+              "events", "other"]
+
+
+def _schema(field_names: list[str], auto: bool = False) -> dict:
     s = {"type": "string"}
+    # In auto mode the model names the columns itself; otherwise only the requested names are allowed.
+    name = {"type": "string"} if auto or not field_names else {"type": "string", "enum": field_names}
     return {
         "type": "object",
         "properties": {
@@ -319,7 +349,7 @@ def _schema(field_names: list[str]) -> dict:
                 "items": {
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string", "enum": field_names},
+                        "name": name,
                         "kind": {"type": "string", "enum": ["text", "kv"]},
                         "selector": s, "attr": s, "regex": s,
                         "label_selector": s, "value_selector": s, "label": s,
@@ -339,9 +369,10 @@ def _schema(field_names: list[str]) -> dict:
                 "required": ["type", "selector", "param", "start"],
                 "additionalProperties": False,
             },
+            "page_type": {"type": "string", "enum": PAGE_TYPES},
             "notes": s,
         },
-        "required": ["item_selector", "fields", "pagination", "notes"],
+        "required": ["item_selector", "fields", "pagination", "page_type", "notes"],
         "additionalProperties": False,
     }
 
@@ -389,6 +420,9 @@ def _is_retryable(exc: Exception) -> bool:
     status = getattr(exc, "status_code", None)
     if status in (429, 500, 502, 503, 504, 529):
         return True
+    # Groq's strict JSON mode rejects a generation that broke the schema; a new attempt usually works.
+    if "json_validate_failed" in str(exc) or "does not match the expected schema" in str(exc):
+        return True
     return isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)) or \
         type(exc).__name__ in ("APIConnectionError", "APITimeoutError")
 
@@ -407,7 +441,7 @@ def _with_retries(call, *args):
                                      int(m.group(2)) if m else None) from e
             if not _is_retryable(e) or attempt == MAX_AI_ATTEMPTS - 1:
                 raise
-            delay = _retry_delay(e, attempt) + 0.5
+            delay = 0.5 if "json_validate_failed" in str(e) else _retry_delay(e, attempt) + 0.5
             if waited + delay > MAX_AI_WAIT_S:
                 raise RecipeBuildError(
                     f"The AI provider is rate-limited (asked to wait {delay:.0f}s). "
@@ -453,10 +487,10 @@ def _ask_groq(messages: list[dict], schema: dict) -> str:
     return resp.choices[0].message.content or ""
 
 
-def _ask_model(messages: list[dict], field_names: list[str]) -> str:
+def _ask_model(messages: list[dict], field_names: list[str], auto: bool = False) -> str:
     """Send the conversation to the configured provider and return its JSON text."""
     ask = _ask_groq if config.AI_PROVIDER == "groq" else _ask_claude
-    return _with_retries(ask, messages, _schema(field_names))
+    return _with_retries(ask, messages, _schema(field_names, auto))
 
 
 def _fit_samples(candidates: list[dict], budget: int) -> list[list[str]]:
@@ -516,17 +550,86 @@ def _drop_missing(recipe: dict) -> dict:
 
 
 def build_recipe(html: str, url: str, field_names: list[str], rendered: bool = False,
-                 redact: bool = False) -> dict:
-    """redact=True (pages fetched with a login session): the AI sees only the shape of the text."""
-    return _build(html, url, field_names, rendered, redact)
+                 redact: bool = False, auto: bool = False) -> dict:
+    """Ask the AI for a recipe.
+
+    field_names  columns you asked for (always included)
+    auto=True    the AI also finds every other important column on the page and names it itself
+    redact=True  pages fetched with a login session: the AI sees only the shape of the text
+    """
+    names = clean_field_names(field_names)
+    if not names and not auto:
+        auto = True
+    return _build(html, url, names, rendered, redact, auto)
+
+
+def snake(name: str) -> str:
+    s = re.sub(r"[^0-9a-zA-Z]+", "_", name.strip()).strip("_").lower()
+    if s and s[0].isdigit():
+        s = "f_" + s
+    return s[:40]
+
+
+def clean_field_names(names: list[str]) -> list[str]:
+    out = []
+    for n in names:
+        s = snake(n)
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+AUTO_MIN_FILL = 0.2   # columns the AI added itself are dropped when filled in fewer than 20% of rows
+
+
+def _tidy_auto_fields(raw: dict, html: str, url: str, required: list[str]) -> tuple[dict, list[str]]:
+    """Clean the AI's own columns: snake_case names, no duplicates, drop near-empty extras and
+    columns that repeat another column's values exactly. Required columns are never dropped."""
+    seen, fields = set(), []
+    for f in raw.get("fields", []):
+        name = snake(f.get("name", ""))
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        fields.append({**f, "name": name})
+    recipe = extractor.normalize_recipe({**raw, "fields": fields})
+    rows = extractor.extract(html, recipe, url)
+    report = extractor.field_report(rows, recipe)
+    dropped, keep, signatures = [], [], {}
+    for f in recipe["fields"]:
+        n = f["name"]
+        if n not in required:
+            if report.get(n, 0) < AUTO_MIN_FILL:
+                dropped.append(n)
+                continue
+            sig = tuple(r.get(n, "") for r in rows)
+            if sig in signatures:
+                dropped.append(n)        # same values as another column
+                continue
+            signatures[sig] = n
+        keep.append(f)
+    if not keep:
+        return recipe, dropped
+    return {**recipe, "fields": keep}, dropped
 
 
 MIN_PROMPT_CHARS = 3_000
 MAX_SHRINKS = 3
 
 
+def _fields_instruction(field_names: list[str], auto: bool) -> str:
+    if not auto:
+        return f"Fields to extract: {', '.join(field_names)}"
+    if field_names:
+        return (f"Required fields (the user asked for these; include each one): {', '.join(field_names)}.\n"
+                "Also find every other important field the items show and add it as a column, "
+                "following 'Choosing columns' in your rules.")
+    return ("Choose the columns yourself: find every important field the items show, following "
+            "'Choosing columns' in your rules.")
+
+
 def _make_prompt(candidates: list[dict], pag: list[str], url: str, field_names: list[str],
-                 rendered: bool, redact: bool, total_budget: int) -> str:
+                 rendered: bool, redact: bool, total_budget: int, auto: bool = False) -> str:
     """Build the prompt so that *everything* (instructions, samples, pagination hints) fits in
     total_budget characters: the samples get whatever room is left."""
     text_fn = privacy.shape if redact else privacy.mask_text
@@ -534,7 +637,7 @@ def _make_prompt(candidates: list[dict], pag: list[str], url: str, field_names: 
 
     def assemble(samples: list[list[str]]) -> str:
         parts = [f"Page URL: {short_url(url)}",
-                 f"Fields to extract: {', '.join(field_names)}",
+                 _fields_instruction(field_names, auto),
                  ("This HTML was captured from a real browser after the page's scripts ran."
                   if rendered else "This HTML is the server's plain response (no scripts were run)."),
                  "",
@@ -576,7 +679,8 @@ def _make_prompt(candidates: list[dict], pag: list[str], url: str, field_names: 
     return prompt
 
 
-def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: bool) -> dict:
+def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: bool,
+           auto: bool = False) -> dict:
     """Return {"recipe", "rows", "report", "notes"} or raise RecipeBuildError."""
     if not config.ai_enabled():
         key = "GROQ_API_KEY" if config.AI_PROVIDER == "groq" else "ANTHROPIC_API_KEY"
@@ -587,7 +691,7 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
                                "It may be rendered with JavaScript or be a single-item page.")
     pag = _pagination_hints(html)
     budget = config.ai_prompt_budget()
-    prompt = _make_prompt(candidates, pag, url, field_names, rendered, redact, budget)
+    prompt = _make_prompt(candidates, pag, url, field_names, rendered, redact, budget, auto)
 
     # Each attempt is one self-contained message, so a retry costs about the same as the first
     # call. That keeps it under per-request token limits such as Groq's free tier.
@@ -595,7 +699,7 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
     last_problem, text, shrinks, attempt = "", "", 0, 0
     while attempt < 2:
         try:
-            text = _ask_model(messages, field_names)
+            text = _ask_model(messages, field_names, auto)
         except _Refused:
             raise RecipeBuildError("The AI model declined to analyse this page.")
         except PromptTooLarge as e:
@@ -610,26 +714,41 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
                 factor = min(0.8, e.limit / e.requested * 0.85)
             budget = max(MIN_PROMPT_CHARS, int(budget * factor))
             shrinks += 1
-            prompt = _make_prompt(candidates, pag, url, field_names, rendered, redact, budget)
+            prompt = _make_prompt(candidates, pag, url, field_names, rendered, redact, budget, auto)
             messages = [{"role": "user", "content": (_retry_prompt(prompt, text, last_problem)
                                                      if attempt else prompt + "\n\nWrite the recipe.")}]
             continue
+        dropped: list[str] = []
         try:
             raw = json.loads(text)
-            recipe = extractor.normalize_recipe(_drop_missing(raw))
+            page_type = raw.get("page_type") or "other"
+            if auto:
+                recipe, dropped = _tidy_auto_fields(_drop_missing(raw), html, url, field_names)
+            else:
+                recipe = extractor.normalize_recipe(_drop_missing(raw))
+            recipe["page_type"] = page_type
         except (json.JSONDecodeError, extractor.RecipeError) as e:
             last_problem = f"The recipe was invalid: {e}"
         else:
+            absent = [f for f in field_names if f not in {x["name"] for x in recipe["fields"]}]
             rows = extractor.extract(html, recipe, url)
             report = extractor.field_report(rows, recipe)
-            weak = [k for k, v in report.items() if v < 0.5]
-            if len(rows) >= 2 and len(weak) <= len(report) // 2:
+            # Columns you asked for must work; extra columns the AI chose were already filtered.
+            judged = {k: v for k, v in report.items() if not auto or k in field_names} or report
+            weak = [k for k, v in judged.items() if v < 0.5]
+            enough_columns = len(report) >= (1 if field_names else 2)
+            if len(rows) >= 2 and enough_columns and len(weak) <= len(judged) // 2:
                 notes = raw.get("notes", "")
+                if absent:
+                    notes = (notes + f" | Not shown on this page: {', '.join(absent)}.").strip(" |")
+                if dropped:
+                    notes = (notes + f" | Left out (mostly empty or duplicate): {', '.join(dropped)}.").strip(" |")
                 if weak:
                     notes = (notes + f" | Mostly empty: {', '.join(weak)}. Check these fields.").strip(" |")
                 if shrinks:
                     notes = (notes + " | The page sample was trimmed to fit the AI provider's limit.").strip(" |")
-                return {"recipe": recipe, "rows": rows, "report": report, "notes": notes}
+                return {"recipe": recipe, "rows": rows, "report": report, "notes": notes,
+                        "page_type": page_type}
             last_problem = (f"Testing that recipe on the page gave {len(rows)} rows. "
                             f"Fields filled in fewer than half the rows: {weak or 'none'}. "
                             f"First rows: {json.dumps(rows[:2], ensure_ascii=False)[:1500]}"
@@ -637,7 +756,7 @@ def _build(html: str, url: str, field_names: list[str], rendered: bool, redact: 
             last_problem = privacy.shape(last_problem) if redact else privacy.mask_text(last_problem)
             if attempt == 1:
                 # Second attempt still weak: return it anyway so the user can fix it by hand.
-                return {"recipe": recipe, "rows": rows, "report": report,
+                return {"recipe": recipe, "rows": rows, "report": report, "page_type": page_type,
                         "notes": (raw.get("notes", "") + " | Warning: " + last_problem).strip(" |")}
         attempt += 1
         if attempt < 2:

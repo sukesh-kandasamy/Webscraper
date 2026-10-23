@@ -162,8 +162,13 @@
       </div>
       <div class="flex flex-col gap-4 lg:col-span-2">
         <div>
-          <label class="label">Fields you want <span class="hint">· comma separated</span></label>
-          <input type="text" x-model="fieldsText" class="input">
+          <label class="label">Columns you want <span class="hint">· optional, comma separated</span></label>
+          <input type="text" x-model="fieldsText" class="input"
+                 placeholder="Leave empty: the AI picks the important columns">
+          <label class="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input type="checkbox" x-model="autoColumns" class="rounded border-slate-300">
+            Let the AI also find every other important column
+          </label>
         </div>
         <div>
           <label class="label">Max pages per URL <span class="hint">· or scroll / load-more rounds</span></label>
@@ -194,6 +199,7 @@
         <h2 class="card-title">Check the preview</h2>
         <div class="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400" x-show="analysis">
           <span class="font-medium text-slate-700 dark:text-slate-200" x-text="analysis?.domain"></span>
+          <span class="chip chip-green" x-show="analysis?.page_type" x-text="pageTypeLabel(analysis?.page_type)"></span>
           <span class="chip chip-blue" x-text="'recipe: ' + (analysis?.source || '')"></span>
           <span class="chip chip-gray" x-text="(analysis?.row_count ?? 0) + ' rows on this page'"></span>
           <span class="chip chip-gray" x-show="analysis?.from_cache">from cache</span>
@@ -213,6 +219,28 @@
         <span class="font-semibold">Personal data detected:</span>
         <span x-text="(analysis?.personal_fields || []).join(', ')"></span>.
         Phone numbers and emails are masked unless you choose to collect them below, with a reason.
+      </div>
+
+      <!-- Columns: remove or add -->
+      <div x-show="recipeColumns().length">
+        <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+             x-text="'Columns (' + recipeColumns().length + ')'"></div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <template x-for="c in recipeColumns()" :key="c">
+            <span class="chip chip-gray gap-1 pr-1">
+              <span x-text="c"></span>
+              <button class="rounded-full px-1 text-slate-400 hover:bg-slate-200 hover:text-rose-600 dark:hover:bg-slate-700"
+                      :title="'Remove ' + c" @click="removeColumn(c)" :disabled="!!busy">×</button>
+            </span>
+          </template>
+          <form class="flex items-center gap-1" @submit.prevent="addColumn()">
+            <input type="text" x-model="newColumn" class="input h-7 w-40 py-0 text-xs" placeholder="add a column…">
+            <button class="btn h-7 px-2 py-0 text-xs" :disabled="!!busy || !newColumn.trim() || !status?.ai_enabled"
+                    :title="status?.ai_enabled ? 'The AI finds this column on the page' : 'Needs an AI key'">
+              <span x-show="busy==='add'" class="spinner"></span> Add
+            </button>
+          </form>
+        </div>
       </div>
 
       <!-- Field fill rates -->

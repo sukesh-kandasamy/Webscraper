@@ -320,3 +320,27 @@ def test_secret_scanner_patterns():
             if p.search("GROQ_API_KEY=gsk_" + "a" * 40 + "\n")]
     assert "Groq API key" in hits
     assert not any(p.search('GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")') for _, p in secret_scan.PATTERNS)
+
+
+def test_adding_a_column_rebuilds_the_saved_recipe(client, monkeypatch):
+    page_html = "<ul>" + "".join(f"<li class='c'><b>Item {i}</b><i>{i}0</i></li>" for i in range(5)) + "</ul>"
+    monkeypatch.setattr(fetcher, "fetch_smart", lambda url, recipe=None, max_rounds=0:
+                        fetcher.Page(url, url, 200, page_html, False))
+    db.save_recipe("93.184.216.34", {"item_selector": "li.c", "fields": [{"name": "name", "selector": "b"}],
+                                     "pagination": {"type": "none"}}, "ai")
+    monkeypatch.setattr(config, "GROQ_API_KEY", "test-key")
+    calls = []
+
+    def fake_build(html, url, fields, rendered=False, redact=False, auto=False):
+        calls.append((fields, auto))
+        recipe = extractor.normalize_recipe({"item_selector": "li.c", "page_type": "other", "fields": [
+            {"name": "name", "selector": "b"}, {"name": "price", "selector": "i"}]})
+        rows = extractor.extract(html, recipe, url)
+        return {"recipe": recipe, "rows": rows, "report": extractor.field_report(rows, recipe),
+                "notes": "", "page_type": "other"}
+    monkeypatch.setattr("app.main.recipe_builder.build_recipe", fake_build)
+    same = client.post("/api/analyse", json={"url": PUBLIC + "/l", "fields": ["name"]}).json()
+    assert same["source"] == "ai" and not calls                # saved recipe already has "name"
+    more = client.post("/api/analyse", json={"url": PUBLIC + "/l", "fields": ["name", "Price"]}).json()
+    assert calls == [(["name", "price"], True)] and "price" in more["report"]
+    assert "Rebuilt" in more["notes"]
