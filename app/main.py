@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import (audit, browser, config, db, export, extractor, fetcher, jobs, logsafe, netguard,
-               privacy, recipe_builder, robots, sessions)
+               normalize, privacy, quality, recipe_builder, request_parser, robots, sessions)
 
 PREVIEW_ROWS = 20
 
@@ -103,6 +103,19 @@ class AnalyseIn(BaseModel):
     fields: list[str] = Field(default_factory=list)   # columns you want (always included)
     auto: bool = True          # let the AI add every other important column it finds
     force_ai: bool = False
+    request: dict | None = None    # from /api/understand ("Describe what you need"); replaces fields/auto
+
+
+class UnderstandIn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=request_parser.MAX_PROMPT_CHARS)
+    url: str = ""
+
+
+class DetailsIn(BaseModel):
+    url: str                       # the listing page
+    recipe: dict
+    columns: list[dict] = Field(default_factory=list)   # [{name, meaning, type}] wanted from item pages
+    auto: bool = True              # also add other useful details the item page shows
 
 
 class PreviewIn(BaseModel):
@@ -235,18 +248,39 @@ def _starter_recipe(html: str, fields: list[str]) -> dict:
             "pagination": {"type": "none"}}
 
 
+def typed_preview(rows: list[dict], recipe: dict) -> tuple[list[dict], dict[str, str], list[dict]]:
+    """Mask, type and filter rows the way a run will: (all typed rows, column types, matching rows
+    sorted and limited as the request asks)."""
+    request = recipe.get("request") or {}
+    names = [f["name"] for f in recipe["fields"]]
+    given = {**recipe.get("column_types", {}), **request_parser.column_types(request)}
+    masked = privacy.mask_rows(rows)
+    types = normalize.detect_types(masked, names, given)
+    typed = normalize.normalize_rows(masked, types)
+    matched = request_parser.sort_and_limit(request_parser.filter_rows(typed, request, types), request)
+    return typed, types, matched
+
+
 def _result(domain: str, page: fetcher.Page, recipe: dict, source: str, rows: list[dict],
             notes: str = "", absent: list[str] | None = None) -> dict:
     personal = privacy.personal_fields(recipe, rows)
     found = sessions.for_host(fetcher.host_of(page.final_url))
     session = sessions._public(found) if found else None
+    typed, types, matched = typed_preview(rows, recipe)
+    recipe = {**recipe, "column_types": types}
+    request = recipe.get("request") or {}
+    filtered = bool(request.get("filters") or request.get("limit"))
     return {"domain": domain, "url": page.final_url, "from_cache": page.from_cache,
             "source": source, "recipe": recipe, "notes": notes,
             "settings": db.get_site_settings(domain), "rendered": page.rendered,
             "logged_in": page.logged_in, "session": session,
             "personal_fields": personal,
-            "row_count": len(rows), "rows": privacy.mask_rows(rows[:PREVIEW_ROWS]),
-            "report": extractor.field_report(rows, recipe),
+            "row_count": len(rows), "match_count": len(matched) if filtered else len(rows),
+            "rows": (matched if filtered or (request.get("sort") or {}).get("column") else typed)[:PREVIEW_ROWS],
+            "report": extractor.field_report(rows, recipe), "column_types": types,
+            "request_labels": request_parser.describe(request),
+            "url_field": jobs.url_field(recipe),
+            "stated_total": quality.stated_total(page.html),
             "page_type": recipe.get("page_type") or "", "absent": absent or []}
 
 
@@ -292,10 +326,32 @@ def status():
 
 # ---- routes: analyse / preview -------------------------------------------------------
 
+@app.post("/api/understand")
+def understand(body: UnderstandIn):
+    """Read a "Describe what you need" prompt into a data request (columns, filters, sort, limit)."""
+    try:
+        req = request_parser.understand(body.prompt, body.url)
+    except request_parser.RequestError as e:
+        raise HTTPException(400, str(e))
+    except recipe_builder.RecipeBuildError as e:
+        raise HTTPException(422, str(e))
+    except Exception as e:  # API / network errors from the AI SDK
+        raise HTTPException(502, logsafe.redact(f"AI request failed: {type(e).__name__}: {e}")[:400])
+    return {**req, "labels": request_parser.describe(req)}
+
+
 @app.post("/api/analyse")
 def analyse(body: AnalyseIn):
     """Get a recipe for the page: the saved one if it still works, otherwise ask the AI."""
     url = _clean_urls([body.url])[0]
+    request = None
+    if body.request:
+        try:
+            request = request_parser.clean_request(body.request)
+        except request_parser.RequestError as e:
+            raise HTTPException(400, str(e))
+        body.fields = [c["name"] for c in request["columns"]]
+        body.auto = request["auto"]
     fields = recipe_builder.clean_field_names(body.fields)
     domain = fetcher.domain_of(url)
     saved = db.get_recipe(domain)
@@ -310,6 +366,13 @@ def analyse(body: AnalyseIn):
     if saved_recipe:
         have = {f["name"] for f in saved_recipe["fields"]}
         missing = [f for f in fields if f not in have]
+        if request:
+            # Keep only the columns of this request (unless it asked for all important ones).
+            if not request["auto"]:
+                kept = [f for f in saved_recipe["fields"] if f["name"] in fields] or saved_recipe["fields"]
+                saved_recipe = {**saved_recipe, "fields": kept}
+            saved_recipe = {**saved_recipe, "request": request}
+            saved_recipe.pop("column_types", None)
         rows = extractor.extract(page.html, saved_recipe, page.final_url)
         # Use the saved recipe unless you asked for columns it doesn't have (then the AI rebuilds it).
         if rows and not (missing and config.ai_enabled()):
@@ -331,7 +394,7 @@ def analyse(body: AnalyseIn):
 
     try:
         built = recipe_builder.build_recipe(page.html, page.final_url, fields, page.rendered,
-                                            redact=page.logged_in, auto=body.auto)
+                                            redact=page.logged_in, auto=body.auto, request=request)
     except recipe_builder.RecipeBuildError as e:
         raise HTTPException(422, {"message": str(e), "domain": domain,
                                   "starter_recipe": _starter_recipe(page.html, fields)})
@@ -344,6 +407,62 @@ def analyse(body: AnalyseIn):
         note += f" Rebuilt because the saved recipe had no column for: {', '.join(missing)}."
     return _result(domain, page, built["recipe"], "ai", built["rows"],
                    built["notes"] + render_note + note, absent=built.get("absent", []))
+
+
+def _first_item_link(rows: list[dict], field: str) -> str:
+    for r in rows:
+        v = r.get(field)
+        if isinstance(v, str) and v.startswith(("http://", "https://")):
+            return v
+    return ""
+
+
+@app.post("/api/details")
+def analyse_details(body: DetailsIn):
+    """Turn on item pages: open the first item's own page and let the AI find the extra columns.
+    Returns the recipe with a "detail" part and the first rows completed from their item pages."""
+    url = _clean_urls([body.url])[0]
+    recipe = _normalize_or_http_error(body.recipe)
+    page = _fetch_or_http_error(url, recipe)
+    rows = extractor.extract(page.html, recipe, page.final_url)
+    field = jobs.url_field(recipe)
+    link = _first_item_link(rows, field) if field else ""
+    if not link:
+        raise HTTPException(422, "The list has no link to each item's own page, so item pages can't be "
+                                 "opened. Add a 'url' column (the item's link) and try again.")
+    link = _clean_urls([link])[0]
+    if config.RESPECT_ROBOTS and not fetcher.robots_allows(link):
+        raise HTTPException(403, "The site's robots.txt does not allow opening its item pages.")
+    ai_allowed = db.get_site_settings(fetcher.domain_of(link)).get("ai_allowed", True)
+    if not config.ai_enabled() or not ai_allowed:
+        raise HTTPException(422, "Item pages need the AI to find their details, and AI is not available "
+                                 "for this site.")
+    item = _fetch_or_http_error(link, None)
+    have = [f["name"] for f in recipe["fields"]]
+    wanted = [{"name": recipe_builder.snake(str(c.get("name") or "")), "meaning": str(c.get("meaning") or ""),
+               "type": c.get("type") or ""} for c in body.columns if c.get("name")]
+    wanted = [c for c in wanted if c["name"] and c["name"] not in have]
+    try:
+        built = recipe_builder.build_detail(item.html, item.final_url, wanted, have, body.auto,
+                                            redact=item.logged_in)
+    except recipe_builder.RecipeBuildError as e:
+        raise HTTPException(422, str(e))
+    except Exception as e:
+        raise HTTPException(502, logsafe.redact(f"AI request failed: {type(e).__name__}: {e}")[:400])
+    audit.log("detail_recipe_built", domain=fetcher.domain_of(link), columns=len(built["detail"]["fields"]))
+    recipe = {**recipe, "detail": {"url_field": field, **built["detail"]}}
+    recipe.pop("column_types", None)
+    # Preview: the first item with its item-page values merged in (listing values win).
+    first = next((r for r in rows if r.get(field) == link), rows[0] if rows else {})
+    merged = {**first, **{k: v for k, v in built["row"].items() if v and not first.get(k)}}
+    result = _result(fetcher.domain_of(page.final_url), page, recipe, "ai", rows,
+                     notes=built["notes"])
+    typed, types, _ = typed_preview([merged], {**recipe, "fields": recipe["fields"] + recipe["detail"]["fields"]})
+    result.update(detail_row=typed[0] if typed else {}, detail_missing=built["missing"],
+                  detail_columns=[f["name"] for f in recipe["detail"]["fields"]], detail_url=link)
+    result["column_types"] = {**types, **result["column_types"]}
+    result["recipe"]["column_types"] = result["column_types"]
+    return result
 
 
 @app.post("/api/preview")
@@ -579,10 +698,22 @@ def friendly_progress(job: dict) -> str:
             return "Starting…"
         return "Waiting for a free slot: other scrapes are still running."
     if s == "running":
+        if job["message"].startswith("Reading item page"):
+            return job["message"].split(":", 1)[0] + f" · {rows} rows saved so far."
+        if job["message"].startswith("Retrying"):
+            return f"Trying the pages that failed once more · {rows} rows so far."
         return (f"Collecting page {min(done + 1, max(total, 1))} of {max(total, done + 1)} · {rows} rows so far. "
                 "It pauses a few seconds between pages to be polite to the site.")
     if s == "done":
-        return f"Finished: {rows} rows from {done} page(s)." + (" Some pages had problems." if "Issues" in job["message"] else "")
+        q = job.get("quality") or {}
+        extra = ""
+        if q.get("excluded"):
+            extra += f" {q['excluded']} didn't match your request."
+        if q.get("pages_failed"):
+            extra += f" {len(q['pages_failed'])} page(s) could not be read."
+        elif "Issues" in job["message"]:
+            extra += " Some pages had problems."
+        return f"Finished: {rows} rows from {done} page(s)." + extra
     if s == "needs_you":
         return ("The site wants you to log in again before continuing." if job.get("paused_kind") == "login"
                 else "The site asked for a human check. Open it, solve it, and the scrape continues.")
@@ -679,6 +810,23 @@ def run_scrape(scrape_id: int, body: RunIn):
                                  body.personal_purpose, scrape_id)}
 
 
+@app.post("/api/scrapes/{scrape_id}/repair")
+def repair_scrape(scrape_id: int):
+    """The site changed and columns came out empty: let the AI find them again on the first page,
+    with the scrape's saved request, and save the new setup (item-page settings are kept)."""
+    s = _scrape_or_404(scrape_id)
+    old = s["recipe"]
+    request = old.get("request")
+    result = analyse(AnalyseIn(url=s["urls"][0], fields=[f["name"] for f in old.get("fields", [])],
+                               auto=not request, force_ai=True, request=request))
+    recipe = dict(result["recipe"])
+    if old.get("detail"):
+        recipe["detail"] = old["detail"]
+    db.update_scrape(scrape_id, recipe=_normalize_or_http_error(recipe))
+    audit.log("scrape_repaired", scrape_id=scrape_id)
+    return {**result, "recipe": db.get_scrape(scrape_id)["recipe"]}
+
+
 @app.post("/api/scrapes/{scrape_id}/duplicate")
 def duplicate_scrape(scrape_id: int):
     s = _scrape_or_404(scrape_id)
@@ -743,6 +891,42 @@ def finish_job_solve(job_id: int, body: FinishIn):
     return {"session": info, "resumed": True}
 
 
+@app.get("/api/jobs/{job_id}/compare")
+def compare_job(job_id: int, show_personal: bool = False):
+    """What changed since the scrape's previous finished run: new, removed and changed items
+    (matched by the item's link, or by the whole row when there is no link)."""
+    job = _job_or_404(job_id)
+    prev = db.last_finished_job(job["scrape_id"], job_id) if job.get("scrape_id") else None
+    if not prev:
+        raise HTTPException(404, "There is no earlier finished run of this scrape to compare with.")
+    recipe = extractor.normalize_recipe(job["recipe"])
+    field = jobs.url_field(recipe)
+
+    def keyed(rows):
+        out = {}
+        for r in rows:
+            link = r.get(field) if field else None
+            key = link if isinstance(link, str) and link else json.dumps(r, sort_keys=True, ensure_ascii=False)
+            out.setdefault(key, r)
+        return out
+
+    now, before = keyed(_visible_records(job, show_personal)), keyed(_visible_records(prev, show_personal))
+    added = [now[k] for k in now if k not in before]
+    removed = [before[k] for k in before if k not in now]
+    changed = []
+    for k in now:
+        if k in before:
+            diff = {c: [before[k].get(c), now[k].get(c)] for c in now[k]
+                    if c in before[k] and str(before[k].get(c)) != str(now[k].get(c))}
+            if diff:
+                changed.append({"row": now[k], "changes": diff})
+    cap = 200
+    return {"previous_job": prev["id"], "previous_at": prev["created_at"], "key": field or "whole row",
+            "counts": {"added": len(added), "removed": len(removed), "changed": len(changed),
+                       "same": len(now) - len(added) - len(changed)},
+            "added": added[:cap], "removed": removed[:cap], "changed": changed[:cap]}
+
+
 @app.post("/api/jobs/{job_id}/keep")
 def keep_job(job_id: int, body: KeepIn):
     _job_or_404(job_id)
@@ -792,7 +976,7 @@ def export_job(job_id: int, fmt: str = "csv", show_personal: bool = False, colum
     audit.log("export", job_id=job_id, fmt=fmt, rows=len(records),
               personal=bool(show_personal and job["personal"].get("fields")))
     if fmt == "xlsx":
-        return Response(export.to_xlsx(records),
+        return Response(export.to_xlsx(records, job.get("columns") or {}),
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         headers={"Content-Disposition": f'attachment; filename="{_file_stem(name, job_id)}.xlsx"'})
     return Response(export.to_csv(records), media_type="text/csv; charset=utf-8",

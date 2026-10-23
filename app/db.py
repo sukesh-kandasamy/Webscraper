@@ -101,6 +101,9 @@ MIGRATIONS = [
     ("jobs", "paused_url", "ALTER TABLE jobs ADD COLUMN paused_url TEXT NOT NULL DEFAULT ''"),
     ("jobs", "paused_kind", "ALTER TABLE jobs ADD COLUMN paused_kind TEXT NOT NULL DEFAULT ''"),
     ("jobs", "scrape_id", "ALTER TABLE jobs ADD COLUMN scrape_id INTEGER"),
+    # column types ({"price": "money"}) and the quality report / run counters of a job
+    ("jobs", "columns", "ALTER TABLE jobs ADD COLUMN columns TEXT NOT NULL DEFAULT '{}'"),
+    ("jobs", "quality", "ALTER TABLE jobs ADD COLUMN quality TEXT NOT NULL DEFAULT '{}'"),
 ]
 
 
@@ -299,6 +302,8 @@ def _job_dict(row: sqlite3.Row) -> dict:
     d["urls"] = json.loads(d["urls"])
     d["recipe"] = json.loads(d["recipe"])
     d["personal"] = json.loads(d.get("personal") or "{}")
+    d["columns"] = json.loads(d.get("columns") or "{}")
+    d["quality"] = json.loads(d.get("quality") or "{}")
     for k in ("logged_in", "encrypted", "keep"):
         d[k] = bool(d.get(k))
     return d
@@ -319,6 +324,37 @@ def add_records(job_id: int, page: str, rows: list[dict]) -> None:
             [(job_id, page, ("enc:" + vault.encrypt_json(r)) if enc else json.dumps(r, ensure_ascii=False))
              for r in rows],
         )
+
+
+def get_record_pages(job_id: int) -> list[tuple[str, dict]]:
+    """(page, row) for every record of a job, in order."""
+    from . import vault
+
+    with tx() as c:
+        rows = c.execute("SELECT page, data FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
+    return [(r["page"], vault.decrypt_json(r["data"][4:]) if r["data"].startswith("enc:") else json.loads(r["data"]))
+            for r in rows]
+
+
+def replace_records(job_id: int, items: list[tuple[str, dict]]) -> None:
+    """Replace all records of a job (after sorting / trimming to the requested limit)."""
+    from . import vault
+
+    with tx() as c:
+        enc = _job_encrypted(c, job_id)
+        c.execute("DELETE FROM records WHERE job_id=?", (job_id,))
+        c.executemany(
+            "INSERT INTO records(job_id, page, data) VALUES(?,?,?)",
+            [(job_id, page, ("enc:" + vault.encrypt_json(r)) if enc else json.dumps(r, ensure_ascii=False))
+             for page, r in items])
+
+
+def last_finished_job(scrape_id: int, before_id: int) -> dict | None:
+    """The scrape's most recent finished run before job `before_id` (for health checks and comparing)."""
+    with tx() as c:
+        row = c.execute("SELECT * FROM jobs WHERE scrape_id=? AND id<? AND status='done' AND rows>0 "
+                        "ORDER BY id DESC LIMIT 1", (scrape_id, before_id)).fetchone()
+    return _job_dict(row) if row else None
 
 
 def add_job_page(job_id: int, url: str, rows: int) -> None:

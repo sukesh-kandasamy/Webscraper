@@ -22,6 +22,16 @@ Field options:
   regex     optional; keeps group 1 if present, else the whole match
   kind      "text" (default) or "kv" for label/value spec lists. With "label" set it
             returns that one value; without it, every pair as "Label: value; ...".
+            "json": selector is a dot path ("offers.price") into the page's structured data
+            (see structured.py): into each item when the recipe has "source": "json", otherwise
+            into the page's main JSON-LD object (item pages).
+
+Structured-data recipes: {"source": "json", "json_list": "ld:[0].itemListElement", "fields": [kind json...]}
+read items from JSON-LD / embedded app state instead of CSS.
+
+Optional keys kept with the recipe: "request" (what the user asked for: columns, filters, sort,
+limit), "column_types" ({column: money|number|...}) and "detail" (a single-item recipe applied to each
+item's own page: {"url_field", "item_selector", "fields"}).
 """
 import re
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
@@ -29,7 +39,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import regex as safe_regex   # same syntax as re, plus a timeout
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
-from . import config
+from . import config, structured
 
 _WS = re.compile(r"\s+")
 URL_ATTRS = {"href", "src", "data-src", "data-href"}
@@ -69,7 +79,13 @@ def normalize_recipe(recipe: dict) -> dict:
     """Validate a recipe and fill in defaults. Accepts fields as a list or a {name: spec} dict."""
     if not isinstance(recipe, dict):
         raise RecipeError("Recipe must be a JSON object")
-    item = (recipe.get("item_selector") or "").strip()
+    source = recipe.get("source") or "html"
+    if source not in ("html", "json"):
+        raise RecipeError("source must be html or json")
+    json_list = (recipe.get("json_list") or "").strip()
+    if source == "json" and not json_list:
+        raise RecipeError("A structured-data recipe needs 'json_list'")
+    item = (recipe.get("item_selector") or "").strip() or ("(json)" if source == "json" else "")
     if not item:
         raise RecipeError("Recipe needs an 'item_selector'")
     raw_fields = recipe.get("fields") or []
@@ -94,6 +110,8 @@ def normalize_recipe(recipe: dict) -> dict:
     if not fields:
         raise RecipeError("Recipe needs at least one field")
     for f in fields:
+        if f["kind"] not in ("text", "kv", "json"):
+            raise RecipeError(f"Field {f['name']!r}: kind must be text, kv or json")
         if f["regex"]:
             check_regex(f["regex"])
     pag = recipe.get("pagination") or {}
@@ -108,12 +126,23 @@ def normalize_recipe(recipe: dict) -> dict:
     if pagination["type"] == "click" and not pagination["selector"]:
         raise RecipeError("pagination.type 'click' needs a selector for the load-more button")
     out = {"item_selector": item, "fields": fields, "pagination": pagination}
-    for key in ("site", "notes", "page_type"):
+    if source == "json":
+        out.update(source="json", json_list=json_list)
+    for key in ("site", "notes", "page_type", "request", "column_types"):
         if recipe.get(key):
             out[key] = recipe[key]
+    detail = recipe.get("detail")
+    if isinstance(detail, dict) and detail.get("fields"):
+        inner = normalize_recipe({"item_selector": detail.get("item_selector") or "body",
+                                  "fields": detail["fields"]})
+        out["detail"] = {"url_field": detail.get("url_field") or "url",
+                         "item_selector": inner["item_selector"], "fields": inner["fields"]}
     # Fail early on bad CSS instead of halfway through a crawl.
     probe = LexborHTMLParser("<div></div>")
-    for sel in [item] + [s for f in fields for s in (f["selector"], f["label_selector"], f["value_selector"]) if s]:
+    css = [] if source == "json" else [item]
+    css += [s for f in fields if f["kind"] != "json"
+            for s in (f["selector"], f["label_selector"], f["value_selector"]) if s]
+    for sel in css:
         try:
             probe.css(sel)
         except Exception as e:  # selectolax raises a plain exception on bad selectors
@@ -169,7 +198,17 @@ def _node_value(node: LexborNode, attr: str, base_url: str) -> str:
     return clean_text(val)
 
 
-def _extract_field(item: LexborNode, f: dict, base_url: str) -> str:
+def _json_value(data: dict, f: dict, base_url: str) -> str:
+    value = clean_text(data.get(f["selector"]) or "")
+    if value and re.search(r"url|image|link|href|logo|photo", f["selector"].split(".")[-1], re.I) \
+            and not value.startswith(("http://", "https://")) and value.startswith(("/", "./")):
+        value = urljoin(base_url, value)
+    return _apply_regex(value, f["regex"])
+
+
+def _extract_field(item: LexborNode, f: dict, base_url: str, page_data=None) -> str:
+    if f["kind"] == "json":
+        return _json_value(page_data() if page_data else {}, f, base_url)
     if f["kind"] == "kv":
         scope = item.css_first(f["selector"]) if f["selector"] else item
         if scope is None:
@@ -193,13 +232,33 @@ def _extract_field(item: LexborNode, f: dict, base_url: str) -> str:
 
 def extract(html: str, recipe: dict, base_url: str) -> list[dict]:
     """Return one dict per item. Rows where every field is empty are dropped."""
-    tree = parse_html(html)
     rows = []
+    if recipe.get("source") == "json":
+        for data in structured.items_at(html, recipe["json_list"])[:config.MAX_ITEMS_PER_PAGE]:
+            row = {f["name"]: _json_value(data, f, base_url) for f in recipe["fields"]}
+            if any(row.values()):
+                rows.append(row)
+        return rows
+    tree = parse_html(html)
+    cache: dict = {}
+
+    def page_data() -> dict:          # the page's JSON-LD, read once and only if a field needs it
+        if "d" not in cache:
+            cache["d"] = structured.main_entity(html)
+        return cache["d"]
+
     for item in tree.css(recipe["item_selector"])[:config.MAX_ITEMS_PER_PAGE]:
-        row = {f["name"]: _extract_field(item, f, base_url) for f in recipe["fields"]}
+        row = {f["name"]: _extract_field(item, f, base_url, page_data) for f in recipe["fields"]}
         if any(row.values()):
             rows.append(row)
     return rows
+
+
+def extract_detail(html: str, detail: dict, base_url: str) -> dict:
+    """Values from one item's own page (the first match of the detail recipe's item_selector)."""
+    rows = extract(html, {"item_selector": detail["item_selector"], "fields": detail["fields"],
+                          "pagination": {"type": "none"}}, base_url)
+    return rows[0] if rows else {}
 
 
 def next_page_url(html: str, recipe: dict, current_url: str, page_index: int) -> str | None:

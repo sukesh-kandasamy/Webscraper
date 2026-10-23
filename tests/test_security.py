@@ -331,7 +331,7 @@ def test_adding_a_column_rebuilds_the_saved_recipe(client, monkeypatch):
     monkeypatch.setattr(config, "GROQ_API_KEY", "test-key")
     calls = []
 
-    def fake_build(html, url, fields, rendered=False, redact=False, auto=False):
+    def fake_build(html, url, fields, rendered=False, redact=False, auto=False, request=None):
         calls.append((fields, auto))
         recipe = extractor.normalize_recipe({"item_selector": "li.c", "page_type": "other", "fields": [
             {"name": "name", "selector": "b"}, {"name": "price", "selector": "i"}]})

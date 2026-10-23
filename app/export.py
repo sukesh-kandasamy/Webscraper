@@ -32,12 +32,30 @@ def to_csv(records: list[dict]) -> bytes:
     return to_frame(records).to_csv(index=False).encode("utf-8-sig")
 
 
-def to_xlsx(records: list[dict]) -> bytes:
+def to_xlsx(records: list[dict], types: dict[str, str] | None = None) -> bytes:
+    """Excel file with real number and date cells (so sorting, filters and sums work)."""
     buf = io.BytesIO()
     df = to_frame(records)
+    for col, kind in (types or {}).items():
+        if col not in df.columns:
+            continue
+        if kind == "date":
+            parsed = pd.to_datetime(df[col], errors="coerce", format="%Y-%m-%d")
+            df[col] = parsed.dt.date.where(parsed.notna(), df[col])
+        elif kind in ("money", "number", "percent", "rating"):
+            nums = pd.to_numeric(df[col], errors="coerce")
+            df[col] = nums.where(nums.notna(), df[col]).astype(object)
     with pd.ExcelWriter(buf, engine="openpyxl") as xw:
         df.to_excel(xw, index=False, sheet_name="results")
         ws = xw.sheets["results"]
+        for i, col in enumerate(df.columns, 1):
+            kind = (types or {}).get(col)
+            fmt = {"date": "yyyy-mm-dd", "money": "#,##0.##", "percent": '0.##"%"'}.get(kind)
+            if fmt:
+                for cell in ws.iter_cols(min_col=i, max_col=i, min_row=2):
+                    for c in cell:
+                        if not isinstance(c.value, str):
+                            c.number_format = fmt
         for i, col in enumerate(df.columns, 1):
             width = min(60, max(len(str(col)), *(len(str(v)) for v in df[col].head(200))) + 2) \
                 if len(df) else len(str(col)) + 2
