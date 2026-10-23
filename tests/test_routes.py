@@ -133,3 +133,37 @@ def test_job_with_a_route_collects_without_ai(local_ok):
         time.sleep(0.1)
     assert job["status"] == "error" and job["quality"]["route_broken"]["step"] == 1
     assert "re-record" in job["message"]
+
+
+def test_handoff_checks_and_saves_the_route(local_ok, monkeypatch):
+    """The agent reached in-page results: the handoff replays its steps, saves them with the scrape, and
+    the first run already replays them (no AI after the agent)."""
+    from app import recipe_builder, request_parser
+    from app.agent import handoff, store
+    store.init()
+
+    def fake_build(html, url, fields, rendered=False, redact=False, auto=False, request=None):
+        rows = extractor.extract(html, RECIPE, url)
+        return {"recipe": dict(RECIPE), "rows": rows, "report": {}, "notes": "", "page_type": "ecommerce", "absent": []}
+    monkeypatch.setattr(recipe_builder, "build_recipe", fake_build)
+
+    plan = {"start_url": local_ok, "navigation": ["search dragon", "Fiction"], "pages": 2, "item_pages": "no",
+            "request": request_parser.clean_request({"columns": ["title", "price"]}), "summary": "Dragon fiction"}
+    run_id = store.create("dragon fiction books", "127.0.0.1", local_ok, plan, {})
+    store.update(run_id, status="navigating")
+    for s in STEPS:                      # what the worker recorded while the agent worked
+        store.add_step(run_id, s["kind"], "x", url=local_ok, detail=s["detail"])
+    agent_page = routes.replay(local_ok, routes.from_steps(STEPS), RECIPE, 1, "127.0.0.1")[0]
+
+    handoff._handoff(run_id, local_ok, agent_page.html, "Fiction + dragon")
+    run = store.get(run_id)
+    scrape = db.get_scrape(run["scrape_id"])
+    assert scrape["mode"] == "agent" and len(scrape["route"]) == 5
+    assert scrape["recipe"]["route"] and scrape["recipe"]["agent"]["goal"] == "dragon fiction books"
+    for _ in range(300):
+        job = db.get_job(run["job_id"])
+        if job["status"] not in ("queued", "running"):
+            break
+        time.sleep(0.1)
+    assert job["status"] == "done" and job["rows"] == 10 and job["quality"]["route_steps"] == 5
+    assert any("Recorded route works" in s["text"] for s in store.steps(run_id))

@@ -33,12 +33,15 @@ def _safe(run_id: int, url: str, html: str, note: str) -> None:
 
 
 def _same_results(a: list[dict], b: list[dict]) -> bool:
-    """Do two extractions show the same items (at least half of the agent's first items)?"""
+    """Do two extractions show the same items? About as many items, and at least half of the agent's
+    first items among them (an unfiltered page contains the filtered items too, but many more)."""
     if not a or not b:
+        return False
+    if abs(len(b) - len(a)) > max(2, len(a) * 0.2):
         return False
     sig = lambda r: tuple(str(v) for v in list(r.values())[:2])
     first = {sig(r) for r in a[:10]}
-    return len(b) >= max(1, len(a) // 2) and len(first & {sig(r) for r in b}) >= max(1, len(first) // 2)
+    return len(first & {sig(r) for r in b}) >= max(1, len(first) // 2)
 
 
 def _handoff(run_id: int, url: str, html: str, note: str) -> None:
