@@ -92,9 +92,16 @@ python -m venv .venv-agent
 
 It works best with an AI that can see screenshots: add `ANTHROPIC_API_KEY` (Claude is then used for the
 agent; Groq still does the rest). With only Groq it runs text-only on gpt-oss-120b, which worked on the
-test sites but is slower and less reliable on complex sites. If the filters only exist inside the page
-(the address doesn't change), phase 1 collects the page the agent reached; replaying the steps on later
-runs comes with recorded routes (phase 2 of [PLAN-agent.md](PLAN-agent.md)).
+test sites but is slower and less reliable on complex sites.
+
+**Running it again needs no AI.** If the filters end up in the page address, the saved scrape is just that
+address. If they exist only inside the page (clicking "2012" loads that year's films, the address stays
+the same), the agent's steps are saved as a **route**: before saving, the app replays them once with
+plain Playwright to check they reach the same results, and every later run replays them the same way
+(the saved scrape shows *Replays N recorded steps · no AI*; the Quality tab shows *Steps replayed*).
+Cookie and pop-up clicks that don't appear any more are skipped. If a step can't be done because the
+site changed, the run stops with a clear message and **Re-record with the agent** (on the run, or in the
+saved scrape's menu) lets the agent find the way again and updates the same saved scrape.
 
 **Light / dark theme:** the button in the top bar cycles System → Light → Dark (also in Settings).
 
@@ -203,7 +210,7 @@ with the price, brand or salary.
 | `app/structured.py` | JSON-LD and embedded app-state data in pages |
 | `app/quality.py` | Quality report per run: coverage, failures, duplicates, column fill; health check against the last run |
 | `app/jobs.py` | Background crawl jobs |
-| `app/agent/` | Agent mode: `planner.py` (goal → plan), `guard.py` (what the agent may do), `api.py` (UI + worker API), `handoff.py` (results page → engine), `runner.py` (starts the worker), `store.py` (runs and steps) |
+| `app/agent/` | Agent mode: `planner.py` (goal → plan), `guard.py` (what the agent may do), `api.py` (UI + worker API), `handoff.py` (results page → engine), `routes.py` (record and replay the agent's steps without AI), `runner.py` (starts the worker), `store.py` (runs and steps) |
 | `agent_worker.py` | The browser-use process (runs in `.venv-agent`, talks to the app's local API with a one-time token) |
 | `app/details.py` | Item-page set-up shared by Guided and Agent mode |
 | `app/db.py` | SQLite: recipes, jobs, records, page cache (`data/scraper.db`) |

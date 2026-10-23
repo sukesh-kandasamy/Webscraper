@@ -10,6 +10,7 @@ workers, pop-ups closed, and every request (including sub-resources and redirect
 network guard so a page cannot make the browser reach this computer or the local network.
 """
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -96,12 +97,51 @@ def render(url: str, item_selector: str = "", load_more: str = "", scroll: bool 
     Both stop when the item count stops growing or max_rounds is reached.
     """
     try:
-        from playwright.sync_api import Error as PwError, TimeoutError as PwTimeout, sync_playwright
+        from playwright.sync_api import Error as PwError, TimeoutError as PwTimeout
     except ImportError as e:
         raise BrowserUnavailable(install_hint()) from e
 
+    with open_page(storage_state, user_agent) as page:
+        page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        _settle(page, PwTimeout)
+        _check_block(page)
+
+        rounds = 0
+        count = _count(page, item_selector)
+        while rounds < max_rounds and (load_more or scroll):
+            acted = False
+            if load_more:
+                button = page.locator(load_more).first
+                if button.count() and button.is_visible():
+                    try:
+                        button.scroll_into_view_if_needed(timeout=3000)
+                        button.click(timeout=3000)
+                        acted = True
+                    except (PwError, PwTimeout):
+                        pass
+            if scroll and not acted:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                acted = True
+            if not acted:
+                break
+            rounds += 1
+            new_count = _wait_for_growth(page, item_selector, count, PwTimeout)
+            if item_selector and new_count <= count:
+                break
+            count = new_count
+        return Rendered(page.url, page.content(), rounds, count)
+
+
+@contextmanager
+def open_page(storage_state: dict | None = None, user_agent: str | None = None):
+    """A hardened headless page (fresh context, guarded requests, no downloads / pop-ups).
+    Tries Playwright's bundled Chromium first, then an installed Edge / Chrome."""
+    try:
+        from playwright.sync_api import Error as PwError, sync_playwright
+    except ImportError as e:
+        raise BrowserUnavailable(install_hint()) from e
     with _lock, sync_playwright() as p:
-        browser = None
+        browser, last = None, None
         for channel in (None, "msedge", "chrome"):     # bundled first, then installed browsers
             try:
                 browser = p.chromium.launch(headless=True, channel=channel) if channel \
@@ -120,34 +160,7 @@ def render(url: str, item_selector: str = "", load_more: str = "", scroll: bool 
             page = context.new_page()
             # Pop-ups and new tabs opened by the page are closed straight away.
             context.on("page", lambda new: new.close() if new != page else None)
-            page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-            _settle(page, PwTimeout)
-            _check_block(page)
-
-            rounds = 0
-            count = _count(page, item_selector)
-            while rounds < max_rounds and (load_more or scroll):
-                acted = False
-                if load_more:
-                    button = page.locator(load_more).first
-                    if button.count() and button.is_visible():
-                        try:
-                            button.scroll_into_view_if_needed(timeout=3000)
-                            button.click(timeout=3000)
-                            acted = True
-                        except (PwError, PwTimeout):
-                            pass
-                if scroll and not acted:
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    acted = True
-                if not acted:
-                    break
-                rounds += 1
-                new_count = _wait_for_growth(page, item_selector, count, PwTimeout)
-                if item_selector and new_count <= count:
-                    break
-                count = new_count
-            return Rendered(page.url, page.content(), rounds, count)
+            yield page
         finally:
             browser.close()
 

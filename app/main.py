@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from . import (audit, browser, config, db, details, export, extractor, fetcher, jobs, logsafe, netguard,
                normalize, privacy, quality, recipe_builder, request_parser, robots, sessions)
-from .agent import api as agent_api, runner as agent_runner, store as agent_store
+from .agent import api as agent_api, routes as agent_routes, runner as agent_runner, store as agent_store
 
 PREVIEW_ROWS = 20
 
@@ -748,6 +748,8 @@ def list_scrapes():
                     + [f["name"] for f in (s["recipe"].get("detail") or {}).get("fields", [])],
                     "request_summary": (s["recipe"].get("request") or {}).get("summary", ""),
                     "mode": s.get("mode", "guided"),
+                    "route_steps": [agent_routes.describe(st) for st in s["recipe"].get("route", [])],
+                    "can_rerecord": bool((s["recipe"].get("agent") or {}).get("plan")),
                     "item_pages": bool(s["recipe"].get("detail")),
                     "domain": fetcher.domain_of(s["urls"][0]) if s["urls"] else ""})
     return out

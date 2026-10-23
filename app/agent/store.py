@@ -53,6 +53,9 @@ FINISHED = ("done", "stopped", "needs_you", "limit", "error")
 def init() -> None:
     with db.tx() as c:
         c.executescript(SCHEMA)
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(agent_runs)")}
+        if "target_scrape_id" not in cols:      # re-recording a saved scrape's route updates that scrape
+            c.execute("ALTER TABLE agent_runs ADD COLUMN target_scrape_id INTEGER")
         # The worker process died with the server: its navigating runs can't continue.
         c.execute("UPDATE agent_runs SET status='error', message='The app restarted while the agent was "
                   "working. Start it again.', finished_at=? WHERE status='navigating'", (time.time(),))

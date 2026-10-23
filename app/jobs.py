@@ -24,6 +24,7 @@ import threading
 import time
 
 from . import audit, config, db, extractor, fetcher, normalize, privacy, quality, request_parser
+from .agent.routes import RouteBroken
 
 _stop_flags: dict[int, threading.Event] = {}
 _slots = threading.BoundedSemaphore(config.MAX_CONCURRENT_JOBS)
@@ -238,6 +239,30 @@ class _Run:
             self.q["details_done"] += 1
         return rows
 
+    def crawl_route(self, start_url: str) -> None:
+        """Agent scrapes whose filters live inside the page: replay the recorded steps (no AI), then
+        collect the pages inside the same browser."""
+        from .agent import routes
+
+        route = self.recipe["route"]
+        db.update_job(self.job_id, message=f"Replaying {len(route)} recorded steps on {start_url}")
+
+        def on_step(n, step):
+            db.update_job(self.job_id, message=f"Replaying step {n} of {len(route)}: {routes.describe(step)}")
+
+        pages = routes.replay(start_url, route, self.recipe, self.job["max_pages"], on_step=on_step)
+        self.q["route_steps"] = len(route)
+        for i, page in enumerate(pages):
+            if i == 0 and not self.q.get("expected_total"):
+                self.q["expected_total"] = quality.stated_total(page.html)
+            if page.final_url not in self.done_pages:
+                produced = self.process(page)
+                db.add_job_page(self.job_id, page.final_url, produced)
+                self.done_pages[page.final_url] = produced
+                self.pages_done += 1
+            self.pages_total = max(self.pages_total, self.pages_done)
+            self._save_progress()
+
     def crawl(self, start_url: str, url: str, page_index: int) -> None:
         """Follow one chain of pages from `url` (page number `page_index` of `start_url`)."""
         visited = set()
@@ -322,7 +347,10 @@ def _run(job_id: int) -> None:
 
     try:
         for start_url in job["urls"]:
-            run.crawl(start_url, start_url, 0)
+            if run.recipe.get("route"):
+                run.crawl_route(start_url)
+            else:
+                run.crawl(start_url, start_url, 0)
         if run.q["failed"]:
             run.retry_failed()
 
@@ -355,6 +383,11 @@ def _run(job_id: int) -> None:
                   message=f"Action needed: {e}. Open it, solve it yourself, then resume. "
                           f"({run.rows_total} rows saved)")
             audit.log("job_paused", job_id=job_id, domain=domain, kind=e.kind)
+    except RouteBroken as e:
+        run.q["route_broken"] = {"step": e.step, "reason": e.reason}
+        saved(status="error", finished_at=time.time(),
+              message=f"The recorded steps no longer work on this site (step {e.step}: {e.reason}). "
+                      f"The site probably changed: re-record the route with the agent. {run.rows_total} rows saved.")
     except fetcher.BudgetExceeded as e:
         saved(status="stopped", message=f"{e} ({run.rows_total} rows saved)", finished_at=time.time())
     except fetcher.BlockedError as e:

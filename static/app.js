@@ -127,6 +127,7 @@ const EVENT_LABELS = {
   scrape_saved: "Scrape saved", scrape_deleted: "Scrape deleted", detail_recipe_built: "AI set up item pages",
   scrape_repaired: "Columns re-detected", agent_planned: "Agent made a plan", agent_started: "Agent started",
   agent_refused: "Agent action refused", agent_handoff: "Agent handed results over", agent_finished: "Agent stopped",
+  agent_rerecord: "Agent re-recording a route",
 };
 
 function store(key, value) {
@@ -830,6 +831,9 @@ function scraper() {
       if (q.coverage !== null && q.coverage !== undefined) {
         tiles.push({ label: "Coverage", value: Math.round(q.coverage * 100) + "%", note: `of about ${this.fmt(q.expected_total)} on the site`, warn: q.coverage < 0.9 });
       }
+      if (q.route_steps) {
+        tiles.push({ label: "Steps replayed", value: this.fmt(q.route_steps), note: "recorded by the agent · no AI" });
+      }
       if (q.details?.done || q.details?.failed) {
         tiles.push({ label: "Item pages read", value: this.fmt(q.details.done), note: q.details.failed ? `${q.details.failed} failed` : "", warn: !!q.details.failed });
       }
@@ -1115,6 +1119,24 @@ function scraper() {
       const r = this.agentRun;
       this.blockedPage = { domain: r.site, url: r.final_url || r.start_url };
       await this.startSiteSolve();
+    },
+    async runAgentScrapeAgain() {
+      await this.loadScrapes();
+      const s = this.scrapes.find(x => x.id === this.agentRun?.scrape_id);
+      if (s) await this.runScrape(s);
+    },
+    async rerecordScrape(scrapeId) {
+      if (!scrapeId) return;
+      this.error = null; this.busy = "agent-start";
+      try {
+        const run = await api("POST", `/api/agent/rerecord/${scrapeId}`, this.status?.agent?.limits || this.agentLimits);
+        this.go("agent");
+        this.agentRun = run;
+        this.loadAgentRuns();
+        this.pollAgent();
+        this.toast("The agent is finding the way again. The saved scrape is updated when it's done.");
+      } catch (e) { this.handleError(e); }
+      finally { this.busy = ""; }
     },
     async openAgentResults() {
       const id = this.agentRun?.job_id;

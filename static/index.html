@@ -659,11 +659,19 @@
                     <button class="menu-item" @click="open=false; editScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Edit columns</button>
                     <button class="menu-item" @click="open=false; renameScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Rename</button>
                     <button class="menu-item" @click="open=false; duplicateScrape(s)"><span x-html="icon('copy', 'h-4 w-4 text-slate-400')"></span> Duplicate</button>
+                    <button class="menu-item" x-show="s.can_rerecord" @click="open=false; rerecordScrape(s.id)"><span x-html="icon('sparkles', 'h-4 w-4 text-slate-400')"></span> Re-record with the agent</button>
                     <button class="menu-item text-rose-600 dark:text-rose-400" @click="open=false; deleteScrape(s)"><span x-html="icon('trash', 'h-4 w-4')"></span> Delete</button>
                   </div>
                 </div>
               </div>
               <p class="mt-3 line-clamp-2 text-sm text-slate-600 dark:text-slate-300" x-show="s.request_summary" x-cloak x-text="s.request_summary"></p>
+              <details class="group mt-2 text-xs" x-show="s.route_steps?.length" x-cloak>
+                <summary class="text-slate-500"><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-3.5 w-3.5')"></span>
+                  <span x-text="`Replays ${s.route_steps.length} recorded step${s.route_steps.length === 1 ? '' : 's'} · no AI`"></span></summary>
+                <ol class="ml-5 mt-1.5 list-decimal space-y-0.5 text-slate-600 dark:text-slate-300">
+                  <template x-for="(st, i) in s.route_steps" :key="i"><li x-text="st"></li></template>
+                </ol>
+              </details>
               <div class="mt-3 flex flex-wrap gap-1">
                 <template x-for="c in s.columns.slice(0, 6)" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template>
                 <span class="chip chip-gray" x-show="s.columns.length > 6" x-text="'+' + (s.columns.length - 6)"></span>
@@ -738,6 +746,13 @@
                     <div class="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div class="h-full rounded-full bg-brand-500 transition-all duration-500" :style="`width:${progressPct(selectedJob)}%`"></div>
                     </div>
+                  </div>
+                  <div class="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+                       x-show="selectedJob.quality?.route_broken" x-cloak>
+                    <span class="mt-0.5 text-rose-500" x-html="icon('warn', 'h-4 w-4')"></span>
+                    <div class="flex-1"><span x-text="`The recorded steps stopped working at step ${selectedJob.quality?.route_broken?.step}: ${selectedJob.quality?.route_broken?.reason}. The site probably changed.`"></span>
+                      <div class="mt-2"><button class="btn btn-sm" @click="rerecordScrape(selectedJob.scrape_id)" :disabled="!!busy || !selectedJob.scrape_id">
+                        <span x-html="icon('sparkles', 'h-3.5 w-3.5')"></span> Re-record with the agent</button></div></div>
                   </div>
                   <div class="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
                        x-show="selectedJob.quality?.health?.broken?.length" x-cloak>
@@ -1092,6 +1107,8 @@
                     <div class="flex flex-wrap gap-2">
                       <button class="btn btn-sm" x-show="agentActive()" @click="stopAgent()"><span x-html="icon('stop', 'h-3.5 w-3.5')"></span> Stop</button>
                       <button class="btn btn-primary btn-sm" x-show="agentRun.job_id && !agentActive()" @click="openAgentResults()"><span x-html="icon('table', 'h-3.5 w-3.5')"></span> Open results</button>
+                      <button class="btn btn-sm" x-show="agentRun.status === 'done' && agentRun.scrape_id" @click="runAgentScrapeAgain()" title="Uses the saved address or the recorded steps; no AI">
+                        <span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Run again (no AI)</button>
                       <button class="btn btn-primary btn-sm" x-show="agentRun.status === 'needs_you'" @click="solveForAgent()" :disabled="!status?.browser_available">Open to solve</button>
                       <button class="btn btn-sm" x-show="['needs_you','limit','error','stopped'].includes(agentRun.status)" @click="retryAgent()"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Try again</button>
                     </div>

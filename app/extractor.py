@@ -42,6 +42,7 @@ from selectolax.lexbor import LexborHTMLParser, LexborNode
 from . import config, structured
 
 _WS = re.compile(r"\s+")
+ROUTE_ACTIONS = ("navigate", "click", "input", "select_dropdown", "send_keys", "scroll", "go_back", "wait")
 URL_ATTRS = {"href", "src", "data-src", "data-href"}
 
 
@@ -132,6 +133,13 @@ def normalize_recipe(recipe: dict) -> dict:
     for key in ("site", "notes", "page_type", "request", "column_types"):
         if recipe.get(key):
             out[key] = recipe[key]
+    # Agent scrapes: the recorded route (steps replayed before page 1) and the plan it came from.
+    if isinstance(recipe.get("route"), list) and recipe["route"]:
+        steps = [st for st in recipe["route"][:40] if isinstance(st, dict) and st.get("action") in ROUTE_ACTIONS]
+        if steps:
+            out["route"] = steps
+    if isinstance(recipe.get("agent"), dict):
+        out["agent"] = {k: recipe["agent"][k] for k in ("goal", "plan", "run_id", "start_url") if k in recipe["agent"]}
     detail = recipe.get("detail")
     if isinstance(detail, dict) and detail.get("fields"):
         inner = normalize_recipe({"item_selector": detail.get("item_selector") or "body",

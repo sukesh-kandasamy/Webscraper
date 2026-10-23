@@ -3,7 +3,12 @@
 > **Status: phase 1 built** (Agent screen, plan card, worker in `.venv-agent`, guard, live timeline with
 > screenshots, handoff to the engine, Open to solve for human checks). Tested live on books.toscrape.com
 > (category), quotes.toscrape.com (tag) and scrapethissite.com (search form, 4 pages); We Work Remotely
-> showed a Cloudflare check and the run stopped as *Needs you*, as designed. Phases 2–4 are next.
+> showed a Cloudflare check and the run stopped as *Needs you*, as designed.
+> **Phase 2 built:** routes are recorded from the agent's actions, checked by a replay before saving, replayed
+> by Playwright with no AI on every run (in-page filters, pagination inside the same browser), skip pop-ups
+> that no longer appear, stop with "route broken" at the failing step, and can be re-recorded into the same
+> saved scrape. Live: the scrapethissite AJAX page ("2012" films, address unchanged) replays in ~20 s with
+> 0 AI calls. Phases 3–4 are next.
 
 ## Context
 

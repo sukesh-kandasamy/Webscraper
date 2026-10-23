@@ -303,3 +303,38 @@ def finish(run_id: int, body: FinishIn):
         fetcher.update_settings(fetcher.domain_of(run["start_url"]), {"last_challenge": time.time()})
     audit.log("agent_finished", run_id=run_id, status=body.status)
     return {"ok": True}
+
+
+@router.post("/rerecord/{scrape_id}")
+def rerecord(scrape_id: int, request: Request, body: LimitsIn | None = None):
+    """The site changed and a saved agent scrape's steps stopped working: let the agent find the way
+    again with the same plan. The new steps and columns replace the old ones in the same saved scrape."""
+    _enabled()
+    s = jobs.db.get_scrape(scrape_id)
+    if not s:
+        raise HTTPException(404, "Saved scrape not found")
+    info = s["recipe"].get("agent")
+    if not info or not info.get("plan"):
+        raise HTTPException(400, "This scrape wasn't set up by the agent, so there are no steps to re-record.")
+    if not runner.status()["key_set"]:
+        raise HTTPException(400, f"Agent mode needs an AI key for {config.AGENT_PROVIDER} in .env.")
+    start = info.get("start_url") or info["plan"].get("start_url")
+    try:
+        plan = planner.clean_plan(info["plan"], info["goal"], start)
+    except planner.PlanError as e:
+        raise HTTPException(400, str(e))
+    ok, why = guard.check_url(plan["start_url"], guard.site_domain(plan["start_url"]))
+    if not ok:
+        raise HTTPException(403, f"The agent can't start there: {why}")
+    run_id = store.create(info["goal"], guard.site_domain(plan["start_url"]), plan["start_url"], plan,
+                          (body or LimitsIn()).model_dump())
+    store.update(run_id, target_scrape_id=scrape_id, status="queued", message="Waiting for the agent")
+    store.add_step(run_id, "info", f"Re-recording the steps for “{s['name']}” with {config.AGENT_PROVIDER} · "
+                                   f"{config.AGENT_MODEL}. Opening a browser…")
+    try:
+        runner.ensure(str(request.base_url))
+    except RuntimeError as e:
+        store.update(run_id, status="error", message=str(e), finished_at=time.time())
+        raise HTTPException(400, str(e))
+    audit.log("agent_rerecord", run_id=run_id, scrape_id=scrape_id, domain=guard.site_domain(plan["start_url"]))
+    return _view(store.get(run_id))

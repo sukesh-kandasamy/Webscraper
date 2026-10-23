@@ -266,8 +266,8 @@ def get_scrape(scrape_id: int) -> dict | None:
 
 
 def update_scrape(scrape_id: int, **fields) -> None:
-    allowed = {"name", "urls", "recipe", "max_pages", "page_type"}
-    fields = {k: (json.dumps(v) if k in ("urls", "recipe") else v) for k, v in fields.items()
+    allowed = {"name", "urls", "recipe", "max_pages", "page_type", "mode", "route"}
+    fields = {k: (json.dumps(v) if k in ("urls", "recipe", "route") else v) for k, v in fields.items()
               if k in allowed and v is not None}
     if not fields:
         return

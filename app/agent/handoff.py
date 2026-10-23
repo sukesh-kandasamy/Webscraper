@@ -12,7 +12,7 @@ import threading
 import time
 
 from .. import audit, config, db, details, extractor, fetcher, jobs, logsafe, recipe_builder, sessions
-from . import guard, store
+from . import guard, routes, store
 
 
 def _log(run_id: int, kind: str, text: str, **detail) -> None:
@@ -56,6 +56,8 @@ def _handoff(run_id: int, url: str, html: str, note: str) -> None:
     try:
         built = recipe_builder.build_recipe(html, url, [], rendered=True, redact=logged_in, request=request)
     except recipe_builder.RecipeBuildError as e:
+        if "rate-limited" in str(e):
+            raise RuntimeError(f"The agent reached the results, but {e}") from e
         raise RuntimeError(f"No list of items could be read on the page the agent reached ({e})") from e
     recipe = built["recipe"]
     agent_rows = built["rows"]
@@ -73,9 +75,31 @@ def _handoff(run_id: int, url: str, html: str, note: str) -> None:
         raise
     except fetcher.FetchError:
         by_url = False
-    _log(run_id, "info", "The filters are in the page address, so every page can be collected."
-         if by_url else "The filters exist only inside the page, so the page the agent reached is collected "
-                        "(replaying the clicks on later runs comes with recorded routes).")
+    route = routes.from_steps(store.steps(run_id))
+    replay = False
+    if by_url:
+        _log(run_id, "info", "The filters are in the page address, so every page can be collected, and "
+                             "running it again needs no AI.")
+    elif route:
+        # The filters exist only inside the page: check that the recorded steps lead to the same results
+        # without the AI before relying on them.
+        _log(run_id, "info", f"The filters exist only inside the page. Checking that the {len(route)} recorded "
+                             "steps reach the same results without the AI…")
+        store.update(run_id, message="Checking the recorded steps")
+        try:
+            pages = routes.replay(run["start_url"], route, recipe, 1, run["site"])
+            replay = bool(pages) and _same_results(agent_rows, extractor.extract(pages[0].html, recipe, pages[0].final_url))
+            why = "" if replay else "the replayed page shows different items"
+        except (routes.RouteBroken, fetcher.FetchError) as e:
+            why = str(e)
+        _log(run_id, "info" if replay else "warn",
+             f"Recorded route works: {len(route)} steps, replayed without AI on every run." if replay else
+             f"The recorded steps couldn't be replayed ({why[:200]}), so only the page the agent reached is "
+             "collected; running it again will need the agent (Re-record).",
+             route=[routes.describe(st) for st in route])
+    else:
+        _log(run_id, "warn", "The filters exist only inside the page and no steps were recorded, so only the "
+                             "page the agent reached is collected.")
 
     # Item pages, when the plan asks for them or requested columns aren't on the list.
     absent = built.get("absent") or []
@@ -92,21 +116,32 @@ def _handoff(run_id: int, url: str, html: str, note: str) -> None:
             _log(run_id, "warn", f"Item pages could not be set up: {e}")
 
     name = (request.get("summary") or run["goal"])[:110]
-    pages = int(plan.get("pages") or 3) if by_url else 1
-    scrape_id = db.create_scrape(name, [url], extractor.normalize_recipe(recipe), pages,
-                                 built.get("page_type") or "", mode="agent")
+    pages = int(plan.get("pages") or 3) if (by_url or replay) else 1
+    recipe = {**recipe, "agent": {"goal": run["goal"], "plan": plan, "run_id": run_id, "start_url": run["start_url"]}}
+    if replay:
+        recipe["route"] = route
+    urls = [run["start_url"]] if replay else [url]
+    recipe = extractor.normalize_recipe(recipe)
+    target = run.get("target_scrape_id")
+    if target and db.get_scrape(target):
+        # Re-recording a saved scrape: same scrape, new steps and columns.
+        db.update_scrape(target, urls=urls, recipe=recipe, max_pages=pages, route=route if replay else [])
+        scrape_id = target
+    else:
+        scrape_id = db.create_scrape(name, urls, recipe, pages, built.get("page_type") or "", mode="agent",
+                                     route=route if replay else [])
     store.update(run_id, scrape_id=scrape_id)
-    if by_url:
-        if config.RESPECT_ROBOTS and not fetcher.robots_allows(url):
+    if by_url or replay:
+        if config.RESPECT_ROBOTS and not fetcher.robots_allows(urls[0]):
             raise RuntimeError("robots.txt disallows the results page")
-        job_id = jobs.start([url], extractor.normalize_recipe(recipe), pages, logged_in=logged_in,
-                            scrape_id=scrape_id)
+        job_id = jobs.start(urls, recipe, pages, logged_in=logged_in, scrape_id=scrape_id)
     else:
         rendered = fetcher.Page(url, url, 200, html, False, rendered=True, logged_in=logged_in)
-        job_id = jobs.collect_page([url], extractor.normalize_recipe(recipe), rendered, scrape_id, logged_in)
+        job_id = jobs.collect_page([url], recipe, rendered, scrape_id, logged_in)
     store.update(run_id, job_id=job_id, message="Collecting")
-    audit.log("agent_handoff", run_id=run_id, job_id=job_id, domain=fetcher.domain_of(url), by_url=by_url)
-    _log(run_id, "info", f"Collecting{' up to ' + str(pages) + ' pages' if by_url else ''}…")
+    audit.log("agent_handoff", run_id=run_id, job_id=job_id, domain=fetcher.domain_of(url), by_url=by_url,
+              route_steps=len(route) if replay else 0)
+    _log(run_id, "info", f"Collecting{' up to ' + str(pages) + ' pages' if pages > 1 else ''}…")
 
 
 def refresh(run: dict) -> dict:
