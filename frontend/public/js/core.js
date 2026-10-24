@@ -252,6 +252,10 @@ function shell() {
     needsYouJobs() { return this.jobs.filter(j => j.status === "needs_you"); },
     activeJobs() { return this.jobs.filter(j => ["queued", "running"].includes(j.status)); },
     jobTitle(j) { return j.scrape_name || this.hostOf(j.urls?.[0]) || j.uid || "Run"; },
+    async copyText(text) {
+      try { await navigator.clipboard.writeText(text); this.toast("Copied."); }
+      catch { this.toast("Couldn't copy. Select the text and copy it instead."); }
+    },
     progressPct(j) {
       if (!j) return 0;
       if (j.status === "done") return 100;
@@ -324,7 +328,7 @@ function shell() {
       this.error = null; this.busy = "agent-start";
       try {
         const run = await api("POST", `/api/agent/rerecord/${scrapeId}`, this.status?.agent?.limits);
-        goTo(`/agent/runs/${run.id}`, "The agent is finding the way again. The saved scrape is updated when it's done.");
+        goTo(`/agent/runs/${run.uid || run.id}`, "The agent is finding the way again. The saved scrape is updated when it's done.");
       } catch (e) { this.handleError(e); }
       finally { this.busy = ""; }
     },

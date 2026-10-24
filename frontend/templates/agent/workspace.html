@@ -38,11 +38,11 @@
             <template x-for="r in g.runs" :key="r.id">
               <button class="state flex w-full items-center gap-3 rounded-full px-3 py-2.5 text-left"
                       :class="agentRun?.id === r.id ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface'"
-                      @click="openAgentRun(r.id); historyOpen = false">
+                      @click="openAgentRun(r.uid); historyOpen = false">
                 <span class="h-2 w-2 shrink-0 rounded-full" :class="runDot(r.status)"></span>
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm" x-text="r.plan?.summary || r.goal"></span>
-                  <span class="block truncate text-xs text-on-surface-variant" x-text="`${r.site} · ${agentStatusLabel(r.status)}`"></span>
+                  <span class="block truncate text-xs text-on-surface-variant"><span class="font-mono" x-text="r.uid"></span><span x-text="` · ${r.site} · ${agentStatusLabel(r.status)}`"></span></span>
                 </span>
               </button>
             </template>
@@ -112,6 +112,8 @@
               <span class="text-primary" x-html="icon('list_alt', 'h-6 w-6')"></span>
               <div class="min-w-0 flex-1"><h2 class="title-l text-on-surface">The agent's plan</h2>
                 <p class="muted" x-text="agentRun.plan.summary"></p></div>
+              <button class="inline-flex items-center gap-1 font-mono text-xs text-on-surface-variant hover:text-on-surface"
+                      title="Copy Run ID" @click="copyText(agentRun.uid)"><span x-text="agentRun.uid"></span><span x-html="icon('content_copy', 'h-3.5 w-3.5')"></span></button>
             </div>
             <div class="card-body space-y-6">
               <div x-show="agentRun.plan.question" class="flex items-start gap-3 rounded-m3-sm bg-warning-container px-4 py-3 text-sm text-on-warning-container">
@@ -199,6 +201,9 @@
                 <div class="min-w-0 flex-1">
                   <span class="chip" :class="agentChip(agentRun.status)"><span class="dot" :class="agentActive() && 'animate-pulse'"></span><span x-text="agentStatusLabel(agentRun.status)"></span></span>
                   <h2 class="headline-s mt-2 text-on-surface" x-text="agentRun.plan.summary || agentRun.goal"></h2>
+                  <button class="mt-1 inline-flex items-center gap-1 font-mono text-xs text-on-surface-variant hover:text-on-surface"
+                          title="Copy Run ID" @click="copyText(agentRun.uid)"><span x-text="agentRun.uid"></span><span x-html="icon('content_copy', 'h-3.5 w-3.5')"></span></button>
+                  <span class="ml-2 font-mono text-xs text-on-surface-variant" x-show="agentRun.job_uid" x-text="'· ' + agentRun.job_uid"></span>
                   <p class="body-m mt-1 text-on-surface-variant" x-text="agentRun.summary || agentRun.message"></p>
                 </div>
               </div>
@@ -243,8 +248,8 @@
                       <div class="break-words text-sm [overflow-wrap:anywhere]" :class="s.kind === 'thought' ? 'italic text-on-surface-variant' : 'text-on-surface'" x-text="s.text"></div>
                       <div class="mt-0.5 truncate text-xs text-on-surface-variant" x-show="s.url && s.kind !== 'thought'" x-text="s.url"></div>
                     </div>
-                    <a x-show="s.shot" :href="`/api/agent/runs/${agentRun.id}/shots/${s.n}.jpg`" target="_blank" rel="noopener" class="shrink-0">
-                      <img :src="s.shot ? `/api/agent/runs/${agentRun.id}/shots/${s.n}.jpg` : ''" alt="Screenshot" loading="lazy"
+                    <a x-show="s.shot" :href="`/api/agent/runs/${agentRun.uid}/shots/${s.n}.jpg`" target="_blank" rel="noopener" class="shrink-0">
+                      <img :src="s.shot ? `/api/agent/runs/${agentRun.uid}/shots/${s.n}.jpg` : ''" alt="Screenshot" loading="lazy" @error="$el.closest('a').hidden = true"
                            class="h-16 w-28 rounded-m3-sm border border-outline-variant object-cover object-top"></a>
                   </li>
                 </template>

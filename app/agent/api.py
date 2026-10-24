@@ -47,8 +47,11 @@ def _enabled() -> None:
         raise HTTPException(403, "Agent mode is turned off (SCRAPER_AGENT=0).")
 
 
-def _run_or_404(run_id: int) -> dict:
-    run = store.get(run_id)
+def _run_or_404(ref: str | int) -> dict:
+    """An agent run by its Run ID (RUN-7K3QX9) or by its internal number (the worker uses numbers)."""
+    ref = str(ref).strip()
+    run = (store.get(int(ref)) if ref.isdigit() else
+           store.get_by_uid(ref) if jobs.db.RUN_UID.match(ref.upper()) else None)
     if not run:
         raise HTTPException(404, "Agent run not found")
     return run
@@ -91,8 +94,9 @@ def make_plan(body: PlanIn):
 
 
 @router.put("/runs/{run_id}/plan")
-def edit_plan(run_id: int, body: PlanEdit):
+def edit_plan(run_id: str, body: PlanEdit):
     run = _run_or_404(run_id)
+    run_id = run["id"]
     if run["status"] != "draft":
         raise HTTPException(409, "Only a plan that hasn't started can be changed.")
     try:
@@ -104,9 +108,10 @@ def edit_plan(run_id: int, body: PlanEdit):
 
 
 @router.post("/runs/{run_id}/start")
-def start_run(run_id: int, request: Request, body: LimitsIn | None = None):
+def start_run(run_id: str, request: Request, body: LimitsIn | None = None):
     _enabled()
     run = _run_or_404(run_id)
+    run_id = run["id"]
     if run["status"] != "draft":
         raise HTTPException(409, "This run has already started.")
     st = runner.status()
@@ -133,13 +138,14 @@ def list_runs(limit: int = 30):
 
 
 @router.get("/runs/{run_id}")
-def get_run(run_id: int, after: int = 0):
+def get_run(run_id: str, after: int = 0):
     return _view(_run_or_404(run_id), after)
 
 
 @router.post("/runs/{run_id}/stop")
-def stop_run(run_id: int):
+def stop_run(run_id: str):
     run = _run_or_404(run_id)
+    run_id = run["id"]
     if run["status"] in ("draft", "queued"):
         store.update(run_id, status="stopped", message="Stopped before it started", finished_at=time.time())
     elif run["status"] in ("navigating", "fixing"):
@@ -150,8 +156,9 @@ def stop_run(run_id: int):
 
 
 @router.delete("/runs/{run_id}")
-def delete_run(run_id: int):
+def delete_run(run_id: str):
     run = _run_or_404(run_id)
+    run_id = run["id"]
     if run["status"] in store.ACTIVE:
         raise HTTPException(409, "Stop the run before deleting it.")
     store.delete(run_id)
@@ -164,8 +171,8 @@ def delete_run(run_id: int):
 
 
 @router.get("/runs/{run_id}/shots/{n}.jpg")
-def step_shot(run_id: int, n: int):
-    f = config.AGENT_SHOTS_DIR / str(int(run_id)) / f"{int(n)}.jpg"
+def step_shot(run_id: str, n: int):
+    f = config.AGENT_SHOTS_DIR / str(_run_or_404(run_id)["id"]) / f"{int(n)}.jpg"
     if not f.exists():
         raise HTTPException(404, "No screenshot")
     return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})

@@ -86,6 +86,7 @@ function settingsPage() {
     eventDetail(a) {
       const parts = [];
       if (a.job) parts.push(a.job);
+      if (a.run) parts.push(a.run);
       if (a.url) parts.push(a.url); else if (a.domain) parts.push(a.domain);
       if (a.status && a.status !== 200) parts.push("HTTP " + a.status);
       if (a.rendered) parts.push("browser");

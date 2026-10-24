@@ -221,16 +221,22 @@ def save_site_settings(domain: str, settings: dict) -> None:
 
 # ---- jobs ----------------------------------------------------------------
 
-# Job IDs: "JOB-" + 6 characters without look-alikes (no I, L, O, U), about a billion possible.
-JOB_UID_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+# IDs people see: "JOB-" (jobs) or "RUN-" (agent runs) + 6 characters without look-alikes (no I, L, O, U),
+# about a billion possible. The numbers stay internal.
+UID_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 JOB_UID = re.compile(r"^JOB-[0-9A-HJKMNP-TV-Z]{6}$")
+RUN_UID = re.compile(r"^RUN-[0-9A-HJKMNP-TV-Z]{6}$")
+
+
+def new_uid(c: sqlite3.Connection, table: str, prefix: str) -> str:
+    while True:
+        uid = prefix + "".join(secrets.choice(UID_CHARS) for _ in range(6))
+        if not c.execute(f"SELECT 1 FROM {table} WHERE public_id=?", (uid,)).fetchone():
+            return uid
 
 
 def _new_job_uid(c: sqlite3.Connection) -> str:
-    while True:
-        uid = "JOB-" + "".join(secrets.choice(JOB_UID_CHARS) for _ in range(6))
-        if not c.execute("SELECT 1 FROM jobs WHERE public_id=?", (uid,)).fetchone():
-            return uid
+    return new_uid(c, "jobs", "JOB-")
 
 
 def create_job(urls: list[str], recipe: dict, max_pages: int, logged_in: bool = False,

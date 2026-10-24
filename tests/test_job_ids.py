@@ -70,3 +70,29 @@ def test_saved_scrape_runs_answer_with_the_job_id(client):
     _job(scrape_id=s["id"])
     last = next(x for x in client.get("/api/scrapes").json() if x["id"] == s["id"])["last_run"]
     assert db.JOB_UID.match(last["uid"])
+
+
+def test_agent_runs_get_run_ids(client):
+    from app.agent import store
+    run_id = store.create("Collect books", "example.com", "https://example.com/", {"summary": "Books"}, {})
+    run = store.get(run_id)
+    assert db.RUN_UID.match(run["uid"])
+    assert client.get(f"/api/agent/runs/{run['uid']}").json()["id"] == run_id
+    assert client.get(f"/api/agent/runs/{run['uid'].lower()}").status_code == 200
+    assert client.get("/api/agent/runs/RUN-ZZZZZZ").status_code == 404
+    r = client.get(f"/agent/runs/{run_id}")                                   # old number link
+    assert r.status_code == 302 and r.headers["location"] == f"/agent/runs/{run['uid']}"
+    assert f'data-run-uid="{run["uid"]}"' in client.get(f"/agent/runs/{run['uid'].lower()}").text
+    audit.log("agent_started", run_id=run_id, domain="example.com")
+    assert any(e.get("run") == run["uid"] for e in client.get("/api/audit?limit=20").json())
+    assert client.delete(f"/api/agent/runs/{run['uid']}").status_code == 200
+    assert store.get(run_id) is None
+
+
+def test_old_agent_runs_get_a_run_id_on_upgrade(client):
+    from app.agent import store
+    run_id = store.create("Collect books", "example.com", "https://example.com/", {}, {})
+    with sqlite3.connect(config.DB_PATH) as c:
+        c.execute("UPDATE agent_runs SET public_id=NULL WHERE id=?", (run_id,))
+    store.init()
+    assert db.RUN_UID.match(store.get(run_id)["uid"])

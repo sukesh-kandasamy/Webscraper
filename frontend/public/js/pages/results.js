@@ -148,10 +148,6 @@ function resultsPage() {
       if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
       return `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
     },
-    async copyText(text) {
-      try { await navigator.clipboard.writeText(text); this.toast("Copied."); }
-      catch { this.toast("Couldn't copy. Select the text and copy it instead."); }
-    },
     openResultTab(id) {
       this.resultTab = id;
       if (this.selectedJob) history.replaceState({}, "", `/results/${this.selectedJob.uid}` + (id === "data" ? "" : `?tab=${id}`));

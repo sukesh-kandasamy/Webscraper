@@ -18,7 +18,7 @@ PAGES = {
     "/results/JOB-ABC234?tab=quality": ("results.js", "results"),
     "/settings": ("settings.js", "settings"),
     "/agent": ("agent.js", "agent"),
-    "/agent/runs/5": ("agent.js", "agent"),
+    "/agent/runs/RUN-ABC234": ("agent.js", "agent"),
 }
 
 
@@ -52,6 +52,8 @@ def test_unknown_ids_still_render_the_page(client):
     assert client.get("/results/JOB-ZZZZZZ").status_code == 200
     assert client.get("/results/999999").status_code == 200
     assert client.get("/agent/runs/999999").status_code == 200
+    assert client.get("/agent/runs/RUN-ZZZZZZ").status_code == 200
+    assert client.get("/agent/runs/nope").status_code == 404
     assert client.get("/results/abc").status_code == 404                           # not a Job ID
 
 

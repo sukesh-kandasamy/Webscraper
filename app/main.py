@@ -372,9 +372,15 @@ def page_settings(request: Request):
 
 
 @app.get("/agent", include_in_schema=False)
-@app.get("/agent/runs/{run_id}", include_in_schema=False)
-def page_agent(request: Request, run_id: int | None = None):
-    return _page(request, "agent/workspace.html", "agent", "Agent", run_id=run_id or "")
+@app.get("/agent/runs/{run_ref}", include_in_schema=False)
+def page_agent(request: Request, run_ref: str = ""):
+    if run_ref.isdigit():                                 # old links used the internal number
+        run = agent_store.get(int(run_ref))
+        if run and run["uid"]:
+            return RedirectResponse(f"/agent/runs/{run['uid']}", 302)
+    elif run_ref and not db.RUN_UID.match(run_ref.upper()):
+        raise HTTPException(404, "Not a Run ID")
+    return _page(request, "agent/workspace.html", "agent", "Agent", run_uid=run_ref.upper())
 
 
 @app.get("/api/status")
@@ -1053,7 +1059,10 @@ def export_job(job_id: str, fmt: str = "csv", show_personal: bool = False, colum
 def audit_log(limit: int = 200, domain: str | None = None, event: str | None = None):
     entries = audit.tail(min(max(limit, 1), 2000), event=event, domain=domain)
     uids = db.job_uids(e["job_id"] for e in entries if isinstance(e.get("job_id"), int))
+    runs = agent_store.run_uids(e["run_id"] for e in entries if isinstance(e.get("run_id"), int))
     for e in entries:
         if isinstance(e.get("job_id"), int) and not e.get("job"):
             e["job"] = uids.get(e["job_id"], "")
+        if isinstance(e.get("run_id"), int) and not e.get("run"):
+            e["run"] = runs.get(e["run_id"], "")
     return entries

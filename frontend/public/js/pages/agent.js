@@ -17,10 +17,10 @@ function agentPage() {
       window.addEventListener("popstate", () => this.openFromAddress());
       await this.openFromAddress();
     },
-    // /agent/runs/12 opens that run; /agent shows a new one.
+    // /agent/runs/RUN-7K3QX9 opens that run; /agent shows a new one.
     async openFromAddress() {
-      const m = location.pathname.match(/^\/agent\/runs\/(\d+)/);
-      if (m) await this.openAgentRun(+m[1], false);
+      const m = location.pathname.match(/^\/agent\/runs\/([A-Za-z0-9-]+)/);
+      if (m) await this.openAgentRun(m[1].toUpperCase(), false);
       else { clearTimeout(this.agentTimer); this.agentRun = null; }
     },
 
@@ -98,7 +98,7 @@ function agentPage() {
       this.error = null; this.busy = "agent-plan";
       try {
         this.agentRun = await api("POST", "/api/agent/plan", { goal: this.agentGoal.trim(), site: this.agentSite.trim() });
-        history.pushState({}, "", `/agent/runs/${this.agentRun.id}`);
+        history.pushState({}, "", `/agent/runs/${this.agentRun.uid}`);
         this.agentLimits = { ...(this.status?.agent?.limits || this.agentLimits) };
         this.loadAgentRuns();
       } catch (e) { this.handleError(e); }
@@ -136,11 +136,11 @@ function agentPage() {
       } catch (e) { this.handleError(e); }
       finally { this.busy = ""; }
     },
-    async openAgentRun(id, push = true) {
+    async openAgentRun(uid, push = true) {
       clearTimeout(this.agentTimer);
-      if (push) history.pushState({}, "", `/agent/runs/${id}`);
+      if (push) history.pushState({}, "", `/agent/runs/${uid}`);
       try {
-        this.agentRun = await api("GET", `/api/agent/runs/${id}`);
+        this.agentRun = await api("GET", `/api/agent/runs/${encodeURIComponent(uid)}`);
         if (this.agentActive()) this.pollAgent();
       } catch (e) { this.showError(e); }
     },

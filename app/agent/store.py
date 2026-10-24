@@ -60,6 +60,11 @@ def init() -> None:
         if "fixes" not in cols:                 # check-and-fix: what was fixed, and how many rounds
             c.execute("ALTER TABLE agent_runs ADD COLUMN fixes TEXT NOT NULL DEFAULT '[]'")
             c.execute("ALTER TABLE agent_runs ADD COLUMN fix_rounds INTEGER NOT NULL DEFAULT 0")
+        if "public_id" not in cols:             # the Run ID people see (RUN-7K3QX9); the number stays internal
+            c.execute("ALTER TABLE agent_runs ADD COLUMN public_id TEXT")
+        for (run_id,) in c.execute("SELECT id FROM agent_runs WHERE public_id IS NULL OR public_id=''").fetchall():
+            c.execute("UPDATE agent_runs SET public_id=? WHERE id=?", (db.new_uid(c, "agent_runs", "RUN-"), run_id))
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_public_id ON agent_runs(public_id)")
         # The worker process died with the server: its navigating runs can't continue.
         c.execute("UPDATE agent_runs SET status='error', message='The app restarted while the agent was "
                   "working. Start it again.', finished_at=? WHERE status='navigating'", (time.time(),))
@@ -67,6 +72,7 @@ def init() -> None:
 
 def _run(row) -> dict:
     d = dict(row)
+    d["uid"] = d.pop("public_id", None) or ""
     d["plan"] = json.loads(d["plan"] or "{}")
     d["limits"] = json.loads(d["limits"] or "{}")
     d["fixes"] = json.loads(d.get("fixes") or "[]")
@@ -76,8 +82,10 @@ def _run(row) -> dict:
 
 def create(goal: str, site: str, start_url: str, plan: dict, limits: dict) -> int:
     with db.tx() as c:
-        cur = c.execute("INSERT INTO agent_runs(goal, site, start_url, plan, limits, created_at) VALUES(?,?,?,?,?,?)",
-                        (goal, site, start_url, json.dumps(plan, ensure_ascii=False), json.dumps(limits), time.time()))
+        cur = c.execute("INSERT INTO agent_runs(goal, site, start_url, plan, limits, created_at, public_id) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (goal, site, start_url, json.dumps(plan, ensure_ascii=False), json.dumps(limits), time.time(),
+                         db.new_uid(c, "agent_runs", "RUN-")))
         return cur.lastrowid
 
 
@@ -85,6 +93,21 @@ def get(run_id: int) -> dict | None:
     with db.tx() as c:
         row = c.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone()
     return _run(row) if row else None
+
+
+def get_by_uid(uid: str) -> dict | None:
+    with db.tx() as c:
+        row = c.execute("SELECT * FROM agent_runs WHERE public_id=?", (uid.upper(),)).fetchone()
+    return _run(row) if row else None
+
+
+def run_uids(ids) -> dict[int, str]:
+    ids = [int(i) for i in set(ids)]
+    if not ids:
+        return {}
+    with db.tx() as c:
+        rows = c.execute(f"SELECT id, public_id FROM agent_runs WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+    return {r["id"]: r["public_id"] for r in rows}
 
 
 def update(run_id: int, **fields) -> None:
