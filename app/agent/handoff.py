@@ -56,6 +56,7 @@ def _handoff(run_id: int, url: str, html: str, note: str) -> None:
     if not ok:
         raise RuntimeError(f"The results page can't be used: {why}")
     store.update(run_id, status="collecting", final_url=url, message="Setting up the columns on the results page")
+    note = note.strip().rstrip(".")
     _log(run_id, "info", "Reached the results list" + (f": {note}" if note else "") + ". Setting up the columns…", url=url)
     session = sessions.for_host(fetcher.host_of(url))
     logged_in = bool(session and session.get("kind") == sessions.KIND_LOGIN)

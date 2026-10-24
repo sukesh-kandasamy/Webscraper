@@ -29,10 +29,14 @@
           </div>
           <div class="min-w-0 space-y-3">
             <div class="flex flex-wrap gap-2" role="radiogroup" :aria-label="role.title + ': AI provider'">
+              <button type="button" class="chip-outline disabled:cursor-not-allowed disabled:opacity-50" role="radio" x-show="role.id === 'fallback'"
+                      :class="!aiForm.fallback.provider && 'chip-selected'" :aria-checked="!aiForm.fallback.provider"
+                      :disabled="!!aiBusy || ai?.agent_busy" @click="pickProvider('fallback', '')">
+                <span x-show="!aiForm.fallback.provider" x-html="icon('check', 'h-4 w-4')"></span><span>None</span></button>
               <template x-for="p in ai?.providers || []" :key="p.id">
                 <button type="button" class="chip-outline disabled:cursor-not-allowed disabled:opacity-50" role="radio"
                         :class="aiForm[role.id].provider === p.id && 'chip-selected'" :aria-checked="aiForm[role.id].provider === p.id"
-                        :disabled="!p.key_set || !!aiBusy || (role.id === 'agent' && ai?.agent_busy)"
+                        :disabled="!p.key_set || !!aiBusy || (role.id !== 'ai' && ai?.agent_busy)"
                         :title="p.key_set ? '' : `Add ${p.key_name} to .env to use ${p.name}`" @click="pickProvider(role.id, p.id)">
                   <span x-show="aiForm[role.id].provider === p.id" x-html="icon('check', 'h-4 w-4')"></span>
                   <span x-text="p.name"></span><span x-show="!p.key_set" class="font-normal">· no key</span>
@@ -40,7 +44,7 @@
               </template>
             </div>
             <select class="input" x-model="aiForm[role.id].model" :aria-label="role.title + ': model'"
-                    :disabled="!aiForm[role.id].provider || !!aiBusy || (role.id === 'agent' && ai?.agent_busy)">
+                    x-show="aiForm[role.id].provider" :disabled="!!aiBusy || (role.id !== 'ai' && ai?.agent_busy)">
               <optgroup label="Recommended" x-show="modelGroups(role.id).rec.length">
                 <template x-for="m in modelGroups(role.id).rec" :key="m">
                   <option :value="m" :selected="m === aiForm[role.id].model" x-text="m"></option></template>

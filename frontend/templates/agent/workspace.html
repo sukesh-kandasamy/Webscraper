@@ -14,7 +14,7 @@
       <div class="title-l font-semibold text-on-surface">Agent</div>
     </div>
     <span class="chip chip-gray ml-2 hidden sm:inline-flex" x-show="status?.agent" x-cloak
-          x-text="status?.agent ? `${status.agent.provider} · ${status.agent.model}` : ''"></span>
+          x-text="status?.agent ? `${status.agent.provider} · ${status.agent.model}` + (status.agent.fallback ? ` · backup: ${status.agent.fallback.provider}` : '') : ''"></span>
     <div class="ml-auto flex items-center gap-1">
       <a class="btn-ghost hidden h-10 px-4 text-sm sm:inline-flex" href="/"><span x-html="icon('home', 'h-5 w-5')"></span> Back to Universal Scraper</a>
       <button class="btn btn-icon" @click="cycleTheme()" :title="themeLabel()" :aria-label="themeLabel()"><span x-html="icon(themeIcon(), 'h-6 w-6')"></span></button>
@@ -231,6 +231,7 @@
                   <div class="rounded-m3-md bg-surface-container px-4 py-3">
                     <div class="label-m text-on-surface-variant" x-text="t.label"></div>
                     <div class="title-l mt-1 tabular-nums text-on-surface" x-text="t.value"></div>
+                    <div class="mt-0.5 text-xs tabular-nums text-on-surface-variant" x-show="t.note" x-text="t.note"></div>
                   </div>
                 </template>
               </div>

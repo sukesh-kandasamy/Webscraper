@@ -237,6 +237,7 @@ class StepIn(BaseModel):
     html: str = ""                 # current page, for human-check detection
     steps: int | None = None
     ai_calls: int | None = None
+    tokens: int | None = None
 
 
 @worker.post("/runs/{run_id}/step")
@@ -251,7 +252,7 @@ def add_step(run_id: int, body: StepIn):
             (d / f"{n}.jpg").write_bytes(base64.b64decode(body.shot))
         except ValueError:
             pass
-    counters = {k: v for k, v in (("steps", body.steps), ("ai_calls", body.ai_calls)) if v is not None}
+    counters = {k: v for k, v in (("steps", body.steps), ("ai_calls", body.ai_calls), ("tokens", body.tokens)) if v is not None}
     if counters:
         store.update(run_id, **counters)
     if body.url:
@@ -298,6 +299,7 @@ class FinishIn(BaseModel):
     message: str = Field(default="", max_length=1000)
     steps: int | None = None
     ai_calls: int | None = None
+    tokens: int | None = None
 
 
 @worker.post("/runs/{run_id}/finish")
@@ -308,7 +310,7 @@ def finish(run_id: int, body: FinishIn):
     msg = logsafe.redact(body.message) or {"stopped": "Stopped by you.", "limit": "Reached a limit.",
                                            "needs_you": "The site asked for a human check.",
                                            "error": "The agent could not reach the results."}[body.status]
-    fields = {k: v for k, v in (("steps", body.steps), ("ai_calls", body.ai_calls)) if v is not None}
+    fields = {k: v for k, v in (("steps", body.steps), ("ai_calls", body.ai_calls), ("tokens", body.tokens)) if v is not None}
     store.update(run_id, status=body.status, message=msg, summary=msg, finished_at=time.time(), **fields)
     store.add_step(run_id, "warn" if body.status != "stopped" else "info", msg)
     if body.status == "needs_you":

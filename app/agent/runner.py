@@ -48,9 +48,19 @@ def seen() -> None:
 def status() -> dict:
     return {"enabled": config.AGENT_ENABLED, "installed": installed(), "worker_running": alive(),
             "provider": config.AGENT_PROVIDER, "model": config.AGENT_MODEL, "vision": config.agent_vision(),
+            "fallback": config.agent_fallback(),
             "key_set": bool(config.agent_key()), "browser": bool(installed_browser()),
             "limits": {"steps": config.AGENT_MAX_STEPS, "minutes": config.AGENT_MAX_MINUTES,
                        "ai_calls": config.AGENT_MAX_AI_CALLS}}
+
+
+def _fallback_env() -> dict:
+    backup = config.agent_fallback()
+    if not backup:
+        return {}
+    return {"AGENT_FALLBACK_PROVIDER": backup["provider"], "AGENT_FALLBACK_MODEL": backup["model"],
+            "AGENT_FALLBACK_API_KEY": config._KEYS[backup["provider"]](),
+            "AGENT_FALLBACK_BASE_URL": config.OPENAI_BASE_URL if backup["provider"] == "openai" else ""}
 
 
 def _env(app_url: str) -> dict:
@@ -63,6 +73,7 @@ def _env(app_url: str) -> dict:
         "AGENT_API_KEY": config.agent_key(),
         "AGENT_BASE_URL": config.OPENAI_BASE_URL if config.AGENT_PROVIDER == "openai" else "",
         "AGENT_VISION": "1" if config.agent_vision() else "0",
+        **_fallback_env(),
         "AGENT_BROWSER": installed_browser(),
         "AGENT_SHOW_BROWSER": os.getenv("SCRAPER_AGENT_SHOW_BROWSER", "0"),
         "ANONYMIZED_TELEMETRY": "false",

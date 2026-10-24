@@ -74,7 +74,8 @@ function agentPage() {
       const secs = this.agentSeconds();
       return [
         { label: "Agent steps", value: `${r.steps || 0} / ${r.limits?.steps || "—"}` },
-        { label: "AI calls", value: `${r.ai_calls || 0} / ${r.limits?.ai_calls || "—"}` },
+        { label: "AI calls", value: `${r.ai_calls || 0} / ${r.limits?.ai_calls || "—"}`,
+          note: r.tokens ? `${r.tokens >= 1000 ? (r.tokens / 1000).toFixed(1) + "k" : r.tokens} tokens` : "" },
         { label: "Time", value: secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s` },
         { label: "Rows", value: this.fmt(r.job?.rows || 0) },
       ];

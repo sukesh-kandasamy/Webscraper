@@ -164,8 +164,8 @@ def test_plan_start_worker_flow_and_handoff(client, monkeypatch):
     assert off_site["ok"] is False
     step = client.post(f"/api/agent/worker/runs/{run['id']}/step", headers=w,
                        json={"kind": "action", "text": "Clicked “Mystery”", "url": PUBLIC + "/mystery",
-                             "steps": 2, "ai_calls": 3}).json()
-    assert step == {"stop": False}
+                             "steps": 2, "ai_calls": 3, "tokens": 5400}).json()
+    assert step == {"stop": False} and store.get(run["id"])["tokens"] == 5400
     captcha = client.post(f"/api/agent/worker/runs/{run['id']}/step", headers=w, json={
         "kind": "thought", "text": "x", "url": PUBLIC + "/mystery",
         "html": "<html><body><div class='g-recaptcha'></div>Please verify you are human</body></html>"}).json()

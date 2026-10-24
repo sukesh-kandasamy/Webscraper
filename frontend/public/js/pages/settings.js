@@ -4,12 +4,13 @@ function settingsPage() {
     sites: [],
     activity: [],
     ai: null,                          // GET /api/ai: what is in use, which providers have a key
-    aiForm: { ai: { provider: "", model: "" }, agent: { provider: "", model: "" } },
+    aiForm: { ai: { provider: "", model: "" }, agent: { provider: "", model: "" }, fallback: { provider: "", model: "" } },
     aiModels: {},                      // provider -> {models, suggested, live}
     aiBusy: "",
     aiRoles: [
       { id: "ai", title: "Building scrapes", help: "Finds the columns on a page, reads your request and plans agent runs." },
       { id: "agent", title: "Agent", help: "Drives the browser step by step in Agent mode." },
+      { id: "fallback", title: "Agent backup", help: "Takes over when the agent's AI hits a rate or daily limit, runs out of credit or refuses the key." },
     ],
 
     async start() { await Promise.all([this.loadSites(), this.loadAi()]); },
@@ -18,7 +19,9 @@ function settingsPage() {
       try {
         this.ai = await api("GET", "/api/ai");
         for (const r of ["ai", "agent"]) this.aiForm[r] = { provider: this.ai[r].provider, model: this.ai[r].model };
-        await Promise.all([...new Set([this.ai.ai.provider, this.ai.agent.provider])].map(p => this.loadModels(p)));
+        this.aiForm.fallback = { ...this.savedBackup() };
+        const used = [this.ai.ai.provider, this.ai.agent.provider, this.aiForm.fallback.provider].filter(Boolean);
+        await Promise.all([...new Set(used)].map(p => this.loadModels(p)));
       } catch (e) { this.showError(e); }
     },
     async loadModels(p) {
@@ -34,15 +37,20 @@ function settingsPage() {
       if (f.model && !all.includes(f.model)) rest.unshift(f.model);
       return { rec, rest };
     },
+    savedBackup() { return this.ai?.agent_fallback || { provider: "", model: "" }; },
+    saved(role) { return role === "fallback" ? this.savedBackup() : this.ai[role]; },
     async pickProvider(role, p) {
       const f = this.aiForm[role];
       if (f.provider === p) return;
       f.provider = p;
+      if (!p) { f.model = ""; return; }                  // the backup's "None"
       await this.loadModels(p);
-      f.model = this.ai[role].provider === p ? this.ai[role].model : (this.aiModels[p]?.models || [])[0] || "";
+      const before = this.saved(role);
+      f.model = before.provider === p ? before.model : (this.aiModels[p]?.models || [])[0] || "";
     },
     aiDirty() {
-      return !!this.ai && ["ai", "agent"].some(r => this.aiForm[r].provider !== this.ai[r].provider || this.aiForm[r].model !== this.ai[r].model);
+      return !!this.ai && ["ai", "agent", "fallback"].some(r =>
+        this.aiForm[r].provider !== this.saved(r).provider || this.aiForm[r].model !== this.saved(r).model);
     },
     agentSeesText() {
       return ["anthropic", "openai"].includes(this.aiForm.agent.provider)
@@ -52,7 +60,8 @@ function settingsPage() {
     async saveAi() {
       this.aiBusy = "save";
       try {
-        this.ai = await api("PUT", "/api/ai", this.aiForm);
+        const { ai, agent, fallback } = this.aiForm;
+        this.ai = await api("PUT", "/api/ai", { ai, agent, agent_fallback: fallback.provider ? fallback : null });
         this.toast("Saved. The app now uses these models.");
         this.loadStatus();
       } catch (e) { this.showError(e); }

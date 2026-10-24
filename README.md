@@ -293,7 +293,9 @@ overrides the provider and model settings below. Keys always stay in
 | `SCRAPER_CACHE_TTL_HOURS` | 24 | Page cache |
 | `SCRAPER_AGENT` | 1 | `0` turns Agent mode off |
 | `SCRAPER_AGENT_PROVIDER` / `SCRAPER_AGENT_MODEL` | `anthropic` + `claude-sonnet-5-5` if `ANTHROPIC_API_KEY` is set, else `openai` + `SCRAPER_OPENAI_MODEL` if `OPENAI_API_KEY` is set, else `groq` + gpt-oss-120b | The AI that drives the browser |
+| `SCRAPER_AGENT_FALLBACK_PROVIDER` / `SCRAPER_AGENT_FALLBACK_MODEL` | none | Backup AI for the agent: takes over when its own AI hits a rate or daily limit, runs out of credit or refuses the key (also in Settings → AI models) |
 | `SCRAPER_AGENT_MAX_STEPS` / `_MAX_MINUTES` / `_MAX_AI_CALLS` | 40 / 10 / 60 | Default limits per agent run |
+| `SCRAPER_DATA_DIR` | `data/` | Where the database, logins, logs and screenshots live (e.g. a separate folder for a test copy of the app) |
 | `SCRAPER_AGENT_SHOW_BROWSER` | 0 | `1` shows the agent's browser window |
 
 ## What's next

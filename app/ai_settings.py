@@ -46,6 +46,7 @@ class Choice(BaseModel):
 class ChoiceIn(BaseModel):
     ai: Choice
     agent: Choice
+    agent_fallback: Choice | None = None       # the agent's backup AI; None = no backup
 
 
 def _agent_busy() -> bool:
@@ -55,6 +56,7 @@ def _agent_busy() -> bool:
 def view() -> dict:
     return {"ai": {"provider": config.AI_PROVIDER, "model": config.ai_model()},
             "agent": {"provider": config.AGENT_PROVIDER, "model": config.AGENT_MODEL, "vision": config.agent_vision()},
+            "agent_fallback": config.agent_fallback(),
             "providers": [{"id": p, "name": name, "key_set": config.key_set(p), "key_name": config.KEY_NAMES[p]}
                           for p, name in config.PROVIDER_NAMES.items()],
             "custom": db.get_app_setting("ai") is not None, "agent_busy": _agent_busy()}
@@ -118,10 +120,14 @@ def _check(role: str, c: Choice) -> None:
         raise HTTPException(400, f"{name} · {c.model} didn't work for {role}: {logsafe.redact(str(e))}") from e
 
 
+def _agent_ai() -> tuple:
+    return config.AGENT_PROVIDER, config.AGENT_MODEL, config.agent_fallback()
+
+
 def _save(choice: dict | None) -> dict:
-    before = (config.AGENT_PROVIDER, config.AGENT_MODEL)
+    before = _agent_ai()
     config.apply_ai_choice(choice)
-    agent_changed = (config.AGENT_PROVIDER, config.AGENT_MODEL) != before
+    agent_changed = _agent_ai() != before
     if agent_changed and _agent_busy():
         config.apply_ai_choice(db.get_app_setting("ai"))          # undo: keep what the running agent uses
         raise HTTPException(409, "An agent run is in progress. Change the agent's AI after it finishes.")
@@ -129,7 +135,8 @@ def _save(choice: dict | None) -> dict:
     if agent_changed:
         agent_runner.stop()                                       # the next run starts it with the new AI
     audit.log("ai_settings_changed", provider=config.AI_PROVIDER, model=config.ai_model(),
-              agent_provider=config.AGENT_PROVIDER, agent_model=config.AGENT_MODEL, reset=choice is None)
+              agent_provider=config.AGENT_PROVIDER, agent_model=config.AGENT_MODEL,
+              agent_fallback=config.agent_fallback(), reset=choice is None)
     return view()
 
 
@@ -137,13 +144,19 @@ def _save(choice: dict | None) -> dict:
 def put_choice(body: ChoiceIn):
     ai_changed = (body.ai.provider, body.ai.model) != (config.AI_PROVIDER, config.ai_model())
     agent_changed = (body.agent.provider, body.agent.model) != (config.AGENT_PROVIDER, config.AGENT_MODEL)
-    if agent_changed and _agent_busy():
+    backup = body.agent_fallback.model_dump() if body.agent_fallback else None
+    backup_changed = backup != config.agent_fallback()
+    if (agent_changed or backup_changed) and _agent_busy():
         raise HTTPException(409, "An agent run is in progress. Change the agent's AI after it finishes.")
+    if backup and body.agent_fallback == body.agent:
+        raise HTTPException(400, "The backup has to be a different AI from the agent's own.")
     if ai_changed:
         _check("building scrapes", body.ai)
     # The agent needs its own check unless it uses the very model that was just checked.
     if agent_changed and not (ai_changed and body.agent == body.ai):
         _check("the agent", body.agent)
+    if backup_changed and backup and not (ai_changed and body.agent_fallback == body.ai):
+        _check("the agent's backup", body.agent_fallback)
     return _save(body.model_dump())
 
 

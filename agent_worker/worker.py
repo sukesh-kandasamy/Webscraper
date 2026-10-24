@@ -33,6 +33,8 @@ KEEP_ATTRS = ("id", "name", "type", "role", "aria-label", "placeholder", "title"
 from browser_use import Agent, BrowserProfile, Tools                      # noqa: E402
 from browser_use.agent.views import ActionResult                          # noqa: E402
 
+import llm_errors                                                         # noqa: E402
+
 client = httpx.Client(base_url=APP, headers=HEADERS, timeout=60)
 
 
@@ -49,16 +51,62 @@ def post(path: str, **body) -> dict:
         return {}
 
 
-def make_llm():
-    provider, model, key = os.environ["AGENT_PROVIDER"], os.environ["AGENT_MODEL"], os.environ["AGENT_API_KEY"]
+def make_llm(role: str = "AGENT"):
+    """The agent's AI (role AGENT) or its backup (AGENT_FALLBACK), from the environment the app set."""
+    provider, model, key = os.environ[f"{role}_PROVIDER"], os.environ[f"{role}_MODEL"], os.environ[f"{role}_API_KEY"]
     if provider == "anthropic":
         from browser_use import ChatAnthropic
         return ChatAnthropic(model=model, api_key=key)
     if provider == "openai":
         from browser_use import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=key, base_url=os.environ.get("AGENT_BASE_URL") or None)
+        return ChatOpenAI(model=model, api_key=key, base_url=os.environ.get(f"{role}_BASE_URL") or None)
     from browser_use import ChatGroq
     return ChatGroq(model=model, api_key=key)
+
+
+# browser-use moves to the backup model on these (rate limits, no credit, refused key, server errors)
+SWITCHES_TO_BACKUP = ("daily_limit", "quota", "auth", "rate_limit", "server")
+
+
+def track(llm, run: "Run", role: str) -> None:
+    """Count every AI call and its tokens; turn provider errors into a clear stop (or a note when the
+    backup takes over); wait out a short rate limit once instead of failing the step."""
+    provider, model = os.environ[f"{role}_PROVIDER"], os.environ[f"{role}_MODEL"]
+    original = llm.ainvoke
+
+    async def counted(*a, **kw):
+        run.ai_calls += 1
+        if role == "AGENT_FALLBACK" and not run.using_backup:
+            run.using_backup = True
+            post(f"/api/agent/worker/runs/{run.id}/step", kind="warn",
+                 text=f"{run.problem or 'The agent’s AI failed.'} Switched to the backup AI: "
+                      f"{llm_errors.PROVIDERS.get(provider, provider)} · {model}.", **run.counters())
+        for attempt in (1, 2):
+            try:
+                out = await original(*a, **kw)
+                break
+            except Exception as e:
+                text, status = str(getattr(e, "message", "") or e), getattr(e, "status_code", None)
+                p = llm_errors.classify(text, status, provider, model)
+                if not p:
+                    raise
+                if attempt == 1 and p["kind"] == "rate_limit" and not p["fatal"] and p["wait_s"]:
+                    await asyncio.sleep(p["wait_s"] + 1)
+                    continue
+                run.problem = p["message"]
+                backup_takes_over = role == "AGENT" and run.has_backup and p["kind"] in SWITCHES_TO_BACKUP
+                if p["fatal"] and not backup_takes_over:
+                    run.stop_reason = run.stop_reason or "error"
+                    prefix = "The backup AI failed too: " if role == "AGENT_FALLBACK" else ""
+                    run.stop_message = run.stop_message or prefix + p["message"] + llm_errors.advice(run.has_backup)
+                log(f"run {run.id}: {role.lower()} error ({p['kind']}): {p['message']}")
+                raise
+        usage = getattr(out, "usage", None)
+        if usage is not None:
+            run.tokens += int(getattr(usage, "total_tokens", 0)
+                              or (getattr(usage, "prompt_tokens", 0) or 0) + (getattr(usage, "completion_tokens", 0) or 0))
+        return out
+    object.__setattr__(llm, "ainvoke", counted)
 
 
 async def describe(browser_session, index) -> dict:
@@ -108,14 +156,18 @@ class Run:
         self.id = job["id"]
         self.job = job
         self.ai_calls = 0
+        self.tokens = 0
         self.steps = 0
         self.arrived = False
+        self.has_backup = False
+        self.using_backup = False
+        self.problem = ""             # the last AI provider problem, in plain words
         self.stop_reason = ""
         self.stop_message = ""
         self.browser_session = None
 
     def counters(self) -> dict:
-        return {"steps": self.steps, "ai_calls": self.ai_calls}
+        return {"steps": self.steps, "ai_calls": self.ai_calls, "tokens": self.tokens}
 
 
 class GuardedTools(Tools):
@@ -147,6 +199,10 @@ class GuardedTools(Tools):
             if params is None:
                 continue
             params = params if isinstance(params, dict) else {}
+            # Ending with success without results_reached: try the hand-over, so a list the agent did reach
+            # is collected (and a page that isn't one sends the agent back to work).
+            if name == "done" and params.get("success") and not self.run.arrived:
+                return await self._arrive(str(params.get("text", ""))[:400], browser_session)
             el = await describe(browser_session, params["index"]) if params.get("index") is not None else {}
             check = {"navigate": {"url": params.get("url", "")}}.get(name, {})
             if name in ("navigate", "click", "input", "select_dropdown"):
@@ -196,12 +252,11 @@ async def execute(job: dict) -> None:
     run = Run(job)
     limits = job["limits"]
     llm = make_llm()
-    original = llm.ainvoke
-
-    async def counted(*a, **kw):          # every AI call is counted against the run's limit
-        run.ai_calls += 1
-        return await original(*a, **kw)
-    object.__setattr__(llm, "ainvoke", counted)
+    track(llm, run, "AGENT")
+    backup = make_llm("AGENT_FALLBACK") if os.environ.get("AGENT_FALLBACK_PROVIDER") else None
+    if backup is not None:
+        track(backup, run, "AGENT_FALLBACK")
+    run.has_backup = backup is not None
 
     show = os.environ.get("AGENT_SHOW_BROWSER") == "1"
     profile = BrowserProfile(headless=not show, executable_path=os.environ.get("AGENT_BROWSER") or None,
@@ -228,7 +283,9 @@ async def execute(job: dict) -> None:
         task=job["task"], llm=llm, browser_profile=profile, tools=tools,
         use_vision=vision, use_judge=False, enable_planning=False, calculate_cost=False,
         flash_mode=not vision, use_thinking=vision, max_actions_per_step=3, max_failures=3,
-        max_clickable_elements_length=12000 if not vision else 30000,
+        # fewer tokens per call: only the latest steps in full, and a shorter element list without screenshots
+        max_history_items=8, max_clickable_elements_length=9000 if not vision else 30000,
+        fallback_llm=backup,
         initial_actions=[{"navigate": {"url": job["start_url"], "new_tab": False}}],
         register_new_step_callback=on_step, register_should_stop_callback=should_stop,
         llm_timeout=90, step_timeout=150,

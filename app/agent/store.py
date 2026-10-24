@@ -60,6 +60,8 @@ def init() -> None:
         if "fixes" not in cols:                 # check-and-fix: what was fixed, and how many rounds
             c.execute("ALTER TABLE agent_runs ADD COLUMN fixes TEXT NOT NULL DEFAULT '[]'")
             c.execute("ALTER TABLE agent_runs ADD COLUMN fix_rounds INTEGER NOT NULL DEFAULT 0")
+        if "tokens" not in cols:                # AI tokens the run used (prompt + answer), all models
+            c.execute("ALTER TABLE agent_runs ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0")
         if "public_id" not in cols:             # the Run ID people see (RUN-7K3QX9); the number stays internal
             c.execute("ALTER TABLE agent_runs ADD COLUMN public_id TEXT")
         for (run_id,) in c.execute("SELECT id FROM agent_runs WHERE public_id IS NULL OR public_id=''").fetchall():

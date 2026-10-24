@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
-DATA_DIR = ROOT / "data"
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR = Path(os.getenv("SCRAPER_DATA_DIR", ROOT / "data"))      # a separate folder for test copies of the app
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = Path(os.getenv("SCRAPER_DB", DATA_DIR / "scraper.db"))
 BUILTIN_RECIPES_DIR = ROOT / "app" / "recipes"
 STATIC_DIR = ROOT / "frontend" / "public"      # the UI, served at /static
@@ -110,6 +110,9 @@ AGENT_PROVIDER = os.getenv("SCRAPER_AGENT_PROVIDER", "anthropic" if ANTHROPIC_AP
                            else "groq").lower()
 AGENT_MODEL = os.getenv("SCRAPER_AGENT_MODEL", {"anthropic": "claude-sonnet-5-5", "openai": OPENAI_MODEL}
                         .get(AGENT_PROVIDER, GROQ_MODEL))
+# Backup AI for the agent: used when its own AI hits a rate or daily limit, has no credit or refuses the key.
+AGENT_FALLBACK_PROVIDER = os.getenv("SCRAPER_AGENT_FALLBACK_PROVIDER", "").lower()
+AGENT_FALLBACK_MODEL = os.getenv("SCRAPER_AGENT_FALLBACK_MODEL", "")
 AGENT_MAX_STEPS = int(os.getenv("SCRAPER_AGENT_MAX_STEPS", "40"))
 AGENT_MAX_MINUTES = float(os.getenv("SCRAPER_AGENT_MAX_MINUTES", "10"))
 AGENT_MAX_AI_CALLS = int(os.getenv("SCRAPER_AGENT_MAX_AI_CALLS", "60"))
@@ -129,9 +132,17 @@ def key_set(provider: str) -> bool:
     return bool(_KEYS[provider]()) if provider in _KEYS else False
 
 
+def agent_fallback() -> dict | None:
+    """The agent's backup AI, when one is chosen and its key is set."""
+    if AGENT_FALLBACK_PROVIDER in _KEYS and AGENT_FALLBACK_MODEL and key_set(AGENT_FALLBACK_PROVIDER):
+        return {"provider": AGENT_FALLBACK_PROVIDER, "model": AGENT_FALLBACK_MODEL}
+    return None
+
+
 # ---- AI choice made in Settings (saved in the database; .env holds the keys and the defaults) ----
 _ENV_CHOICE = {"AI_PROVIDER": AI_PROVIDER, "GROQ_MODEL": GROQ_MODEL, "OPENAI_MODEL": OPENAI_MODEL,
-               "CLAUDE_MODEL": CLAUDE_MODEL, "AGENT_PROVIDER": AGENT_PROVIDER, "AGENT_MODEL": AGENT_MODEL}
+               "CLAUDE_MODEL": CLAUDE_MODEL, "AGENT_PROVIDER": AGENT_PROVIDER, "AGENT_MODEL": AGENT_MODEL,
+               "AGENT_FALLBACK_PROVIDER": AGENT_FALLBACK_PROVIDER, "AGENT_FALLBACK_MODEL": AGENT_FALLBACK_MODEL}
 _MODEL_VAR = {"groq": "GROQ_MODEL", "openai": "OPENAI_MODEL", "anthropic": "CLAUDE_MODEL"}
 
 
@@ -155,3 +166,8 @@ def apply_ai_choice(choice: dict | None) -> None:
     if agent.get("provider") in _MODEL_VAR:
         g["AGENT_PROVIDER"] = agent["provider"]
         g["AGENT_MODEL"] = agent.get("model") or default_agent_model(agent["provider"])
+    if "agent_fallback" in (choice or {}):                 # None = no backup
+        backup = choice["agent_fallback"] or {}
+        ok = backup.get("provider") in _MODEL_VAR and backup.get("model")
+        g["AGENT_FALLBACK_PROVIDER"] = backup["provider"] if ok else ""
+        g["AGENT_FALLBACK_MODEL"] = backup["model"] if ok else ""
