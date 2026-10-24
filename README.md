@@ -272,7 +272,7 @@ Web-Scraping/
 **Choosing the AI in the app:** *Settings → AI models* picks the provider (Groq, ChatGPT / OpenAI, Claude)
 and the model, separately for building scrapes and for the agent. The lists come from each provider, and
 saving sends one short test message to each newly picked model. The choice is saved in the database and
-overrides the provider and model settings below; *Use .env defaults* goes back to them. Keys always stay in
+overrides the provider and model settings below. Keys always stay in
 `.env`: a provider without a key can't be picked, and the page never sees a key.
 
 | Setting | Default | Notes |

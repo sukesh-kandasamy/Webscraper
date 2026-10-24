@@ -58,16 +58,6 @@ function settingsPage() {
       } catch (e) { this.showError(e); }
       finally { this.aiBusy = ""; }
     },
-    async resetAi() {
-      this.aiBusy = "reset";
-      try {
-        await api("DELETE", "/api/ai");
-        await this.loadAi();
-        this.toast("Back to the AI set in .env.");
-        this.loadStatus();
-      } catch (e) { this.showError(e); }
-      finally { this.aiBusy = ""; }
-    },
     async afterWindow() { await this.loadSites(); },
     async loadSites() { try { this.sites = await api("GET", "/api/sites"); } catch { /* not fatal */ } },
 

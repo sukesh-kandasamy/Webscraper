@@ -59,7 +59,6 @@
         </div>
       </template>
       <div class="flex flex-wrap items-center justify-end gap-3 border-t border-outline-variant pt-4">
-        <button class="btn" x-show="ai?.custom" @click="resetAi()" :disabled="!!aiBusy">Use .env defaults</button>
         <button class="btn btn-primary" @click="saveAi()" :disabled="!!aiBusy || !aiDirty()">
           <span class="spinner" x-show="aiBusy === 'save'" x-cloak></span><span x-text="aiBusy === 'save' ? 'Checking…' : 'Save'"></span></button>
       </div>
