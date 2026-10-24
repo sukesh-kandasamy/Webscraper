@@ -1,7 +1,7 @@
 // Agent mode: describe the goal, approve the plan, watch the agent work, open the results.
 function agentPage() {
   let shown = { id: null, secs: 0 };   // last time shown, so the clock never steps back when a poll lands
-  const arrived = new WeakMap();       // each run object from the server -> when the page first saw it
+  const offsets = new WeakMap();       // each run object from the server -> this page's clock minus the server's
   return {
     agentGoal: "",
     agentSite: "",
@@ -10,13 +10,13 @@ function agentPage() {
     agentNewCol: "",
     agentLimits: { steps: 40, minutes: 10, ai_calls: 60 },
     agentTimer: null,
-    agentNow: Date.now(),        // ticks every second while a run is on screen
+    agentNow: Date.now(),        // ticks 4 times a second while a run is on screen
     agentExamples: AGENT_EXAMPLES,
     historyOpen: false,
 
     async start() {
       if (this.status?.agent?.limits) this.agentLimits = { ...this.status.agent.limits };
-      setInterval(() => { if (this.agentActive()) this.agentNow = Date.now(); }, 1000);
+      setInterval(() => { if (this.agentActive()) this.agentNow = Date.now(); }, 250);
       await this.loadAgentRuns();
       window.addEventListener("popstate", () => this.openFromAddress());
       await this.openFromAddress();
@@ -80,18 +80,17 @@ function agentPage() {
         { label: "Rows", value: this.fmt(r.job?.rows || 0) },
       ];
     },
-    // The server sends the elapsed time every 2 s; count the seconds in between here.
+    // The server sends the run every 2 s. In between, the page runs the clock itself from the run's start
+    // time (corrected for any difference between the two clocks), so each second shows for a whole second.
     agentSeconds() {
       const r = this.agentRun || {};
-      let secs = r.elapsed_s || 0;
-      if (this.agentActive() && r.started_at) {
-        const raw = Alpine.raw(r);
-        if (!arrived.has(raw)) arrived.set(raw, Date.now());
-        void this.agentNow;          // redraw on every tick
-        secs += Math.max(0, Math.floor((Date.now() - arrived.get(raw)) / 1000));
-        if (shown.id === r.id) secs = Math.max(secs, shown.secs);
-        shown = { id: r.id, secs };
-      }
+      if (!this.agentActive() || !r.started_at || !r.server_now) return r.elapsed_s || 0;
+      void this.agentNow;            // redraw on every tick
+      const raw = Alpine.raw(r);
+      if (!offsets.has(raw)) offsets.set(raw, Date.now() / 1000 - r.server_now);
+      let secs = Math.max(0, Math.floor(Date.now() / 1000 - offsets.get(raw) - r.started_at));
+      if (shown.id === r.id) secs = Math.max(secs, shown.secs);
+      shown = { id: r.id, secs };
       return secs;
     },
     async loadAgentRuns() {

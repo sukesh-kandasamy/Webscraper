@@ -68,6 +68,7 @@ def test_static_assets_and_status_counters(client):
                  "/static/js/vendor/alpine-3.14.1.min.js"):
         assert client.get(path).status_code == 200, path
     assert client.get("/static/../app/config.py").status_code == 404
+    assert client.get("/static/js/core.js").headers["cache-control"] == "no-cache"     # updates are picked up
     s = client.get("/api/status").json()
     assert {"active_jobs", "active_agent_runs", "saved_scrapes", "needs_you"} <= set(s)
 

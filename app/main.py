@@ -104,6 +104,10 @@ async def same_origin_only(request: Request, call_next):
         response.headers.setdefault(k, v)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/static/"):
+        # Check with the app before reusing a cached file (a cheap "not modified" when it is the same), so
+        # an updated script is used right away instead of an old copy the browser decided to keep.
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 

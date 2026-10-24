@@ -68,6 +68,7 @@ def _view(run: dict, after: int = 0) -> dict:
             out["job"]["quality"] = job.get("quality") or {}
     if run["started_at"]:
         out["elapsed_s"] = int((run["finished_at"] or time.time()) - run["started_at"])
+    out["server_now"] = time.time()          # lets the page run the clock itself between updates
     return out
 
 
