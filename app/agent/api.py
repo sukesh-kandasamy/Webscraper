@@ -137,7 +137,7 @@ def stop_run(run_id: int):
     run = _run_or_404(run_id)
     if run["status"] in ("draft", "queued"):
         store.update(run_id, status="stopped", message="Stopped before it started", finished_at=time.time())
-    elif run["status"] == "navigating":
+    elif run["status"] in ("navigating", "fixing"):
         store.update(run_id, stop_requested=1, message="Stopping…")
     elif run["status"] == "collecting" and run.get("job_id"):
         jobs.stop(run["job_id"])
@@ -147,7 +147,7 @@ def stop_run(run_id: int):
 @router.delete("/runs/{run_id}")
 def delete_run(run_id: int):
     run = _run_or_404(run_id)
-    if run["status"] in ("queued", "navigating", "collecting"):
+    if run["status"] in store.ACTIVE:
         raise HTTPException(409, "Stop the run before deleting it.")
     store.delete(run_id)
     shots = config.AGENT_SHOTS_DIR / str(run_id)

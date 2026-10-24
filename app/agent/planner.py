@@ -84,7 +84,8 @@ def clean_plan(raw: dict, goal: str, site: str) -> dict:
     item_pages = raw.get("item_pages") if raw.get("item_pages") in ("yes", "no", "auto") else "auto"
     request = request_parser.clean_request(raw.get("request") or raw, goal)
     return {"start_url": start, "navigation": nav, "request": request, "pages": pages,
-            "item_pages": item_pages, "summary": request.get("summary", ""), "question": request.get("question", "")}
+            "item_pages": item_pages, "auto_fix": raw.get("auto_fix", True) is not False,
+            "summary": request.get("summary", ""), "question": request.get("question", "")}
 
 
 def make_plan(goal: str, site: str, pages: int | None = None) -> dict:

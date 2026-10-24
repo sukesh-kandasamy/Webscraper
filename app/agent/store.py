@@ -5,6 +5,7 @@ Run statuses:
   queued      approved, waiting for the agent worker
   navigating  the agent is moving around the site
   collecting  the agent reached the results; the normal engine is collecting (job_id)
+  fixing      checking the quality report and fixing what it can (supervisor.py)
   done | stopped | needs_you | limit | error
 """
 import json
@@ -46,7 +47,7 @@ CREATE TABLE IF NOT EXISTS agent_steps (
 );
 """
 
-ACTIVE = ("queued", "navigating", "collecting")
+ACTIVE = ("queued", "navigating", "collecting", "fixing")
 FINISHED = ("done", "stopped", "needs_you", "limit", "error")
 
 
@@ -56,6 +57,9 @@ def init() -> None:
         cols = {r["name"] for r in c.execute("PRAGMA table_info(agent_runs)")}
         if "target_scrape_id" not in cols:      # re-recording a saved scrape's route updates that scrape
             c.execute("ALTER TABLE agent_runs ADD COLUMN target_scrape_id INTEGER")
+        if "fixes" not in cols:                 # check-and-fix: what was fixed, and how many rounds
+            c.execute("ALTER TABLE agent_runs ADD COLUMN fixes TEXT NOT NULL DEFAULT '[]'")
+            c.execute("ALTER TABLE agent_runs ADD COLUMN fix_rounds INTEGER NOT NULL DEFAULT 0")
         # The worker process died with the server: its navigating runs can't continue.
         c.execute("UPDATE agent_runs SET status='error', message='The app restarted while the agent was "
                   "working. Start it again.', finished_at=? WHERE status='navigating'", (time.time(),))
@@ -65,6 +69,7 @@ def _run(row) -> dict:
     d = dict(row)
     d["plan"] = json.loads(d["plan"] or "{}")
     d["limits"] = json.loads(d["limits"] or "{}")
+    d["fixes"] = json.loads(d.get("fixes") or "[]")
     d["stop_requested"] = bool(d["stop_requested"])
     return d
 
@@ -85,7 +90,7 @@ def get(run_id: int) -> dict | None:
 def update(run_id: int, **fields) -> None:
     if not fields:
         return
-    for k in ("plan", "limits"):
+    for k in ("plan", "limits", "fixes"):
         if k in fields and not isinstance(fields[k], str):
             fields[k] = json.dumps(fields[k], ensure_ascii=False)
     cols = ", ".join(f"{k}=?" for k in fields)
@@ -97,6 +102,15 @@ def list_runs(limit: int = 30) -> list[dict]:
     with db.tx() as c:
         rows = c.execute("SELECT * FROM agent_runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [_run(r) for r in rows]
+
+
+def transition(run_id: int, old: str, new: str, **fields) -> bool:
+    """Move a run from one status to another only if it is still in the old one (no double work)."""
+    cols = ", ".join(["status=?"] + [f"{k}=?" for k in fields])
+    with db.tx() as c:
+        cur = c.execute(f"UPDATE agent_runs SET {cols} WHERE id=? AND status=?",
+                        (new, *fields.values(), run_id, old))
+        return cur.rowcount == 1
 
 
 def claim_next() -> dict | None:

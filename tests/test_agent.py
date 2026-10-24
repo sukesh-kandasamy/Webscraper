@@ -122,6 +122,15 @@ def client(monkeypatch):
     vault.set_key_for_tests(None)
 
 
+def wait_run(client, run_id, timeout=10):
+    for _ in range(int(timeout * 20)):
+        v = client.get(f"/api/agent/runs/{run_id}").json()
+        if v["status"] not in store.ACTIVE:
+            return v
+        time.sleep(0.05)
+    raise AssertionError(f"agent run stuck in {v['status']}")
+
+
 def fake_build(html, url, fields, rendered=False, redact=False, auto=False, request=None):
     recipe = extractor.normalize_recipe({"item_selector": "li.c", "fields": [
         {"name": "title", "selector": "h3 a"}, {"name": "price", "selector": "p.price"},
@@ -199,7 +208,7 @@ def test_in_page_filters_collect_the_agents_page(client, monkeypatch):
     client.post(f"/api/agent/runs/{run['id']}/start", json={})
     client.get("/api/agent/worker/next", headers={"X-Agent-Token": runner.TOKEN})
     handoff._handoff(run["id"], PUBLIC + "/mystery", LIST, "")
-    v = client.get(f"/api/agent/runs/{run['id']}").json()
+    v = wait_run(client, run["id"])
     assert v["status"] == "done" and v["job"]["rows"] == 1 and v["job"]["pages_done"] == 1
 
 
@@ -275,3 +284,91 @@ def test_openai_keys_are_redacted_and_scanned():
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
     import secret_scan
     assert any(p.search(f"OPENAI_API_KEY={key}") for _, p in secret_scan.PATTERNS)
+
+
+# ---- check and fix (phase 3) -----------------------------------------------------------------
+
+from app.agent import supervisor  # noqa: E402
+
+
+def _run(**plan):
+    return {"id": 1, "plan": {"item_pages": "auto", "request": {"columns": [
+        {"name": "title", "required": True}, {"name": "material", "required": True},
+        {"name": "url", "required": False, "auto_added": True}]}, **plan}, "fixes": [], "limits": {}}
+
+
+def _job(**q):
+    return {"id": 1, "status": "done", "rows": 20, "pages_done": 1, "max_pages": 1,
+            "quality": {"columns": {"title": {"fill": 1.0}, "url": {"fill": 1.0}}, **q}}
+
+
+LIST_RECIPE = {"item_selector": "li", "fields": [{"name": "title", "selector": "h3", "attr": "text", "kind": "text"},
+                                                {"name": "url", "selector": "a", "attr": "href", "kind": "text"}],
+               "pagination": {"type": "none"}}
+
+
+def test_decide_turns_on_item_pages_for_a_missing_column():
+    fixes = supervisor.decide(_run(), _job(), LIST_RECIPE)
+    assert fixes[0]["kind"] == "item_pages" and fixes[0]["columns"][0]["name"] == "material"
+    assert "isn't on the list page" in fixes[0]["why"]
+    assert not supervisor.decide(_run(item_pages="no"), _job(), LIST_RECIPE)            # you said no
+    assert not supervisor.decide({**_run(), "fixes": [{"kind": "item_pages"}]}, _job(), LIST_RECIPE)  # tried
+
+
+def test_decide_more_pages_and_pagination():
+    run = {**_run(), "plan": {**_run()["plan"], "request": {"columns": [{"name": "title", "required": True}]}}}
+    capped = _job(coverage=0.2, expected_total=100, items_seen=20)
+    capped.update(pages_done=1, max_pages=1)
+    assert supervisor.decide(run, capped, LIST_RECIPE)[0] == {
+        "kind": "more_pages", "pages": 6, "why": supervisor.decide(run, capped, LIST_RECIPE)[0]["why"]}
+    one_page = _job(coverage=0.2, expected_total=100, items_seen=20)
+    one_page.update(pages_done=1, max_pages=10)
+    assert supervisor.decide(run, one_page, LIST_RECIPE)[0]["kind"] == "pagination"
+    broken = _job(route_broken={"step": 2, "reason": "couldn't find Fiction"})
+    broken["status"] = "error"
+    assert supervisor.decide(run, broken, LIST_RECIPE)[0]["kind"] == "renavigate"
+
+
+ITEM = "<main><h1>Book</h1><table><tr><th>Material</th><td>Paper</td></tr></table></main>"
+
+
+def test_run_with_a_missing_column_turns_on_item_pages_by_itself(client, monkeypatch):
+    """Done-when of phase 3: the request asks for 'material', the list page doesn't show it; after the
+    first collection the agent turns on item pages and the column gets filled."""
+    monkeypatch.setattr(fetcher, "fetch_smart", lambda url, recipe=None, max_rounds=0, use_cache=True:
+                        fetcher.Page(url, url, 200, ITEM if "/p/" in url else LIST, False))
+
+    def build(html, url, fields, rendered=False, redact=False, auto=False, request=None):
+        out = fake_build(html, url, fields, rendered, redact, auto, request)
+        return {**out, "absent": ["material"]}
+    monkeypatch.setattr(recipe_builder, "build_recipe", build)
+    monkeypatch.setattr(recipe_builder, "build_detail", lambda html, url, columns, have, auto, redact=False: {
+        "detail": {"item_selector": "main", "fields": [{"name": "material", "kind": "kv", "selector": "",
+                                                        "label_selector": "th", "value_selector": "td",
+                                                        "label": "Material", "attr": "text", "regex": ""}]},
+        "row": {"material": "Paper"}, "missing": [], "notes": ""})
+    plan = {**PLAN, "columns": PLAN["columns"] + [{"name": "material", "meaning": "", "type": "text", "required": True}],
+            "filters": [], "item_pages": "auto"}
+    monkeypatch.setattr(recipe_builder, "ask_json", lambda system, prompt, schema, name: dict(plan))
+    run = client.post("/api/agent/plan", json={"goal": "books with material", "site": PUBLIC}).json()
+    client.post(f"/api/agent/runs/{run['id']}/start", json={})
+    client.get("/api/agent/worker/next", headers={"X-Agent-Token": runner.TOKEN})
+    handoff._handoff(run["id"], PUBLIC + "/mystery", LIST, "")
+    v = wait_run(client, run["id"])
+    assert v["status"] == "done", v["message"]
+    assert [f["kind"] for f in v["fixes"]] == ["item_pages"] and v["fix_rounds"] == 1
+    rows = db.get_records(v["job_id"])
+    assert len(rows) == 5 and all(r["material"] == "Paper" for r in rows)
+    assert v["ai_calls"] >= 1 and "1 fix made" in v["summary"]
+    assert any(s["text"].startswith("Fix applied: item pages on for material") for s in v["steps_list"])
+
+
+def test_auto_fix_off_only_reports(client, monkeypatch):
+    monkeypatch.setattr(recipe_builder, "build_recipe", fake_build)
+    run = client.post("/api/agent/plan", json={"goal": "books", "site": PUBLIC}).json()
+    client.put(f"/api/agent/runs/{run['id']}/plan", json={"plan": {**run["plan"], "auto_fix": False}})
+    client.post(f"/api/agent/runs/{run['id']}/start", json={})
+    client.get("/api/agent/worker/next", headers={"X-Agent-Token": runner.TOKEN})
+    handoff._handoff(run["id"], PUBLIC + "/mystery", LIST, "")
+    v = wait_run(client, run["id"])
+    assert v["status"] == "done" and v["fixes"] == [] and v["plan"]["auto_fix"] is False

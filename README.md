@@ -94,6 +94,13 @@ It works best with an AI that can see screenshots: add `ANTHROPIC_API_KEY` or `O
 then used for the agent; Groq still does the rest unless `SCRAPER_AI_PROVIDER` says otherwise). With only Groq it runs text-only on gpt-oss-120b, which worked on the
 test sites but is slower and less reliable on complex sites.
 
+**Check and fix.** After collecting, the agent reads the run's quality report and fixes what it can, at
+most two rounds: a requested column missing or mostly empty → it turns on item pages; fewer than 90% of
+the items the site lists and the run hit its page limit → more pages; only one page read of many → it
+finds the next-page control; recorded steps broken → it finds the way again. Each fix and its reason is
+listed on the result card; pages already read come from the cache. Untick *Check the results and fix
+problems* on the plan to only get the report.
+
 **Running it again needs no AI.** If the filters end up in the page address, the saved scrape is just that
 address. If they exist only inside the page (clicking "2012" loads that year's films, the address stays
 the same), the agent's steps are saved as a **route**: before saving, the app replays them once with

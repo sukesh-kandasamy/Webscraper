@@ -12,7 +12,7 @@ import threading
 import time
 
 from .. import audit, config, db, details, extractor, fetcher, jobs, logsafe, recipe_builder, sessions
-from . import guard, routes, store
+from . import guard, routes, store, supervisor
 
 
 def _log(run_id: int, kind: str, text: str, **detail) -> None:
@@ -109,7 +109,9 @@ def _handoff(run_id: int, url: str, html: str, note: str) -> None:
 
     # Item pages, when the plan asks for them or requested columns aren't on the list.
     absent = built.get("absent") or []
-    if plan.get("item_pages") == "yes" or (plan.get("item_pages") == "auto" and absent):
+    # "auto": the check-and-fix step turns them on if the quality report shows the columns missing.
+    if plan.get("item_pages") == "yes" or (plan.get("item_pages") == "auto" and absent
+                                           and not plan.get("auto_fix", True)):
         wanted = [c for c in request["columns"] if c["name"] in absent] or \
             [c for c in request["columns"] if c["name"] not in {f["name"] for f in recipe["fields"]}]
         store.update(run_id, message="Opening an item page for more details")
@@ -151,25 +153,14 @@ def _handoff(run_id: int, url: str, html: str, note: str) -> None:
 
 
 def refresh(run: dict) -> dict:
-    """Finish a collecting run when its job has finished (called when the run is read)."""
+    """When a collecting run's job has finished, hand it to the check-and-fix step (called when the run
+    is read; the status change makes sure it happens once)."""
     if run["status"] != "collecting" or not run.get("job_id"):
         return run
     job = db.get_job(run["job_id"])
     if not job or job["status"] in ("queued", "running"):
         return run
-    q = job.get("quality") or {}
-    bits = [f"Collected {job['rows']:,} rows from {job['pages_done']} page(s)"]
-    if q.get("coverage") is not None:
-        bits.append(f"{round(q['coverage'] * 100)}% of the ~{q['expected_total']:,} the site lists")
-    if q.get("excluded"):
-        bits.append(f"{q['excluded']:,} didn't match your conditions")
-    if (q.get("details") or {}).get("done"):
-        bits.append(f"{q['details']['done']} item pages read")
-    bits.append(f"the agent used {run['steps']} steps and {run['ai_calls']} AI calls")
-    status = "done" if job["status"] == "done" else ("needs_you" if job["status"] == "needs_you" else "error")
-    summary = "; ".join(bits) + "."
-    if status != "done":
-        summary = f"Collecting ended as '{job['status']}': {job['message']}"
-    store.update(run["id"], status=status, summary=summary, message=summary, finished_at=time.time())
-    _log(run["id"], "info" if status == "done" else "warn", summary)
+    if store.transition(run["id"], "collecting", "fixing", message="Checking the results"):
+        _log(run["id"], "info", f"Collected {job['rows']:,} rows. Checking the quality report…")
+        supervisor.check(run["id"])
     return store.get(run["id"])

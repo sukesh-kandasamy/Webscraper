@@ -127,7 +127,7 @@ const EVENT_LABELS = {
   scrape_saved: "Scrape saved", scrape_deleted: "Scrape deleted", detail_recipe_built: "AI set up item pages",
   scrape_repaired: "Columns re-detected", agent_planned: "Agent made a plan", agent_started: "Agent started",
   agent_refused: "Agent action refused", agent_handoff: "Agent handed results over", agent_finished: "Agent stopped",
-  agent_rerecord: "Agent re-recording a route",
+  agent_rerecord: "Agent re-recording a route", agent_fix: "Agent fixed a problem",
 };
 
 function store(key, value) {
@@ -1011,14 +1011,19 @@ function scraper() {
       if (!a.browser) return "It needs Microsoft Edge or Google Chrome installed.";
       return "";
     },
-    agentBusyCount() { return this.agentRuns.filter(r => ["queued", "navigating", "collecting"].includes(r.status)).length; },
-    agentActive() { return ["queued", "navigating", "collecting"].includes(this.agentRun?.status); },
+    agentBusyCount() { return this.agentRuns.filter(r => ["queued", "navigating", "collecting", "fixing"].includes(r.status)).length; },
+    agentActive() { return ["queued", "navigating", "collecting", "fixing"].includes(this.agentRun?.status); },
+    fixLabel(kind) {
+      return { item_pages: "Item pages", more_pages: "More pages", pagination: "Next-page control",
+               renavigate: "Found the way again" }[kind] || kind;
+    },
     agentStatusLabel(s) {
       return { draft: "Plan ready", queued: "Starting", navigating: "Finding the results", collecting: "Collecting",
+               fixing: "Checking & fixing",
                done: "Finished", stopped: "Stopped", needs_you: "Needs you", limit: "Hit a limit", error: "Failed" }[s] || s;
     },
     agentChip(s) {
-      return { done: "chip-green", navigating: "chip-blue", collecting: "chip-blue", queued: "chip-amber", draft: "chip-gray",
+      return { done: "chip-green", navigating: "chip-blue", collecting: "chip-blue", fixing: "chip-blue", queued: "chip-amber", draft: "chip-gray",
                needs_you: "chip-amber", limit: "chip-amber", stopped: "chip-gray", error: "chip-red" }[s] || "chip-gray";
     },
     agentSteps() { return this.agentRun?.steps_list || []; },

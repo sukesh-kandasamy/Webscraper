@@ -8,7 +8,12 @@
 > by Playwright with no AI on every run (in-page filters, pagination inside the same browser), skip pop-ups
 > that no longer appear, stop with "route broken" at the failing step, and can be re-recorded into the same
 > saved scrape. Live: the scrapethissite AJAX page ("2012" films, address unchanged) replays in ~20 s with
-> 0 AI calls. Phases 3–4 are next.
+> 0 AI calls.
+> **Phase 3 built:** after collecting, the agent reads the quality report and fixes what it can (missing or
+> mostly empty requested columns → item pages; coverage < 90% at the page cap → more pages; one page of many →
+> AI finds the next-page control; broken steps → re-navigates), at most 2 rounds, within the AI-call limit, and
+> lists the fixes on the result card. Live: books.toscrape.com "title, price, UPC" with item pages on "if
+> needed" → item pages turned on for UPC and 1 → 3 pages; 32/32 books with UPC, 100% coverage. Phase 4 is next.
 
 ## Context
 

@@ -18,6 +18,7 @@ LOG = config.DATA_DIR / "agent_worker.log"
 
 _lock = threading.Lock()
 _proc: subprocess.Popen | None = None
+last_app_url = ""      # the app's own address, so the supervisor can restart the worker
 _last_seen = 0.0
 # Variables Windows / Chromium need to start at all; nothing else from the app's environment.
 _KEEP_ENV = ("PATH", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "TEMP", "TMP", "USERPROFILE", "LOCALAPPDATA",
@@ -75,7 +76,8 @@ def _env(app_url: str) -> dict:
 
 def ensure(app_url: str) -> None:
     """Start the worker if it isn't running."""
-    global _proc
+    global _proc, last_app_url
+    last_app_url = app_url
     with _lock:
         if alive():
             return
