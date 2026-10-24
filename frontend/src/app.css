@@ -26,6 +26,11 @@
 
 @layer base {
   html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  /* Native controls (dropdown lists, scrollbars) follow the app's theme, not the computer's: otherwise
+     a dark Windows theme gives a light page white-on-white highlighted options. */
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
+  option, optgroup { @apply bg-surface-container-lowest text-on-surface dark:bg-surface-container-low; }
   body { @apply bg-surface font-sans text-sm leading-5 text-on-surface; letter-spacing: 0.005em; }
   ::selection { @apply bg-primary-container text-on-primary-container; }
   [x-cloak] { display: none !important; }
