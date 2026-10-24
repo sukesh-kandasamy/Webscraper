@@ -1,5 +1,7 @@
 // Agent mode: describe the goal, approve the plan, watch the agent work, open the results.
 function agentPage() {
+  let shown = { id: null, secs: 0 };   // last time shown, so the clock never steps back when a poll lands
+  const arrived = new WeakMap();       // each run object from the server -> when the page first saw it
   return {
     agentGoal: "",
     agentSite: "",
@@ -8,11 +10,13 @@ function agentPage() {
     agentNewCol: "",
     agentLimits: { steps: 40, minutes: 10, ai_calls: 60 },
     agentTimer: null,
+    agentNow: Date.now(),        // ticks every second while a run is on screen
     agentExamples: AGENT_EXAMPLES,
     historyOpen: false,
 
     async start() {
       if (this.status?.agent?.limits) this.agentLimits = { ...this.status.agent.limits };
+      setInterval(() => { if (this.agentActive()) this.agentNow = Date.now(); }, 1000);
       await this.loadAgentRuns();
       window.addEventListener("popstate", () => this.openFromAddress());
       await this.openFromAddress();
@@ -67,13 +71,27 @@ function agentPage() {
     },
     agentTiles() {
       const r = this.agentRun || {};
-      const secs = r.elapsed_s || 0;
+      const secs = this.agentSeconds();
       return [
         { label: "Agent steps", value: `${r.steps || 0} / ${r.limits?.steps || "—"}` },
         { label: "AI calls", value: `${r.ai_calls || 0} / ${r.limits?.ai_calls || "—"}` },
         { label: "Time", value: secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s` },
         { label: "Rows", value: this.fmt(r.job?.rows || 0) },
       ];
+    },
+    // The server sends the elapsed time every 2 s; count the seconds in between here.
+    agentSeconds() {
+      const r = this.agentRun || {};
+      let secs = r.elapsed_s || 0;
+      if (this.agentActive() && r.started_at) {
+        const raw = Alpine.raw(r);
+        if (!arrived.has(raw)) arrived.set(raw, Date.now());
+        void this.agentNow;          // redraw on every tick
+        secs += Math.max(0, Math.floor((Date.now() - arrived.get(raw)) / 1000));
+        if (shown.id === r.id) secs = Math.max(secs, shown.secs);
+        shown = { id: r.id, secs };
+      }
+      return secs;
     },
     async loadAgentRuns() {
       if (!this.status?.agent?.enabled) return;

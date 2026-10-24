@@ -67,7 +67,7 @@ def _view(run: dict, after: int = 0) -> dict:
             out["job_uid"] = job["uid"]
             out["job"]["quality"] = job.get("quality") or {}
     if run["started_at"]:
-        out["elapsed_s"] = round((run["finished_at"] or time.time()) - run["started_at"])
+        out["elapsed_s"] = int((run["finished_at"] or time.time()) - run["started_at"])
     return out
 
 
