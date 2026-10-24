@@ -54,9 +54,7 @@
                   <option :value="m" :selected="m === aiForm[role.id].model" x-text="m"></option></template>
               </optgroup>
             </select>
-            <p class="text-xs text-on-surface-variant" x-show="role.id === 'agent'">
-              <span x-text="agentSeesText()"></span>
-              <span x-show="ai?.agent_busy" class="font-medium text-on-surface"> An agent run is in progress: change this after it finishes.</span></p>
+            <p class="text-xs font-medium text-on-surface" x-show="role.id === 'agent' && ai?.agent_busy">An agent run is in progress: change this after it finishes.</p>
             <p class="text-xs text-on-surface-variant" x-show="aiModels[aiForm[role.id].provider] && !aiModels[aiForm[role.id].provider].live">
               Couldn't load this provider's model list, so these are suggestions.</p>
           </div>

@@ -52,11 +52,6 @@ function settingsPage() {
       return !!this.ai && ["ai", "agent", "fallback"].some(r =>
         this.aiForm[r].provider !== this.saved(r).provider || this.aiForm[r].model !== this.saved(r).model);
     },
-    agentSeesText() {
-      return ["anthropic", "openai"].includes(this.aiForm.agent.provider)
-        ? "Sees screenshots of the page."
-        : "Text only: it reads the page but can't see screenshots, so it may need more steps.";
-    },
     async saveAi() {
       this.aiBusy = "save";
       try {
