@@ -21,7 +21,7 @@
             <span class="h-2 w-2 shrink-0 rounded-full" :title="statusLabel(j.status)"
                   :class="{done: 'bg-emerald-500', running: 'bg-brand-500 animate-pulse', queued: 'bg-amber-400', needs_you: 'bg-amber-500 animate-pulse', blocked: 'bg-rose-500', error: 'bg-rose-500', stopped: 'bg-slate-400'}[j.status]"></span>
           </div>
-          <div class="mt-0.5 text-xs text-slate-500" x-text="`${fmt(j.rows)} rows · ${timeAgo(j.created_at)}`"></div>
+          <div class="mt-0.5 text-xs text-slate-500"><span class="font-mono" x-text="j.uid"></span><span x-text="` · ${fmt(j.rows)} rows · ${timeAgo(j.created_at)}`"></span></div>
         </button>
       </template>
     </div>
@@ -41,6 +41,9 @@
                   <span class="chip chip-blue" x-show="selectedJob.logged_in" title="Used a login; stored encrypted"><span x-html="icon('lock', 'h-3 w-3')"></span> logged in</span>
                   <span class="chip chip-gray" x-show="selectedJob.keep">kept</span>
                 </div>
+                <button class="mt-1 inline-flex items-center gap-1 font-mono text-xs text-on-surface-variant hover:text-on-surface"
+                        :title="'Copy Job ID'" @click="copyText(selectedJob.uid)">
+                  <span x-text="selectedJob.uid"></span><span x-html="icon('content_copy', 'h-3.5 w-3.5')"></span></button>
                 <p class="mt-1 text-sm text-slate-600 dark:text-slate-300" x-text="selectedJob.progress"></p>
                 <p class="mt-1 break-words font-mono text-xs text-slate-400" x-show="advanced" x-text="selectedJob.message"></p>
               </div>
@@ -78,7 +81,7 @@
             <template x-for="t in resultTabs()" :key="t.id">
               <button role="tab" class="tab" :class="resultTab === t.id && 'tab-active'"
                       :aria-selected="resultTab === t.id" @click="openResultTab(t.id)">
-                <span x-html="icon({data: 'table_chart', quality: 'fact_check', changes: 'sync'}[t.id], 'h-5 w-5')"></span>
+                <span x-html="icon({data: 'table_chart', quality: 'fact_check', changes: 'sync', info: 'info'}[t.id], 'h-5 w-5')"></span>
                 <span x-text="t.label"></span>
                 <span class="chip h-5 px-1.5 text-[11px] tabular-nums" x-show="t.badge" x-cloak
                       :class="t.warn ? 'chip-amber' : 'chip-gray'" x-text="t.badge"></span>
@@ -194,6 +197,57 @@
                 </div>
               </div>
             </template>
+          </div>
+
+          <!-- Info -->
+          <div class="space-y-4" x-show="resultTab==='info'" x-cloak>
+            <div class="card overflow-hidden">
+              <div class="card-head"><h3 class="card-title">About this job</h3></div>
+              <dl class="-mb-px grid sm:grid-cols-2">
+                <template x-for="row in jobInfo()" :key="row.label">
+                  <div class="flex items-start justify-between gap-4 border-b border-outline-variant px-6 py-3 text-sm">
+                    <dt class="shrink-0 text-on-surface-variant" x-text="row.label"></dt>
+                    <dd class="flex min-w-0 items-center justify-end gap-1 text-right font-medium text-on-surface">
+                      <span class="min-w-0 break-words" :class="row.mono && 'font-mono text-[13px]'" x-text="row.value"></span>
+                      <button class="btn btn-icon -my-2 h-8 w-8" x-show="row.copy" :aria-label="'Copy ' + row.label" :title="'Copy ' + row.label"
+                              @click="copyText(row.value)"><span x-html="icon('content_copy', 'h-4 w-4')"></span></button>
+                    </dd>
+                  </div>
+                </template>
+              </dl>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><h3 class="card-title" x-text="(selectedJob.urls || []).length === 1 ? 'Address' : `Addresses (${(selectedJob.urls || []).length})`"></h3></div>
+              <ul class="divide-y divide-outline-variant">
+                <template x-for="u in selectedJob.urls || []" :key="u">
+                  <li class="flex items-center gap-3 px-6 py-3 text-sm">
+                    <span class="text-on-surface-variant" x-html="icon('link', 'h-4 w-4 shrink-0')"></span>
+                    <a class="link min-w-0 flex-1 break-all" :href="u" target="_blank" rel="noopener noreferrer" x-text="u"></a>
+                    <button class="btn btn-icon h-8 w-8" aria-label="Copy address" title="Copy address" @click="copyText(u)">
+                      <span x-html="icon('content_copy', 'h-4 w-4')"></span></button>
+                  </li>
+                </template>
+              </ul>
+            </div>
+
+            <div class="card" x-show="infoColumns().length">
+              <div class="card-head"><h3 class="card-title" x-text="`Columns (${infoColumns().length})`"></h3></div>
+              <div class="card-body flex flex-wrap gap-2">
+                <template x-for="c in infoColumns()" :key="c.name">
+                  <span class="chip chip-gray h-7 px-3 text-[13px]"><span x-text="pretty(c.name)"></span>
+                    <span class="type-badge" x-show="c.type" x-text="c.type"></span></span>
+                </template>
+              </div>
+            </div>
+
+            <div class="card" x-show="selectedJob.personal?.fields?.length">
+              <div class="card-head"><h3 class="card-title">Personal data</h3></div>
+              <div class="card-body space-y-1 text-sm">
+                <p><span class="text-on-surface-variant">Collected on purpose: </span><span class="font-medium" x-text="(selectedJob.personal?.fields || []).map(pretty).join(', ')"></span></p>
+                <p><span class="text-on-surface-variant">Purpose: </span><span x-text="selectedJob.personal?.purpose"></span></p>
+              </div>
+            </div>
           </div>
 
           <div class="card" x-show="resultTab==='data'">

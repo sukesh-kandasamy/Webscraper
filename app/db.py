@@ -3,6 +3,8 @@
 Records of jobs that used a login session are encrypted with the vault key.
 """
 import json
+import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -108,6 +110,8 @@ MIGRATIONS = [
     # column types ({"price": "money"}) and the quality report / run counters of a job
     ("jobs", "columns", "ALTER TABLE jobs ADD COLUMN columns TEXT NOT NULL DEFAULT '{}'"),
     ("jobs", "quality", "ALTER TABLE jobs ADD COLUMN quality TEXT NOT NULL DEFAULT '{}'"),
+    # the Job ID people see (JOB-7K3QX9); the number stays internal
+    ("jobs", "public_id", "ALTER TABLE jobs ADD COLUMN public_id TEXT"),
     # which mode made a saved scrape (guided | agent) and, for agent scrapes, the recorded route
     ("scrapes", "mode", "ALTER TABLE scrapes ADD COLUMN mode TEXT NOT NULL DEFAULT 'guided'"),
     ("scrapes", "route", "ALTER TABLE scrapes ADD COLUMN route TEXT NOT NULL DEFAULT '[]'"),
@@ -121,6 +125,9 @@ def init() -> None:
             cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
             if column not in cols:
                 c.execute(ddl)
+        for (job_id,) in c.execute("SELECT id FROM jobs WHERE public_id IS NULL OR public_id=''").fetchall():
+            c.execute("UPDATE jobs SET public_id=? WHERE id=?", (_new_job_uid(c), job_id))
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS jobs_public_id ON jobs(public_id)")
         # Jobs left running by a previous server process are re-queued; jobs.resume_pending()
         # picks them up and continues from the pages they had not fetched yet.
         c.execute("UPDATE jobs SET status='queued', message='Resuming after restart' "
@@ -214,16 +221,43 @@ def save_site_settings(domain: str, settings: dict) -> None:
 
 # ---- jobs ----------------------------------------------------------------
 
+# Job IDs: "JOB-" + 6 characters without look-alikes (no I, L, O, U), about a billion possible.
+JOB_UID_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+JOB_UID = re.compile(r"^JOB-[0-9A-HJKMNP-TV-Z]{6}$")
+
+
+def _new_job_uid(c: sqlite3.Connection) -> str:
+    while True:
+        uid = "JOB-" + "".join(secrets.choice(JOB_UID_CHARS) for _ in range(6))
+        if not c.execute("SELECT 1 FROM jobs WHERE public_id=?", (uid,)).fetchone():
+            return uid
+
+
 def create_job(urls: list[str], recipe: dict, max_pages: int, logged_in: bool = False,
                personal: dict | None = None, scrape_id: int | None = None) -> int:
     with tx() as c:
         cur = c.execute(
             "INSERT INTO jobs(urls, recipe, max_pages, status, created_at, logged_in, encrypted, personal, "
-            "scrape_id) VALUES(?,?,?,?,?,?,?,?,?)",
+            "scrape_id, public_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (json.dumps(urls), json.dumps(recipe), max_pages, "queued", time.time(),
-             int(logged_in), int(logged_in), json.dumps(personal or {}), scrape_id),
+             int(logged_in), int(logged_in), json.dumps(personal or {}), scrape_id, _new_job_uid(c)),
         )
         return cur.lastrowid
+
+
+def get_job_by_uid(uid: str) -> dict | None:
+    with tx() as c:
+        row = c.execute("SELECT * FROM jobs WHERE public_id=?", (uid.upper(),)).fetchone()
+    return _job_dict(row) if row else None
+
+
+def job_uids(ids) -> dict[int, str]:
+    ids = [int(i) for i in set(ids)]
+    if not ids:
+        return {}
+    with tx() as c:
+        rows = c.execute(f"SELECT id, public_id FROM jobs WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+    return {r["id"]: r["public_id"] for r in rows}
 
 
 def update_job(job_id: int, **fields) -> None:
@@ -317,7 +351,7 @@ def list_scrapes() -> list[dict]:
         out = []
         for r in rows:
             d = _scrape_dict(r)
-            last = c.execute("SELECT id, status, rows, created_at, finished_at, message FROM jobs "
+            last = c.execute("SELECT id, public_id AS uid, status, rows, created_at, finished_at, message FROM jobs "
                              "WHERE scrape_id=? ORDER BY id DESC LIMIT 1", (d["id"],)).fetchone()
             d["runs"] = c.execute("SELECT COUNT(*) FROM jobs WHERE scrape_id=?", (d["id"],)).fetchone()[0]
             d["last_run"] = dict(last) if last else None
@@ -333,6 +367,7 @@ def delete_job(job_id: int) -> None:
 
 def _job_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
+    d["uid"] = d.pop("public_id", None) or ""
     d["urls"] = json.loads(d["urls"])
     d["recipe"] = json.loads(d["recipe"])
     d["personal"] = json.loads(d.get("personal") or "{}")

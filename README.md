@@ -36,9 +36,12 @@ The app has its own address for each page, so refresh, back / forward and bookma
 | Home | `/` |
 | New scrape (and Edit) | `/scrapes/new`, `/scrapes/{id}/edit` |
 | Saved scrapes | `/scrapes` |
-| Results (one run, one tab) | `/results`, `/results/{run}`, `/results/{run}?tab=quality` |
+| Results (one job, one tab: Data, Quality, Changes, Info) | `/results`, `/results/JOB-7K3QX9`, `/results/JOB-7K3QX9?tab=info` |
 | Settings | `/settings` |
 | Agent workspace | `/agent`, `/agent/runs/{id}` |
+
+Every job gets its own **Job ID** (like `JOB-7K3QX9`, no look-alike letters). It is what the app shows, links
+to and names downloads after (`Books-JOB-7K3QX9.csv`); old links with a number move to the Job ID address.
 
 The look is clean and neutral, inspired by Material Design (Roboto, Material Symbols icons) without copying it:
 dark buttons on light surfaces in the light theme, light buttons on dark surfaces in the dark theme, and colour

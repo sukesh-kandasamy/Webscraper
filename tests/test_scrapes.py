@@ -64,11 +64,12 @@ def test_save_without_running_update_duplicate_delete(client):
 
 
 def test_export_picks_columns_and_names_the_file(client):
-    job = client.post("/api/scrapes", json={"name": "My Items", "urls": [PUBLIC + "/l"], "recipe": RECIPE,
-                                            "max_pages": 1}).json()["job_id"]
+    started = client.post("/api/scrapes", json={"name": "My Items", "urls": [PUBLIC + "/l"], "recipe": RECIPE,
+                                                "max_pages": 1}).json()
+    job, uid = started["job_id"], started["job_uid"]
     wait_done(client, job)
-    r = client.get(f"/api/jobs/{job}/export?fmt=csv&columns=name,price&name=My Items")
-    assert r.headers["content-disposition"].endswith(f'filename="My_Items-run{job}.csv"')
-    r2 = client.get(f"/api/jobs/{job}/export?fmt=csv&name=Products %26 prices – books.toscrape.com")
-    assert r2.headers["content-disposition"].endswith(f'filename="Products_prices_books.toscrape.com-run{job}.csv"')
+    r = client.get(f"/api/jobs/{uid}/export?fmt=csv&columns=name,price&name=My Items")
+    assert r.headers["content-disposition"].endswith(f'filename="My_Items-{uid}.csv"')
+    r2 = client.get(f"/api/jobs/{uid}/export?fmt=csv&name=Products %26 prices – books.toscrape.com")
+    assert r2.headers["content-disposition"].endswith(f'filename="Products_prices_books.toscrape.com-{uid}.csv"')
     assert r.content.decode("utf-8-sig").splitlines()[0] == "name,price"

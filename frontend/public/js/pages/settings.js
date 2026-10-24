@@ -95,7 +95,7 @@ function settingsPage() {
     async loadActivity() { try { this.activity = await api("GET", "/api/audit?limit=150"); } catch (e) { this.showError(e); } },
     eventDetail(a) {
       const parts = [];
-      if (a.job_id) parts.push("run #" + a.job_id);
+      if (a.job) parts.push(a.job);
       if (a.url) parts.push(a.url); else if (a.domain) parts.push(a.domain);
       if (a.status && a.status !== 200) parts.push("HTTP " + a.status);
       if (a.rendered) parts.push("browser");

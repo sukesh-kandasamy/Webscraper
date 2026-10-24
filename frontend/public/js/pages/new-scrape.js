@@ -313,15 +313,18 @@ function newScrapePage() {
         if (this.editingScrapeId) {
           await api("PUT", `/api/scrapes/${this.editingScrapeId}`,
             { name: this.scrapeName, urls: this.urls(), recipe, max_pages: this.pagesToCollect() });
-          if (run) jobId = (await api("POST", `/api/scrapes/${this.editingScrapeId}/run`,
-            { personal_fields: chosen, personal_purpose: this.personalPurpose })).job_id;
+          if (run) {
+            const r = await api("POST", `/api/scrapes/${this.editingScrapeId}/run`,
+              { personal_fields: chosen, personal_purpose: this.personalPurpose });
+            jobId = r.job_uid || r.job_id;
+          }
         } else {
           const r = await api("POST", "/api/scrapes", {
             name: this.scrapeName || "My scrape", urls: this.urls(), recipe, max_pages: this.pagesToCollect(),
             page_type: this.analysis?.page_type || "", run,
             personal_fields: chosen, personal_purpose: this.personalPurpose,
           });
-          jobId = r.job_id; this.editingScrapeId = r.scrape_id;
+          jobId = r.job_uid || r.job_id; this.editingScrapeId = r.scrape_id;
         }
         if (run && jobId) goTo(`/results/${jobId}`, "Started. You can leave this page; it keeps running.");
         else goTo("/scrapes", `Saved “${this.scrapeName}”. Run it any time with Run again.`);

@@ -60,7 +60,8 @@ def _view(run: dict, after: int = 0) -> dict:
     if run.get("job_id"):
         job = jobs.db.get_job(run["job_id"])
         if job:
-            out["job"] = {k: job[k] for k in ("id", "status", "rows", "pages_done", "pages_total", "message")}
+            out["job"] = {k: job[k] for k in ("id", "uid", "status", "rows", "pages_done", "pages_total", "message")}
+            out["job_uid"] = job["uid"]
             out["job"]["quality"] = job.get("quality") or {}
     if run["started_at"]:
         out["elapsed_s"] = round((run["finished_at"] or time.time()) - run["started_at"])

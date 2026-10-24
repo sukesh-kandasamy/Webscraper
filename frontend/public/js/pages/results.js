@@ -23,13 +23,14 @@ function resultsPage() {
       window.addEventListener("popstate", () => this.openFromAddress());
       await this.openFromAddress(this.data.tab);
     },
-    // /results/42?tab=quality opens that run on that tab.
+    // /results/JOB-7K3QX9?tab=quality opens that run on that tab.
     async openFromAddress(tab) {
-      const m = location.pathname.match(/^\/results\/(\d+)/);
+      const m = location.pathname.match(/^\/results\/([A-Za-z0-9-]+)/);
       if (!m) { this.selectedJob = null; this.records = []; return; }
-      let j = this.jobs.find(x => x.id === +m[1]);
+      const ref = m[1].toUpperCase();
+      let j = this.jobs.find(x => x.uid === ref);
       if (!j) {
-        try { j = { progress: "", columns: [], ...(await api("GET", `/api/jobs/${m[1]}`)) }; }
+        try { j = { progress: "", columns: [], ...(await api("GET", `/api/jobs/${encodeURIComponent(ref)}`)) }; }
         catch { this.notFound = true; return; }
       }
       await this.select(j, tab || new URLSearchParams(location.search).get("tab") || "data");
@@ -37,7 +38,7 @@ function resultsPage() {
     // Opening another run stays on this page and updates the address (back / forward work).
     async openJob(j) {
       if (!j) return;
-      history.pushState({}, "", `/results/${j.id}`);
+      history.pushState({}, "", `/results/${j.uid}`);
       await this.select(j, "data");
     },
     async select(j, tab = "data") {
@@ -45,7 +46,7 @@ function resultsPage() {
       this.selectedJob = j; this.search = ""; this.sortKey = ""; this.showPersonal = false; this.page = 1;
       this.compare = null; this.compareError = "";
       this.hiddenCols = store("hidden:" + (j.scrape_id || j.id)) || [];
-      this.resultTab = ["quality", "changes"].includes(tab) ? tab : "data";
+      this.resultTab = ["quality", "changes", "info"].includes(tab) ? tab : "data";
       await this.loadRecords();
       if (this.resultTab === "changes") this.loadCompare();
     },
@@ -106,11 +107,54 @@ function resultsPage() {
       const tabs = [{ id: "data", label: "Data", badge: this.fmt(this.selectedJob?.rows) },
                     { id: "quality", label: "Quality", badge: warn ? String(warn) : "", warn: !!warn }];
       if (this.selectedJob?.scrape_id) tabs.push({ id: "changes", label: "Changes" });
+      tabs.push({ id: "info", label: "Info" });
       return tabs;
+    },
+    // Info tab: what the job is and how it went.
+    jobInfo() {
+      const j = this.selectedJob;
+      if (!j) return [];
+      const when = ts => ts ? new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+      const end = j.finished_at || (["queued", "running", "needs_you"].includes(j.status) ? Date.now() / 1000 : null);
+      const q = j.quality || {};
+      const rows = [
+        { label: "Job ID", value: j.uid, mono: true, copy: true },
+        { label: "Status", value: this.statusLabel(j.status) },
+        { label: "Saved scrape", value: j.scrape_name || "Not saved (one-off run)" },
+        { label: "Website", value: [...new Set((j.urls || []).map(u => this.hostOf(u)))].join(", ") || "—" },
+        { label: "Started", value: when(j.created_at) },
+        { label: "Finished", value: j.finished_at ? when(j.finished_at) : (end ? "Still running" : "—") },
+        { label: "Took", value: end ? this.duration(end - j.created_at) : "—" },
+        { label: "Pages read", value: `${this.fmt(j.pages_done)} of ${this.fmt(j.pages_total)}` + (q.pages_failed?.length ? ` · ${q.pages_failed.length} failed` : "") },
+        { label: "Page limit per address", value: this.fmt(j.max_pages) },
+        { label: "Rows saved", value: this.fmt(j.rows) },
+        { label: "Login used", value: j.logged_in ? "Yes (results stored encrypted)" : "No" },
+        { label: "Personal data", value: j.personal?.fields?.length ? "Collected on purpose" : "Hidden (masked)" },
+        { label: "Kept", value: j.keep ? "Yes, never deleted automatically" : `Deleted after ${this.status?.retention?.job_days || 30} days` },
+      ];
+      if (q.route_steps) rows.push({ label: "Recorded steps", value: `${q.route_steps} (replayed without AI)` });
+      if (j.message) rows.push({ label: "Last message", value: j.message });
+      return rows;
+    },
+    infoColumns() {
+      // A job from the runs list has only the column names; one loaded on its own has the full setup and types.
+      const j = this.selectedJob || {}, types = Array.isArray(j.columns) ? {} : (j.columns || {});
+      const names = j.recipe?.fields?.map(f => f.name) || (Array.isArray(j.columns) ? j.columns : []);
+      return names.map(name => ({ name, type: types[name] || "" }));
+    },
+    duration(s) {
+      s = Math.max(0, Math.round(s));
+      if (s < 60) return `${s} s`;
+      if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
+      return `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+    },
+    async copyText(text) {
+      try { await navigator.clipboard.writeText(text); this.toast("Copied."); }
+      catch { this.toast("Couldn't copy. Select the text and copy it instead."); }
     },
     openResultTab(id) {
       this.resultTab = id;
-      if (this.selectedJob) history.replaceState({}, "", `/results/${this.selectedJob.id}` + (id === "data" ? "" : `?tab=${id}`));
+      if (this.selectedJob) history.replaceState({}, "", `/results/${this.selectedJob.uid}` + (id === "data" ? "" : `?tab=${id}`));
       if (id === "changes" && !this.compare) this.loadCompare();
     },
     qualityTiles() {

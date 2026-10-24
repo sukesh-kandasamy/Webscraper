@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -350,11 +350,20 @@ def page_edit_scrape(request: Request, scrape_id: int):
     return _page(request, "pages/new_scrape.html", "scrapes", "Edit scrape", scrape_id=scrape_id)
 
 
+RESULT_TABS = ("data", "quality", "changes", "info")
+
+
 @app.get("/results", include_in_schema=False)
-@app.get("/results/{job_id}", include_in_schema=False)
-def page_results(request: Request, job_id: int | None = None, tab: str = "data"):
-    return _page(request, "pages/results.html", "results", "Results", job_id=job_id or "",
-                 tab=tab if tab in ("data", "quality", "changes") else "data")
+@app.get("/results/{job_ref}", include_in_schema=False)
+def page_results(request: Request, job_ref: str = "", tab: str = "data"):
+    tab = tab if tab in RESULT_TABS else "data"
+    if job_ref.isdigit():                                 # old links used the internal number
+        job = db.get_job(int(job_ref))
+        if job and job["uid"]:
+            return RedirectResponse(f"/results/{job['uid']}" + (f"?tab={tab}" if tab != "data" else ""), 302)
+    elif job_ref and not db.JOB_UID.match(job_ref.upper()):
+        raise HTTPException(404, "Not a Job ID")
+    return _page(request, "pages/results.html", "results", "Results", job_uid=job_ref.upper(), tab=tab)
 
 
 @app.get("/settings", include_in_schema=False)
@@ -722,6 +731,10 @@ def _start_run(urls: list[str], recipe: dict, max_pages: int, personal_fields: l
     return jobs.start(urls, recipe, max_pages, logged_in=logged_in, personal=personal, scrape_id=scrape_id)
 
 
+def _run_ref(job_id: int) -> dict:
+    return {"job_id": job_id, "job_uid": db.job_uids([job_id]).get(job_id, "")}
+
+
 def friendly_progress(job: dict) -> str:
     """One plain-language line about a run, for people who don't want the technical message."""
     s, done, total, rows = job["status"], job["pages_done"], job["pages_total"], job["rows"]
@@ -775,7 +788,7 @@ def create_job(body: JobIn):
             saved = db.get_recipe(domain)
             if not saved or saved["recipe"] != recipe:
                 db.save_recipe(domain, recipe, body.recipe_source)
-    return {"job_id": _start_run(urls, recipe, body.max_pages, body.personal_fields, body.personal_purpose)}
+    return _run_ref(_start_run(urls, recipe, body.max_pages, body.personal_fields, body.personal_purpose))
 
 
 @app.get("/api/jobs")
@@ -825,11 +838,11 @@ def create_scrape(body: ScrapeIn):
     if not saved or saved["recipe"] != recipe:
         db.save_recipe(domain, recipe, "ai" if not saved else "manual")
     audit.log("scrape_saved", scrape_id=scrape_id, domain=domain)
-    job_id = None
+    run = {"job_id": None, "job_uid": None}
     if body.run:
-        job_id = _start_run(urls, recipe, body.max_pages, body.personal_fields, body.personal_purpose,
-                            scrape_id)
-    return {"scrape_id": scrape_id, "job_id": job_id}
+        run = _run_ref(_start_run(urls, recipe, body.max_pages, body.personal_fields, body.personal_purpose,
+                                  scrape_id))
+    return {"scrape_id": scrape_id, **run}
 
 
 @app.put("/api/scrapes/{scrape_id}")
@@ -846,8 +859,8 @@ def update_scrape(scrape_id: int, body: ScrapeUpdate):
 def run_scrape(scrape_id: int, body: RunIn):
     s = _scrape_or_404(scrape_id)
     recipe = _normalize_or_http_error(s["recipe"])
-    return {"job_id": _start_run(s["urls"], recipe, s["max_pages"], body.personal_fields,
-                                 body.personal_purpose, scrape_id)}
+    return _run_ref(_start_run(s["urls"], recipe, s["max_pages"], body.personal_fields,
+                               body.personal_purpose, scrape_id))
 
 
 @app.post("/api/scrapes/{scrape_id}/repair")
@@ -882,21 +895,27 @@ def delete_scrape(scrape_id: int):
     return {"ok": True}
 
 
-def _job_or_404(job_id: int) -> dict:
-    job = db.get_job(job_id)
+def _job_or_404(ref: str | int) -> dict:
+    """A job by its Job ID (JOB-7K3QX9) or by its internal number."""
+    ref = str(ref).strip()
+    job = (db.get_job(int(ref)) if ref.isdigit() else
+           db.get_job_by_uid(ref) if db.JOB_UID.match(ref.upper()) else None)
     if not job:
         raise HTTPException(404, "Job not found")
     return job
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: int):
-    return _job_or_404(job_id)
+def get_job(job_id: str):
+    job = _job_or_404(job_id)
+    scrape = db.get_scrape(job["scrape_id"]) if job.get("scrape_id") else None
+    return {**job, "scrape_name": scrape["name"] if scrape else None}
 
 
 @app.post("/api/jobs/{job_id}/stop")
-def stop_job(job_id: int):
+def stop_job(job_id: str):
     job = _job_or_404(job_id)
+    job_id = job["id"]
     if job["status"] == "needs_you":
         db.update_job(job_id, status="stopped", message="Stopped by user", finished_at=time.time())
         return {"stopping": True}
@@ -904,16 +923,17 @@ def stop_job(job_id: int):
 
 
 @app.post("/api/jobs/{job_id}/resume")
-def resume_job(job_id: int):
-    _job_or_404(job_id)
+def resume_job(job_id: str):
+    job_id = _job_or_404(job_id)["id"]
     if not jobs.resume(job_id):
         raise HTTPException(409, "This job cannot be resumed")
     return {"ok": True}
 
 
 @app.post("/api/jobs/{job_id}/solve")
-def start_job_solve(job_id: int):
+def start_job_solve(job_id: str):
     job = _job_or_404(job_id)
+    job_id = job["id"]
     if job["status"] != "needs_you" or not job["paused_url"]:
         raise HTTPException(409, "This job is not waiting for you")
     return _open_solve_window(f"job:{job_id}", job["paused_url"],
@@ -921,8 +941,9 @@ def start_job_solve(job_id: int):
 
 
 @app.post("/api/jobs/{job_id}/solve/finish")
-def finish_job_solve(job_id: int, body: FinishIn):
+def finish_job_solve(job_id: str, body: FinishIn):
     job = _job_or_404(job_id)
+    job_id = job["id"]
     win = _finish_window(f"job:{job_id}")
     info = _save_after_solve(win, body.account, job["paused_kind"])
     sessions.close_window(f"job:{job_id}")
@@ -932,10 +953,11 @@ def finish_job_solve(job_id: int, body: FinishIn):
 
 
 @app.get("/api/jobs/{job_id}/compare")
-def compare_job(job_id: int, show_personal: bool = False):
+def compare_job(job_id: str, show_personal: bool = False):
     """What changed since the scrape's previous finished run: new, removed and changed items
     (matched by the item's link, or by the whole row when there is no link)."""
     job = _job_or_404(job_id)
+    job_id = job["id"]
     prev = db.last_finished_job(job["scrape_id"], job_id) if job.get("scrape_id") else None
     if not prev:
         raise HTTPException(404, "There is no earlier finished run of this scrape to compare with.")
@@ -961,34 +983,35 @@ def compare_job(job_id: int, show_personal: bool = False):
             if diff:
                 changed.append({"row": now[k], "changes": diff})
     cap = 200
-    return {"previous_job": prev["id"], "previous_at": prev["created_at"], "key": field or "whole row",
+    return {"previous_job": prev["id"], "previous_uid": prev["uid"], "previous_at": prev["created_at"], "key": field or "whole row",
             "counts": {"added": len(added), "removed": len(removed), "changed": len(changed),
                        "same": len(now) - len(added) - len(changed)},
             "added": added[:cap], "removed": removed[:cap], "changed": changed[:cap]}
 
 
 @app.post("/api/jobs/{job_id}/keep")
-def keep_job(job_id: int, body: KeepIn):
-    _job_or_404(job_id)
+def keep_job(job_id: str, body: KeepIn):
+    job_id = _job_or_404(job_id)["id"]
     db.update_job(job_id, keep=int(body.keep))
     return {"keep": body.keep}
 
 
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: int):
+def delete_job(job_id: str):
     job = _job_or_404(job_id)
+    job_id = job["id"]
     if job["status"] in ("queued", "running"):
         raise HTTPException(409, "Stop the job before deleting it")
     db.delete_job(job_id)
-    audit.log("job_deleted", job_id=job_id)
+    audit.log("job_deleted", job_id=job_id, job=job["uid"])
     return {"ok": True}
 
 
-def _file_stem(name: str, job_id: int) -> str:
+def _file_stem(name: str, job_uid: str) -> str:
     import re as _re
     stem = _re.sub(r"[^A-Za-z0-9.-]+", "_", name).strip("_.")
     stem = _re.sub(r"_+", "_", stem)[:60]
-    return f"{stem}-run{job_id}" if stem else f"job-{job_id}"
+    return f"{stem}-{job_uid}" if stem else job_uid
 
 
 def _visible_records(job: dict, show_personal: bool) -> list[dict]:
@@ -998,33 +1021,39 @@ def _visible_records(job: dict, show_personal: bool) -> list[dict]:
 
 
 @app.get("/api/jobs/{job_id}/records")
-def job_records(job_id: int, show_personal: bool = False):
+def job_records(job_id: str, show_personal: bool = False):
     job = _job_or_404(job_id)
     return _visible_records(job, show_personal)
 
 
 @app.get("/api/jobs/{job_id}/export")
-def export_job(job_id: int, fmt: str = "csv", show_personal: bool = False, columns: str = "",
+def export_job(job_id: str, fmt: str = "csv", show_personal: bool = False, columns: str = "",
                name: str = ""):
     job = _job_or_404(job_id)
+    job_id = job["id"]
     if fmt not in ("csv", "xlsx"):
         raise HTTPException(400, "fmt must be csv or xlsx")
     records = _visible_records(job, show_personal)
     wanted = [c for c in columns.split(",") if c]
     if wanted:
         records = [{c: r.get(c, "") for c in wanted} for r in records]
-    audit.log("export", job_id=job_id, fmt=fmt, rows=len(records),
+    audit.log("export", job_id=job_id, job=job["uid"], fmt=fmt, rows=len(records),
               personal=bool(show_personal and job["personal"].get("fields")))
     if fmt == "xlsx":
         return Response(export.to_xlsx(records, job.get("columns") or {}),
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        headers={"Content-Disposition": f'attachment; filename="{_file_stem(name, job_id)}.xlsx"'})
+                        headers={"Content-Disposition": f'attachment; filename="{_file_stem(name, job["uid"])}.xlsx"'})
     return Response(export.to_csv(records), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="{_file_stem(name, job_id)}.csv"'})
+                    headers={"Content-Disposition": f'attachment; filename="{_file_stem(name, job["uid"])}.csv"'})
 
 
 # ---- routes: activity log ------------------------------------------------------------
 
 @app.get("/api/audit")
 def audit_log(limit: int = 200, domain: str | None = None, event: str | None = None):
-    return audit.tail(min(max(limit, 1), 2000), event=event, domain=domain)
+    entries = audit.tail(min(max(limit, 1), 2000), event=event, domain=domain)
+    uids = db.job_uids(e["job_id"] for e in entries if isinstance(e.get("job_id"), int))
+    for e in entries:
+        if isinstance(e.get("job_id"), int) and not e.get("job"):
+            e["job"] = uids.get(e["job_id"], "")
+    return entries

@@ -177,7 +177,7 @@ function agentPage() {
       this.blockedPage = { domain: r.site, url: r.final_url || r.start_url };
       await this.startSiteSolve();
     },
-    openAgentResults() { if (this.agentRun?.job_id) goTo(`/results/${this.agentRun.job_id}`); },
+    openAgentResults() { if (this.agentRun?.job_id) goTo(`/results/${this.agentRun.job_uid || this.agentRun.job_id}`); },
     async runAgentScrapeAgain() {
       const r = this.agentRun;
       if (r?.scrape_id) await this.runScrape({ id: r.scrape_id, name: r.plan?.summary || r.goal });

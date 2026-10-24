@@ -15,7 +15,7 @@ PAGES = {
     "/scrapes/new": ("new-scrape.js", "new"),
     "/scrapes/7/edit": ("new-scrape.js", "scrapes"),
     "/results": ("results.js", "results"),
-    "/results/42?tab=quality": ("results.js", "results"),
+    "/results/JOB-ABC234?tab=quality": ("results.js", "results"),
     "/settings": ("settings.js", "settings"),
     "/agent": ("agent.js", "agent"),
     "/agent/runs/5": ("agent.js", "agent"),
@@ -41,17 +41,18 @@ def test_every_page_has_its_own_template_and_script(client, path):
 
 
 def test_page_data_goes_into_attributes_and_is_escaped(client):
-    r = client.get("/results/42?tab=quality")
-    assert 'data-job-id="42"' in r.text and 'data-tab="quality"' in r.text
-    assert 'data-tab="data"' in client.get("/results/1?tab=<script>").text          # unknown tab -> default
+    r = client.get("/results/job-abc234?tab=info")
+    assert 'data-job-uid="JOB-ABC234"' in r.text and 'data-tab="info"' in r.text
+    assert 'data-tab="data"' in client.get("/results/JOB-ABC234?tab=<script>").text  # unknown tab -> default
     evil = client.get('/scrapes/new?url="><script>alert(1)</script>').text
     assert "<script>alert(1)</script>" not in evil and "&lt;script&gt;" in evil
 
 
 def test_unknown_ids_still_render_the_page(client):
+    assert client.get("/results/JOB-ZZZZZZ").status_code == 200
     assert client.get("/results/999999").status_code == 200
     assert client.get("/agent/runs/999999").status_code == 200
-    assert client.get("/results/abc").status_code == 422
+    assert client.get("/results/abc").status_code == 404                           # not a Job ID
 
 
 def test_no_inline_scripts_in_templates():

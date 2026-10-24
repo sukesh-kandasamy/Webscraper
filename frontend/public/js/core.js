@@ -251,7 +251,7 @@ function shell() {
     shortText(v) { const s = String(this.cellText(v) ?? ""); return s.length > 40 ? s.slice(0, 38) + "…" : s; },
     needsYouJobs() { return this.jobs.filter(j => j.status === "needs_you"); },
     activeJobs() { return this.jobs.filter(j => ["queued", "running"].includes(j.status)); },
-    jobTitle(j) { return j.scrape_name || this.hostOf(j.urls?.[0]) || ("Run #" + j.id); },
+    jobTitle(j) { return j.scrape_name || this.hostOf(j.urls?.[0]) || j.uid || "Run"; },
     progressPct(j) {
       if (!j) return 0;
       if (j.status === "done") return 100;
@@ -301,22 +301,22 @@ function shell() {
       goTo("/scrapes/new" + (q.toString() ? "?" + q : ""));
     },
     trySample() { this.startWizard(TEMPLATES[0], "https://books.toscrape.com/"); },
-    openJob(j) { if (j) goTo(`/results/${j.id}`); },
-    openLatestRun(s) { if (s.last_run) goTo(`/results/${s.last_run.id}`); },
+    openJob(j) { if (j) goTo(`/results/${j.uid || j.id}`); },
+    openLatestRun(s) { if (s.last_run) goTo(`/results/${s.last_run.uid || s.last_run.id}`); },
     editScrape(s) { goTo(`/scrapes/${s.id}/edit`); },
     async runScrape(s) {
       this.error = null;
       try {
-        const { job_id } = await api("POST", `/api/scrapes/${s.id}/run`, {});
-        goTo(`/results/${job_id}`, `Running “${s.name}” again.`);
+        const { job_id, job_uid } = await api("POST", `/api/scrapes/${s.id}/run`, {});
+        goTo(`/results/${job_uid || job_id}`, `Running “${s.name}” again.`);
       } catch (e) { this.handleError(e); }
     },
     async runAgainFromJob(j) {
       if (!j?.scrape_id) return;
       this.error = null;
       try {
-        const { job_id } = await api("POST", `/api/scrapes/${j.scrape_id}/run`, {});
-        goTo(`/results/${job_id}`, `Running “${this.jobTitle(j)}” again.`);
+        const { job_id, job_uid } = await api("POST", `/api/scrapes/${j.scrape_id}/run`, {});
+        goTo(`/results/${job_uid || job_id}`, `Running “${this.jobTitle(j)}” again.`);
       } catch (e) { this.handleError(e); }
     },
     async rerecordScrape(scrapeId) {
