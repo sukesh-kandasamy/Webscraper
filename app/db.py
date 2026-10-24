@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS site_usage (         -- pages fetched per site per da
     pages  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (domain, day)
 );
+CREATE TABLE IF NOT EXISTS app_settings (       -- app-wide choices made in Settings (JSON values)
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS page_cache (
     url        TEXT PRIMARY KEY,
     status     INTEGER NOT NULL,
@@ -121,6 +125,24 @@ def init() -> None:
         # picks them up and continues from the pages they had not fetched yet.
         c.execute("UPDATE jobs SET status='queued', message='Resuming after restart' "
                   "WHERE status='running'")
+
+
+# ---- app settings --------------------------------------------------------
+
+def get_app_setting(key: str, default=None):
+    with tx() as c:
+        row = c.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    return json.loads(row["value"]) if row else default
+
+
+def set_app_setting(key: str, value) -> None:
+    """Save a JSON value; None removes the setting."""
+    with tx() as c:
+        if value is None:
+            c.execute("DELETE FROM app_settings WHERE key=?", (key,))
+        else:
+            c.execute("INSERT INTO app_settings(key, value) VALUES(?, ?) "
+                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, json.dumps(value)))
 
 
 # ---- recipes -------------------------------------------------------------

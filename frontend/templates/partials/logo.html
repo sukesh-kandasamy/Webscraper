@@ -1,0 +1,10 @@
+{# The app's logo, drawn inline so it follows the theme: dark in the light theme, light in the dark theme. #}
+{% macro logo(cls="h-8 w-8") -%}
+<svg class="{{ cls }} shrink-0" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+  <rect class="fill-primary" width="32" height="32" rx="8"/>
+  <g class="fill-on-primary stroke-on-primary">
+    <path d="M8.5 12.5V10a1.5 1.5 0 0 1 1.5-1.5h2.5M19.5 8.5H22a1.5 1.5 0 0 1 1.5 1.5v2.5M8.5 19.5V22a1.5 1.5 0 0 0 1.5 1.5h2.5M23.5 19.5V22a1.5 1.5 0 0 1-1.5 1.5h-2.5M12.75 13.5h6.5M12.75 17.5h3.5" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M19.6 15.6c.3 1.5.7 1.9 2.2 2.2-1.5.3-1.9.7-2.2 2.2-.3-1.5-.7-1.9-2.2-2.2 1.5-.3 1.9-.7 2.2-2.2Z"/>
+  </g>
+</svg>
+{%- endmacro %}

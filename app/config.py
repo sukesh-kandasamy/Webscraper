@@ -41,6 +41,7 @@ AI_PROVIDER = os.getenv("SCRAPER_AI_PROVIDER", "groq" if GROQ_API_KEY else "open
 _KEYS = {"groq": lambda: GROQ_API_KEY, "anthropic": lambda: ANTHROPIC_API_KEY, "openai": lambda: OPENAI_API_KEY}
 _MODELS = {"groq": lambda: GROQ_MODEL, "anthropic": lambda: CLAUDE_MODEL, "openai": lambda: OPENAI_MODEL}
 KEY_NAMES = {"groq": "GROQ_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+PROVIDER_NAMES = {"groq": "Groq", "openai": "ChatGPT (OpenAI)", "anthropic": "Claude (Anthropic)"}
 
 # Columns pre-filled in the UI. Empty: the AI picks the important columns for each page itself.
 DEFAULT_FIELDS: list[str] = []
@@ -122,3 +123,35 @@ def agent_key() -> str:
 def agent_vision() -> bool:
     """Models that can see screenshots. gpt-oss on Groq is text-only."""
     return AGENT_PROVIDER in ("anthropic", "openai")
+
+
+def key_set(provider: str) -> bool:
+    return bool(_KEYS[provider]()) if provider in _KEYS else False
+
+
+# ---- AI choice made in Settings (saved in the database; .env holds the keys and the defaults) ----
+_ENV_CHOICE = {"AI_PROVIDER": AI_PROVIDER, "GROQ_MODEL": GROQ_MODEL, "OPENAI_MODEL": OPENAI_MODEL,
+               "CLAUDE_MODEL": CLAUDE_MODEL, "AGENT_PROVIDER": AGENT_PROVIDER, "AGENT_MODEL": AGENT_MODEL}
+_MODEL_VAR = {"groq": "GROQ_MODEL", "openai": "OPENAI_MODEL", "anthropic": "CLAUDE_MODEL"}
+
+
+def default_agent_model(provider: str) -> str:
+    if provider == _ENV_CHOICE["AGENT_PROVIDER"]:
+        return _ENV_CHOICE["AGENT_MODEL"]
+    return {"anthropic": "claude-sonnet-5-5"}.get(provider) or _ENV_CHOICE[_MODEL_VAR[provider]]
+
+
+def apply_ai_choice(choice: dict | None) -> None:
+    """Use the provider and model picked in Settings for building scrapes ("ai") and for the agent
+    ("agent"), e.g. {"ai": {"provider": "groq", "model": "openai/gpt-oss-120b"}, "agent": {...}}.
+    Anything missing falls back to the .env defaults."""
+    g = globals()
+    g.update(_ENV_CHOICE)
+    ai, agent = (choice or {}).get("ai") or {}, (choice or {}).get("agent") or {}
+    if ai.get("provider") in _MODEL_VAR:
+        g["AI_PROVIDER"] = ai["provider"]
+        if ai.get("model"):
+            g[_MODEL_VAR[ai["provider"]]] = ai["model"]
+    if agent.get("provider") in _MODEL_VAR:
+        g["AGENT_PROVIDER"] = agent["provider"]
+        g["AGENT_MODEL"] = agent.get("model") or default_agent_model(agent["provider"])

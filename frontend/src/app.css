@@ -79,7 +79,7 @@
   .btn         { @apply state inline-flex h-10 select-none items-center justify-center gap-2 whitespace-nowrap rounded-full border border-outline
                         bg-surface-container-lowest px-5 text-sm font-medium text-on-surface transition-colors
                         disabled:pointer-events-none disabled:opacity-38 dark:bg-transparent; }
-  .btn-primary { @apply border-transparent bg-primary text-on-primary disabled:bg-on-surface/12 disabled:text-on-surface/60 dark:bg-primary; }
+  .btn-primary { @apply border-transparent bg-primary text-on-primary disabled:bg-on-surface/12 disabled:text-on-surface/60 dark:bg-primary dark:disabled:bg-on-surface/12; }
   .btn-tonal   { @apply border-transparent bg-secondary-container text-on-secondary-container dark:bg-secondary-container; }
   .btn-danger  { @apply border-transparent bg-error text-on-error dark:bg-error; }
   .btn-lg      { @apply h-11 px-6 text-[15px]; }

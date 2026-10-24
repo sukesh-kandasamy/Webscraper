@@ -462,10 +462,11 @@ def _with_retries(call, *args):
             waited += delay
 
 
-def _ask_claude(messages: list[dict], schema: dict, system: str = SYSTEM, name: str = "recipe") -> str:
+def _ask_claude(messages: list[dict], schema: dict, system: str = SYSTEM, name: str = "recipe",
+                model: str = "") -> str:
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     kwargs = dict(
-        model=config.CLAUDE_MODEL,
+        model=model or config.CLAUDE_MODEL,
         max_tokens=16000,
         system=system,
         messages=messages,
@@ -484,17 +485,21 @@ def _ask_claude(messages: list[dict], schema: dict, system: str = SYSTEM, name: 
     return next((b.text for b in resp.content if b.type == "text"), "")
 
 
-def _ask_groq(messages: list[dict], schema: dict, system: str = SYSTEM, name: str = "recipe") -> str:
+def _ask_groq(messages: list[dict], schema: dict, system: str = SYSTEM, name: str = "recipe",
+              model: str = "") -> str:
     from groq import Groq  # imported lazily so the app runs without the package when unused
 
+    model = model or config.GROQ_MODEL
+    # Reasoning effort and strict schemas are gpt-oss features on Groq; other models get a plain schema.
+    gpt_oss = "gpt-oss" in model
     client = Groq(api_key=config.GROQ_API_KEY)
     resp = client.chat.completions.create(
-        model=config.GROQ_MODEL,
+        model=model,
         messages=[{"role": "system", "content": system}, *messages],
-        reasoning_effort="medium",
         max_completion_tokens=8000,
         response_format={"type": "json_schema",
-                         "json_schema": {"name": name, "strict": True, "schema": schema}},
+                         "json_schema": {"name": name, "strict": gpt_oss, "schema": schema}},
+        **({"reasoning_effort": "medium"} if gpt_oss else {}),
     )
     return resp.choices[0].message.content or ""
 
@@ -507,13 +512,14 @@ class OpenAIError(Exception):
         self.status_code, self.response = status_code, response
 
 
-def _ask_openai(messages: list[dict], schema: dict, system: str = SYSTEM, name: str = "recipe") -> str:
+def _ask_openai(messages: list[dict], schema: dict, system: str = SYSTEM, name: str = "recipe",
+                model: str = "") -> str:
     """OpenAI Chat Completions with strict structured output (plain HTTPS: no extra package)."""
     import httpx
 
     r = httpx.post(f"{config.OPENAI_BASE_URL}/chat/completions", timeout=180,
                    headers={"Authorization": f"Bearer {config.OPENAI_API_KEY}"},
-                   json={"model": config.OPENAI_MODEL,
+                   json={"model": model or config.OPENAI_MODEL,
                          "messages": [{"role": "system", "content": system}, *messages],
                          "max_completion_tokens": 16000,
                          "response_format": {"type": "json_schema",
@@ -533,6 +539,21 @@ def _ask_openai(messages: list[dict], schema: dict, system: str = SYSTEM, name: 
 
 
 _ASK = {"groq": _ask_groq, "anthropic": _ask_claude, "openai": _ask_openai}
+
+
+def check_model(provider: str, model: str) -> None:
+    """Send one tiny structured request to see that a model answers in the JSON this app needs.
+    Raises RecipeBuildError with the provider's reason when it doesn't."""
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"],
+              "additionalProperties": False}
+    try:
+        text = _ASK[provider]([{"role": "user", "content": 'Answer {"ok": true}.'}], schema,
+                              "You check that structured answers work. Reply with JSON only.", "check", model=model)
+        json.loads(text)
+    except Exception as e:  # noqa: BLE001 - every failure is reported the same way
+        text = str(e)
+        said = re.search(r"""['"]message['"]:\s*['"](.+?)['"],\s*['"]""", text)   # the provider's own words
+        raise RecipeBuildError((said.group(1) if said else text)[:300] or type(e).__name__) from e
 
 
 def _ask_model(messages: list[dict], field_names: list[str], auto: bool = False) -> str:

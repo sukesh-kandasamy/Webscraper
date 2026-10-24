@@ -19,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config, db
+from . import ai_settings, config, db
 from .agent import api as agent_api, routes as agent_routes, runner as agent_runner, store as agent_store
 from .extraction import details, extractor, normalize, recipe_builder, request_parser
 from .fetching import browser, fetcher, robots
@@ -54,6 +54,7 @@ async def lifespan(_: FastAPI):
     logsafe.install()
     db.init()
     agent_store.init()
+    config.apply_ai_choice(db.get_app_setting("ai"))
     _seed_builtin_recipes()
     stop = threading.Event()
     threading.Thread(target=_retention_loop, args=(stop,), daemon=True, name="retention").start()
@@ -68,6 +69,7 @@ app = FastAPI(title="Universal Scraper", version="0.2", lifespan=lifespan,
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 app.include_router(agent_api.router)
+app.include_router(ai_settings.router)
 app.include_router(agent_api.worker)
 
 _LOCAL_NAMES = {"localhost", "127.0.0.1", "::1", "[::1]"} | set(config.ALLOWED_HOSTS)

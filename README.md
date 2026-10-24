@@ -42,7 +42,7 @@ The app has its own address for each page, so refresh, back / forward and bookma
 
 The look is clean and neutral, inspired by Material Design (Roboto, Material Symbols icons) without copying it:
 dark buttons on light surfaces in the light theme, light buttons on dark surfaces in the dark theme, and colour
-only for the logo and for status (finished, needs you, failed).
+only for status (finished, needs you, failed).
 
 1. **Home → paste a link** (or pick a type of data: products, jobs, real estate, stock tables,
    directories, news, anything else). Use a page that *lists* many items: a category, search
@@ -234,6 +234,7 @@ Web-Scraping/
 ├── app/                  the web app (FastAPI)
 │   ├── main.py           routes + serves the UI; Host / Origin checks, security headers
 │   ├── config.py         settings (from .env)
+│   ├── ai_settings.py    the AI provider and model chosen in Settings (checked, saved in the database)
 │   ├── db.py             SQLite: recipes, jobs, records, page cache (data/scraper.db)
 │   ├── fetching/         getting pages politely and safely
 │   ├── security/         protecting you and your data
@@ -264,6 +265,12 @@ Web-Scraping/
 | `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `build_ui_assets.mjs` (Material 3 colours, Roboto, Material Symbols from Google's packages) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) |
 
 ## Settings (`.env`)
+
+**Choosing the AI in the app:** *Settings → AI models* picks the provider (Groq, ChatGPT / OpenAI, Claude)
+and the model, separately for building scrapes and for the agent. The lists come from each provider, and
+saving sends one short test message to each newly picked model. The choice is saved in the database and
+overrides the provider and model settings below; *Use .env defaults* goes back to them. Keys always stay in
+`.env`: a provider without a key can't be picked, and the page never sees a key.
 
 | Setting | Default | Notes |
 |---|---|---|

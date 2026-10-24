@@ -1,22 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Universal Scraper">
   <title>Universal Scraper</title>
-  <defs>
-    <linearGradient id="us-bg" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#7c3aed"/>
-    </linearGradient>
-    <linearGradient id="us-shine" x1="16" y1="0" x2="16" y2="16" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity=".22"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <!-- tile -->
-  <rect width="32" height="32" rx="8" fill="url(#us-bg)"/>
-  <rect width="32" height="16" rx="8" fill="url(#us-shine)"/>
-  <!-- structured data: three table cells -->
-  <rect x="7" y="7" width="8" height="8" rx="2.2" fill="#ffffff"/>
-  <rect x="7" y="17" width="8" height="8" rx="2.2" fill="#ffffff" fill-opacity=".72"/>
-  <rect x="17" y="17" width="8" height="8" rx="2.2" fill="#ffffff" fill-opacity=".9"/>
-  <!-- AI spark filling the fourth cell -->
-  <path d="M21 6.2c.55 2.9 1.35 3.7 4.25 4.25-2.9.55-3.7 1.35-4.25 4.25-.55-2.9-1.35-3.7-4.25-4.25 2.9-.55 3.7-1.35 4.25-4.25Z" fill="#ffffff"/>
+  <!-- a capture frame around rows of data, with an AI spark -->
+  <rect width="32" height="32" rx="8" fill="#171717"/>
+  <g stroke="#ffffff" fill="#ffffff">
+    <path d="M8.5 12.5V10a1.5 1.5 0 0 1 1.5-1.5h2.5M19.5 8.5H22a1.5 1.5 0 0 1 1.5 1.5v2.5M8.5 19.5V22a1.5 1.5 0 0 0 1.5 1.5h2.5M23.5 19.5V22a1.5 1.5 0 0 1-1.5 1.5h-2.5M12.75 13.5h6.5M12.75 17.5h3.5" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M19.6 15.6c.3 1.5.7 1.9 2.2 2.2-1.5.3-1.9.7-2.2 2.2-.3-1.5-.7-1.9-2.2-2.2 1.5-.3 1.9-.7 2.2-2.2Z"/>
+  </g>
 </svg>

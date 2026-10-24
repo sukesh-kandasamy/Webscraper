@@ -3,7 +3,7 @@
 {% block scripts %}<script defer src="/static/js/pages/settings.js"></script>{% endblock %}
 {% block content %}
 <section class="space-y-6 animate-fade-up">
-  <div><h1 class="page-title">Settings</h1><p class="muted mt-1">Sites you've used, appearance and app information.</p></div>
+  <div><h1 class="page-title">Settings</h1><p class="muted mt-1">Appearance, the AI the app uses, sites you've used and app information.</p></div>
 
   <div class="card">
     <div class="card-head"><h2 class="card-title">Appearance</h2></div>
@@ -13,6 +13,57 @@
           <button class="segment" :class="theme === t.id && 'segment-on'" role="radio" :aria-checked="theme === t.id" @click="theme = t.id">
             <span x-html="icon(theme === t.id ? 'check' : t.icon, 'h-[18px] w-[18px]')"></span><span x-text="t.label"></span></button>
         </template>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="ai">
+    <div class="card-head"><h2 class="card-title">AI models</h2>
+      <span class="chip chip-gray ml-auto" x-show="ai?.custom" x-cloak>Chosen here</span>
+      <span class="chip chip-gray ml-auto" x-show="ai && !ai.custom" x-cloak>From .env</span></div>
+    <div class="card-body space-y-6" x-show="ai" x-cloak>
+      <template x-for="role in aiRoles" :key="role.id">
+        <div class="grid gap-3 md:grid-cols-[200px_1fr] md:gap-6">
+          <div>
+            <div class="text-sm font-medium text-on-surface" x-text="role.title"></div>
+            <p class="mt-0.5 text-xs text-on-surface-variant" x-text="role.help"></p>
+          </div>
+          <div class="min-w-0 space-y-3">
+            <div class="flex flex-wrap gap-2" role="radiogroup" :aria-label="role.title + ': AI provider'">
+              <template x-for="p in ai?.providers || []" :key="p.id">
+                <button type="button" class="chip-outline disabled:cursor-not-allowed disabled:opacity-50" role="radio"
+                        :class="aiForm[role.id].provider === p.id && 'chip-selected'" :aria-checked="aiForm[role.id].provider === p.id"
+                        :disabled="!p.key_set || !!aiBusy || (role.id === 'agent' && ai?.agent_busy)"
+                        :title="p.key_set ? '' : `Add ${p.key_name} to .env to use ${p.name}`" @click="pickProvider(role.id, p.id)">
+                  <span x-show="aiForm[role.id].provider === p.id" x-html="icon('check', 'h-4 w-4')"></span>
+                  <span x-text="p.name"></span><span x-show="!p.key_set" class="font-normal">· no key</span>
+                </button>
+              </template>
+            </div>
+            <select class="input" x-model="aiForm[role.id].model" :aria-label="role.title + ': model'"
+                    :disabled="!aiForm[role.id].provider || !!aiBusy || (role.id === 'agent' && ai?.agent_busy)">
+              <optgroup label="Recommended" x-show="modelGroups(role.id).rec.length">
+                <template x-for="m in modelGroups(role.id).rec" :key="m">
+                  <option :value="m" :selected="m === aiForm[role.id].model" x-text="m"></option></template>
+              </optgroup>
+              <optgroup label="Other models" x-show="modelGroups(role.id).rest.length">
+                <template x-for="m in modelGroups(role.id).rest" :key="m">
+                  <option :value="m" :selected="m === aiForm[role.id].model" x-text="m"></option></template>
+              </optgroup>
+            </select>
+            <p class="text-xs text-on-surface-variant" x-show="role.id === 'agent'">
+              <span x-text="agentSeesText()"></span>
+              <span x-show="ai?.agent_busy" class="font-medium text-on-surface"> An agent run is in progress: change this after it finishes.</span></p>
+            <p class="text-xs text-on-surface-variant" x-show="aiModels[aiForm[role.id].provider] && !aiModels[aiForm[role.id].provider].live">
+              Couldn't load this provider's model list, so these are suggestions.</p>
+          </div>
+        </div>
+      </template>
+      <div class="flex flex-wrap items-center gap-3 border-t border-outline-variant pt-4">
+        <p class="mr-auto max-w-md text-xs text-on-surface-variant">Keys stay in .env and are never shown here. Saving sends one short test message to each newly picked model.</p>
+        <button class="btn" x-show="ai?.custom" @click="resetAi()" :disabled="!!aiBusy">Use .env defaults</button>
+        <button class="btn btn-primary" @click="saveAi()" :disabled="!!aiBusy || !aiDirty()">
+          <span class="spinner" x-show="aiBusy === 'save'" x-cloak></span><span x-text="aiBusy === 'save' ? 'Checking…' : 'Save'"></span></button>
       </div>
     </div>
   </div>
