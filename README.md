@@ -29,7 +29,19 @@ changes), `--no-browser`.
 
 ## How to use
 
-The app has five screens in the sidebar: **Home, New scrape, Saved scrapes, Results, Settings**.
+The app has its own address for each page, so refresh, back / forward and bookmarks work:
+
+| Page | Address |
+|---|---|
+| Home | `/` |
+| New scrape (and Edit) | `/scrapes/new`, `/scrapes/{id}/edit` |
+| Saved scrapes | `/scrapes` |
+| Results (one run, one tab) | `/results`, `/results/{run}`, `/results/{run}?tab=quality` |
+| Settings | `/settings` |
+| Agent workspace | `/agent`, `/agent/runs/{id}` |
+
+The look follows Google's **Material Design 3** (colours generated from the app's indigo, Roboto, Material
+Symbols icons), in light and dark.
 
 1. **Home → paste a link** (or pick a type of data: products, jobs, real estate, stock tables,
    directories, news, anything else). Use a page that *lists* many items: a category, search
@@ -65,7 +77,9 @@ The app has five screens in the sidebar: **Home, New scrape, Saved scrapes, Resu
 
 ### Agent mode (new)
 
-For when you only know the goal. Open **Agent** in the sidebar (or *Let the agent do it* on Home), describe
+For when you only know the goal. Open **Agent** in the sidebar (or *Let the agent do it* on Home): it opens
+its own full-screen workspace, with your past agent runs on the left and **Back to Universal Scraper** at the
+top. Describe
 what to collect and name the website, for example *"Hockey teams whose name contains 'New': team name,
 year, wins, losses. All pages."* on `scrapethissite.com/pages/forms/`.
 
@@ -121,15 +135,30 @@ suggests a category page instead. For example, IndiaMART allows `dir.indiamart.c
 ## Changing the UI
 
 Everything the page needs is served by the app itself (no CDNs), so it works offline and behind company
-firewalls. Styles are compiled from `frontend/src/app.css` with Tailwind:
+firewalls.
 
-```bash
-python scripts/build_css.py           # once
-python scripts/build_css.py --watch   # while editing frontend/public/index.html or app.js
-```
+- **Pages:** one Jinja2 template per page in `frontend/templates/` (`base.html` is the shared frame,
+  `partials/` the shared dialogs and banners, `agent/workspace.html` the Agent workspace) and one script per
+  page in `frontend/public/js/pages/`. `js/core.js` holds what every page shares (Alpine.js). Templates never
+  contain inline scripts; page data travels in `data-*` attributes.
+- **Styles:** Tailwind with Material 3 component classes, compiled from `frontend/src/app.css`:
 
-`pip install pytailwindcss` provides the Tailwind CLI (it downloads it on first use). The compiled
-`frontend/public/app.css` is committed, so running the app never needs this step.
+  ```bash
+  python scripts/build_css.py           # once
+  python scripts/build_css.py --watch   # while editing templates or page scripts
+  ```
+
+  `pip install pytailwindcss` provides the Tailwind CLI. The compiled `frontend/public/css/app.css` is committed.
+- **Design assets:** the Material 3 colour roles (`frontend/src/theme.css`), Roboto (`public/fonts/`) and the
+  Material Symbols icons (`public/js/icons.js`) are generated from Google's packages:
+
+  ```bash
+  node scripts/build_ui_assets.mjs      # only when changing the brand colour or adding an icon
+  ```
+
+  To use another icon, add its [Material Symbols](https://fonts.google.com/icons) name to `ICONS` in that
+  script, run it, then `icon('name')` in a template. The outputs are committed, so running the app never
+  needs npm.
 
 ## Logged-in pages, CAPTCHAs and personal data
 
@@ -212,11 +241,12 @@ Web-Scraping/
 │   ├── agent/            Agent mode (plans, guard, handoff, routes, check & fix)
 │   └── recipes/          built-in recipes, loaded at startup
 ├── frontend/             the UI
-│   ├── public/           served at /static: index.html, app.js (Alpine.js), compiled app.css, logo, vendor/
-│   ├── src/app.css       Tailwind source
+│   ├── templates/        one Jinja2 template per page (base.html, pages/, agent/, partials/)
+│   ├── public/           served at /static: css/app.css, js/core.js + js/pages/*.js, js/icons.js, fonts/, img/
+│   ├── src/              Tailwind source (app.css) and Material 3 colours (theme.css)
 │   └── tailwind.config.js
 ├── agent_worker/         the browser-use process, in its own environment (.venv-agent)
-├── scripts/              check.py (security report), build_css.py, secret_scan.py
+├── scripts/              check.py (security report), build_css.py, build_ui_assets.mjs, secret_scan.py
 ├── tests/                python -m pytest tests (offline, on saved pages and a local test site)
 ├── docs/                 SECURITY.md and the plans behind each part of the app
 └── data/                 your database, logins, logs (local only, never committed)
@@ -230,7 +260,7 @@ Web-Scraping/
 | `app/runs/` | `jobs.py` (background runs: typing, de-duplication, conditions, item pages, retries) · `quality.py` (quality report and health check) · `export.py` (CSV / Excel) |
 | `app/agent/` | `planner.py` (goal → plan) · `guard.py` (what the agent may do) · `api.py` (UI + worker API) · `handoff.py` (results page → engine) · `routes.py` (record and replay steps without AI) · `supervisor.py` (check and fix) · `runner.py` (starts the worker) · `store.py` (runs and steps) |
 | `agent_worker/` | `worker.py` (browser-use, talks to the app's local API with a one-time token) · `requirements.txt` / `.lock` |
-| `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) |
+| `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `build_ui_assets.mjs` (Material 3 colours, Roboto, Material Symbols from Google's packages) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) |
 
 ## Settings (`.env`)
 

@@ -25,6 +25,8 @@ IDLE_EXIT_S = 15 * 60
 # Actions the agent never gets: web search engines, files, uploads, arbitrary JavaScript, PDFs.
 EXCLUDED = ["search", "upload_file", "write_file", "replace_file", "read_file", "evaluate", "save_as_pdf",
             "screenshot", "extract"]
+# Edge opens its own new-tab page at start; browser-use only knows Chrome's, and closing it deadlocks the start.
+BROWSER_START_PAGES = ["edge://newtab", "edge://new-tab-page"]
 KEEP_ATTRS = ("id", "name", "type", "role", "aria-label", "placeholder", "title", "href", "value", "class",
               "data-testid", "autocomplete", "alt")
 
@@ -203,7 +205,7 @@ async def execute(job: dict) -> None:
 
     show = os.environ.get("AGENT_SHOW_BROWSER") == "1"
     profile = BrowserProfile(headless=not show, executable_path=os.environ.get("AGENT_BROWSER") or None,
-                             allowed_domains=job["allowed_domains"], storage_state=job.get("storage_state"),
+                             allowed_domains=job["allowed_domains"] + BROWSER_START_PAGES, storage_state=job.get("storage_state"),
                              block_ip_addresses=True, keep_alive=False, window_size={"width": 1280, "height": 900})
     tools = GuardedTools(run)
     vision = os.environ.get("AGENT_VISION") == "1"
@@ -236,9 +238,17 @@ async def execute(job: dict) -> None:
         history = await asyncio.wait_for(agent.run(max_steps=int(limits.get("steps", 40))),
                                          timeout=float(limits.get("minutes", 10)) * 60 + 60)
         final = (history.final_result() or "") if history else ""
-    except asyncio.TimeoutError:
-        final, run.stop_reason = "", run.stop_reason or "limit"
-        run.stop_message = run.stop_message or "Reached the time limit."
+    except asyncio.TimeoutError as e:
+        # The same class covers the run's own time limit and timeouts inside browser-use (e.g. the browser
+        # not starting); only the first one is a limit.
+        final = ""
+        if time.time() - started >= float(limits.get("minutes", 10)) * 60:
+            run.stop_reason = run.stop_reason or "limit"
+            run.stop_message = run.stop_message or "Reached the time limit."
+        else:
+            run.stop_reason = run.stop_reason or "error"
+            what = "The browser didn't start in time" if "BrowserStart" in str(e) else "The browser stopped responding"
+            run.stop_message = run.stop_message or f"{what}. Try again; if it keeps happening, restart the app."
     except Exception as e:
         final = ""
         run.stop_reason = run.stop_reason or "error"
