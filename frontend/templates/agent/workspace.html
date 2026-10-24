@@ -11,7 +11,7 @@
     <button class="btn btn-icon lg:hidden" @click="historyOpen = !historyOpen" aria-label="Agent runs"><span x-html="icon('history', 'h-6 w-6')"></span></button>
     <span class="grid h-9 w-9 place-items-center rounded-full bg-primary-container text-on-primary-container" x-html="icon('smart_toy-fill', 'h-5 w-5')"></span>
     <div class="min-w-0 leading-tight">
-      <div class="title-l text-on-surface">Agent</div>
+      <div class="title-l font-semibold text-on-surface">Agent</div>
     </div>
     <span class="chip chip-gray ml-2 hidden sm:inline-flex" x-show="status?.agent" x-cloak
           x-text="status?.agent ? `${status.agent.provider} · ${status.agent.model}` : ''"></span>
@@ -27,7 +27,7 @@
                   lg:static lg:z-auto lg:w-72 lg:translate-x-0 lg:rounded-tr-m3-xl lg:pt-3"
            :class="historyOpen ? 'translate-x-0 shadow-e2' : '-translate-x-full'" aria-label="Agent runs">
       <div class="px-3 pb-3">
-        <button class="fab h-12 w-full justify-start shadow-none" @click="newAgentRun(); historyOpen = false">
+        <button class="fab w-full justify-start" @click="newAgentRun(); historyOpen = false">
           <span x-html="icon('add', 'h-6 w-6')"></span> New agent run</button>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-4">

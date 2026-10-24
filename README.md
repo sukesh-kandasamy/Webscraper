@@ -40,8 +40,9 @@ The app has its own address for each page, so refresh, back / forward and bookma
 | Settings | `/settings` |
 | Agent workspace | `/agent`, `/agent/runs/{id}` |
 
-The look follows Google's **Material Design 3** (colours generated from the app's indigo, Roboto, Material
-Symbols icons), in light and dark.
+The look is clean and neutral, inspired by Material Design (Roboto, Material Symbols icons) without copying it:
+dark buttons on light surfaces in the light theme, light buttons on dark surfaces in the dark theme, and colour
+only for the logo and for status (finished, needs you, failed).
 
 1. **Home → paste a link** (or pick a type of data: products, jobs, real estate, stock tables,
    directories, news, anything else). Use a page that *lists* many items: a category, search
