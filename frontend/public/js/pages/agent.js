@@ -83,6 +83,14 @@ function agentPage() {
       clearTimeout(this.agentTimer); this.agentRun = null; this.error = null;
       if (location.pathname !== "/agent") history.pushState({}, "", "/agent");
     },
+    siteLooksOk() { return /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(:\d+)?(\/\S*)?$/i.test(this.agentSite.trim()); },
+    agentMissing() {
+      const goal = this.agentGoal.trim(), site = this.agentSite.trim();
+      if (!goal && !site) return "Describe what to collect and add the website.";
+      if (!goal) return "Describe what to collect.";
+      if (!site) return "Add the website to search on.";
+      return "";
+    },
     async planAgent() {
       if (!this.agentGoal.trim() || !this.agentSite.trim()) {
         this.error = { title: "Say what to collect and on which site", hint: "Fill in both boxes, or click an example." }; return;

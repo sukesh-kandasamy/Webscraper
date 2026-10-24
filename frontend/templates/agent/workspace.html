@@ -64,30 +64,40 @@
 
         <!-- 1 · composer -->
         <section x-show="!agentRun" class="animate-fade-up pt-4 sm:pt-10">
-          <h1 class="headline-l text-center text-on-surface">What should the agent collect?</h1>
+          <h1 class="headline-l text-center font-semibold tracking-[-0.01em] text-on-surface">What should the agent collect?</h1>
           <p class="body-l mx-auto mt-3 max-w-xl text-center text-on-surface-variant">Name the site and describe the data. The agent finds the results with the site's own search and filters; the app collects them.</p>
-          <div class="mt-8 rounded-m3-xl bg-surface-container-low p-2 shadow-e1 focus-within:shadow-e2">
-            <textarea id="agent-goal" x-model="agentGoal" rows="4" maxlength="2000" aria-label="What should the agent collect?"
-                      class="block w-full resize-none rounded-m3-lg border-0 bg-transparent px-4 py-3 text-base leading-6 text-on-surface placeholder:text-on-surface-variant/70 focus:ring-0"
+          <div class="composer mt-8">
+            <label for="agent-goal" class="sr-only">What should the agent collect?</label>
+            <textarea id="agent-goal" x-model="agentGoal" rows="4" maxlength="2000"
+                      class="composer-goal"
                       placeholder="Example: 3BHK flats for rent in Whitefield, Bangalore under ₹40,000: price, area, furnishing, owner or agent, posted date. All pages."
-                      @keydown.ctrl.enter.prevent="planAgent()"></textarea>
-            <div class="flex flex-wrap items-center gap-2 border-t border-outline-variant/60 px-2 pt-2">
-              <label class="flex min-w-[14rem] flex-1 items-center gap-2 rounded-full bg-surface-container-high px-4" for="agent-site">
-                <span class="text-on-surface-variant" x-html="icon('language', 'h-5 w-5')"></span>
+                      @keydown.ctrl.enter.prevent="planAgent()" @keydown.meta.enter.prevent="planAgent()"></textarea>
+            <div class="composer-bar">
+              <label class="composer-site" for="agent-site">
+                <span class="text-on-surface-variant" x-html="icon('language', 'h-[18px] w-[18px]')"></span>
                 <input id="agent-site" type="text" x-model="agentSite" placeholder="Website, e.g. books.toscrape.com"
-                       class="h-10 w-full border-0 bg-transparent px-0 text-sm text-on-surface placeholder:text-on-surface-variant/70 focus:ring-0"
-                       @keydown.enter.prevent="planAgent()">
+                       autocomplete="off" spellcheck="false" aria-label="Website" @keydown.enter.prevent="planAgent()">
+                <span class="text-success" x-show="siteLooksOk()" x-cloak x-html="icon('check_circle-fill', 'h-[18px] w-[18px]')" title="Looks like a website"></span>
               </label>
-              <button class="btn btn-primary" @click="planAgent()" :disabled="!!busy || !!agentProblem()">
-                <span x-show="busy==='agent-plan'" class="spinner"></span>
-                <span x-show="busy!=='agent-plan'" x-html="icon('send', 'h-5 w-5')"></span>
-                <span x-text="busy==='agent-plan' ? 'Making a plan…' : 'Make a plan'"></span></button>
+              <div class="flex items-center gap-3 max-sm:w-full">
+                <span class="hidden text-xs tabular-nums text-on-surface-variant sm:inline" x-text="`${agentGoal.length} / 2000`"></span>
+                <button class="btn btn-primary max-sm:flex-1" @click="planAgent()" :disabled="!!busy || !!agentProblem() || !!agentMissing()"
+                        :title="agentMissing() || 'Ctrl + Enter'">
+                  <span x-show="busy==='agent-plan'" class="spinner"></span>
+                  <span x-show="busy!=='agent-plan'" x-html="icon('send', 'h-[18px] w-[18px]')"></span>
+                  <span x-text="busy==='agent-plan' ? 'Making a plan…' : 'Make a plan'"></span></button>
+              </div>
             </div>
           </div>
-          <div class="mt-4 flex flex-wrap justify-center gap-2">
+          <div class="mt-2 flex min-h-5 flex-wrap items-center justify-between gap-2 px-1 text-xs text-on-surface-variant">
+            <span x-text="agentMissing() || 'Ready. The agent will show you its plan before it starts.'"></span>
+            <span class="hidden sm:inline">Press <kbd class="kbd">Ctrl</kbd> + <kbd class="kbd">Enter</kbd> to make the plan</span>
+          </div>
+          <div class="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <span class="w-full text-center text-xs font-medium text-on-surface-variant sm:w-auto">Try an example</span>
             <template x-for="ex in agentExamples" :key="ex.label">
-              <button class="chip-outline" @click="agentGoal = ex.goal; agentSite = ex.site">
-                <span class="text-primary" x-html="icon('lightbulb', 'h-[18px] w-[18px]')"></span><span x-text="ex.label"></span></button>
+              <button class="chip-outline" @click="agentGoal = ex.goal; agentSite = ex.site; $nextTick(() => document.getElementById('agent-goal').focus())">
+                <span x-html="icon('lightbulb', 'h-4 w-4')"></span><span x-text="ex.label"></span></button>
             </template>
           </div>
           <p class="mx-auto mt-6 flex max-w-xl items-start justify-center gap-2 text-center text-xs text-on-surface-variant">
