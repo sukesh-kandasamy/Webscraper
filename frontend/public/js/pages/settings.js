@@ -1,4 +1,4 @@
-// Settings: appearance, AI models, Advanced and Agent switches, sites (limits, pauses, logins), activity log, about.
+// Settings: appearance, AI models, Advanced and Agent switches, sites (limits, pauses, logins), activity log.
 function settingsPage() {
   return {
     sites: [],

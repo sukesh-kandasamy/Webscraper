@@ -3,7 +3,7 @@
 {% block scripts %}<script defer src="/static/js/pages/settings.js"></script>{% endblock %}
 {% block content %}
 <section class="space-y-6 animate-fade-up">
-  <div><h1 class="page-title">Settings</h1><p class="muted mt-1">Appearance, the AI the app uses, sites you've used and app information.</p></div>
+  <div><h1 class="page-title">Settings</h1><p class="muted mt-1">Appearance, the AI the app uses and the sites you've used.</p></div>
 
   <div class="card">
     <div class="card-head"><h2 class="card-title">Appearance</h2></div>
@@ -150,18 +150,6 @@
         </ul>
       </div>
     </details>
-  </div>
-
-  <div class="card">
-    <div class="card-head"><h2 class="card-title">About</h2></div>
-    <dl class="grid gap-x-8 gap-y-3 p-5 text-sm sm:grid-cols-2">
-      <div class="flex justify-between gap-4"><dt class="text-slate-500">AI</dt><dd class="text-right font-medium" x-text="status?.ai_enabled ? `${status.provider} · ${status.model}` : 'Not set up (add a key to .env)'"></dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-slate-500">Browser loading</dt><dd class="font-medium" x-text="status?.browser_available ? 'Ready' : 'Not installed'"></dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-slate-500">Wait between pages</dt><dd class="font-medium" x-text="(status?.delay || []).join('–') + ' seconds'"></dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-slate-500">Daily limit per site</dt><dd class="font-medium" x-text="fmt((status?.budget || [])[0]) + ' pages'"></dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-slate-500">Saved logins expire after</dt><dd class="font-medium" x-text="(status?.session_max_age_days || '') + ' days'"></dd></div>
-      <div class="flex justify-between gap-4"><dt class="text-slate-500">Results kept for</dt><dd class="font-medium" x-text="(status?.retention?.job_days || '') + ' days'"></dd></div>
-    </dl>
   </div>
 </section>
 {% endblock %}
