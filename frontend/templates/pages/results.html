@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block page %}resultsPage{% endblock %}
+{% block scripts %}<script defer src="/static/js/pages/results.js"></script>{% endblock %}
+{% block content %}
+<section class="space-y-6 animate-fade-up">
+  <div><h1 class="page-title">Results</h1><p class="muted mt-1">Every run and the data it collected.</p></div>
+  <div class="card px-6 py-14 text-center" x-show="!jobs.length">
+    <span class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10" x-html="icon('table', 'h-6 w-6')"></span>
+    <p class="font-medium text-slate-900 dark:text-white">No results yet</p>
+    <p class="muted mt-1">Start a scrape and its data shows up here.</p>
+  </div>
+
+  <div class="grid gap-6 lg:grid-cols-[17rem_1fr]" x-show="jobs.length">
+    <div class="card max-h-[72vh] overflow-auto p-1.5">
+      <div class="eyebrow px-2.5 pb-1 pt-2">Runs</div>
+      <template x-for="j in jobs" :key="j.id">
+        <button class="w-full rounded-lg px-2.5 py-2 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                :class="selectedJob?.id === j.id && 'bg-brand-50 hover:bg-brand-50 dark:bg-brand-500/10'" @click="openJob(j)">
+          <div class="flex items-center gap-2">
+            <span class="min-w-0 flex-1 truncate text-sm font-medium text-slate-900 dark:text-slate-100" x-text="jobTitle(j)"></span>
+            <span class="h-2 w-2 shrink-0 rounded-full" :title="statusLabel(j.status)"
+                  :class="{done: 'bg-emerald-500', running: 'bg-brand-500 animate-pulse', queued: 'bg-amber-400', needs_you: 'bg-amber-500 animate-pulse', blocked: 'bg-rose-500', error: 'bg-rose-500', stopped: 'bg-slate-400'}[j.status]"></span>
+          </div>
+          <div class="mt-0.5 text-xs text-slate-500" x-text="`${fmt(j.rows)} rows · ${timeAgo(j.created_at)}`"></div>
+        </button>
+      </template>
+    </div>
+
+    <div class="min-w-0 space-y-4">
+      <div class="card px-6 py-14 text-center" x-show="!selectedJob"><p class="muted">Choose a run on the left to see its data.</p></div>
+      <template x-if="selectedJob">
+        <div class="space-y-4">
+          <div class="card p-5">
+            <div class="flex flex-wrap items-start gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h2 class="truncate text-lg font-semibold text-slate-900 dark:text-white" x-text="jobTitle(selectedJob)"></h2>
+                  <span class="chip" :class="statusChip(selectedJob.status)">
+                    <span class="dot" :class="['queued','running','needs_you'].includes(selectedJob.status) && 'animate-pulse'"></span>
+                    <span x-text="statusLabel(selectedJob.status)"></span></span>
+                  <span class="chip chip-blue" x-show="selectedJob.logged_in" title="Used a login; stored encrypted"><span x-html="icon('lock', 'h-3 w-3')"></span> logged in</span>
+                  <span class="chip chip-gray" x-show="selectedJob.keep">kept</span>
+                </div>
+                <p class="mt-1 text-sm text-slate-600 dark:text-slate-300" x-text="selectedJob.progress"></p>
+                <p class="mt-1 break-words font-mono text-xs text-slate-400" x-show="advanced" x-text="selectedJob.message"></p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-primary btn-sm" x-show="selectedJob.status==='needs_you'" @click="startJobSolve(selectedJob)">Open to solve</button>
+                <button class="btn btn-sm" x-show="['queued','running','needs_you'].includes(selectedJob.status)" @click="stopJob(selectedJob)"><span x-html="icon('stop', 'h-3.5 w-3.5')"></span> Stop</button>
+                <button class="btn btn-sm" x-show="['stopped','blocked','error'].includes(selectedJob.status) && selectedJob.pages_done < selectedJob.pages_total" @click="resumeJob(selectedJob)">Continue</button>
+                <button class="btn btn-sm" x-show="selectedJob.status==='done' && selectedJob.quality?.pages_failed?.length" @click="resumeJob(selectedJob)"
+                        :title="(selectedJob.quality?.pages_failed || []).map(f => f.url).join('\n')"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Retry failed pages</button>
+                <button class="btn btn-sm" x-show="selectedJob.scrape_id && !['queued','running'].includes(selectedJob.status)" @click="runAgainFromJob(selectedJob)"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Run again</button>
+              </div>
+            </div>
+            <div class="mt-4" x-show="['queued','running'].includes(selectedJob.status)">
+              <div class="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                <div class="h-full rounded-full bg-brand-500 transition-all duration-500" :style="`width:${progressPct(selectedJob)}%`"></div>
+              </div>
+            </div>
+            <div class="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+                 x-show="selectedJob.quality?.route_broken" x-cloak>
+              <span class="mt-0.5 text-rose-500" x-html="icon('warn', 'h-4 w-4')"></span>
+              <div class="flex-1"><span x-text="`The recorded steps stopped working at step ${selectedJob.quality?.route_broken?.step}: ${selectedJob.quality?.route_broken?.reason}. The site probably changed.`"></span>
+                <div class="mt-2"><button class="btn btn-sm" @click="rerecordScrape(selectedJob.scrape_id)" :disabled="!!busy || !selectedJob.scrape_id">
+                  <span x-html="icon('sparkles', 'h-3.5 w-3.5')"></span> Re-record with the agent</button></div></div>
+            </div>
+            <div class="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+                 x-show="selectedJob.quality?.health?.broken?.length" x-cloak>
+              <span class="mt-0.5 text-rose-500" x-html="icon('warn', 'h-4 w-4')"></span>
+              <div class="flex-1"><span x-text="selectedJob.quality?.health?.message"></span>
+                <div class="mt-2"><button class="btn btn-sm" @click="repairScrape(selectedJob)" :disabled="!!busy || !status?.ai_enabled">
+                  <span x-show="busy==='repair'" class="spinner"></span> Re-detect columns</button></div></div>
+            </div>
+          </div>
+
+          <div class="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm dark:bg-slate-800/70" role="tablist">
+            <template x-for="t in resultTabs()" :key="t.id">
+              <button role="tab" class="flex-1 rounded-lg px-3 py-1.5 font-medium transition sm:flex-none"
+                      :class="resultTab === t.id ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
+                      :aria-selected="resultTab === t.id" @click="openResultTab(t.id)">
+                <span x-text="t.label"></span>
+                <span class="ml-1 rounded-full px-1.5 text-[11px] tabular-nums" x-show="t.badge" x-cloak
+                      :class="t.warn ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'" x-text="t.badge"></span>
+              </button>
+            </template>
+          </div>
+
+          <!-- Quality -->
+          <div class="space-y-4" x-show="resultTab==='quality'" x-cloak>
+            <p class="card p-6 text-center muted" x-show="!selectedJob.quality?.columns"
+               x-text="['queued','running'].includes(selectedJob.status) ? 'The quality report appears when the run finishes.' : 'No quality report for this run (it was made with an older version).'"></p>
+            <template x-if="selectedJob.quality?.columns">
+              <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+                  <template x-for="s in qualityTiles()" :key="s.label">
+                    <div class="card p-4">
+                      <div class="text-xs text-slate-500" x-text="s.label"></div>
+                      <div class="mt-1 text-xl font-semibold tabular-nums" :class="s.warn ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'" x-text="s.value"></div>
+                      <div class="mt-0.5 text-[11px] text-slate-400" x-show="s.note" x-text="s.note"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="card p-4" x-show="selectedJob.quality?.warnings?.length">
+                  <ul class="space-y-1.5 text-sm">
+                    <template x-for="w in selectedJob.quality?.warnings || []" :key="w">
+                      <li class="flex items-start gap-2 text-slate-700 dark:text-slate-300"><span class="mt-0.5 text-amber-500" x-html="icon('warn', 'h-4 w-4')"></span><span x-text="w"></span></li>
+                    </template>
+                  </ul>
+                </div>
+                <div class="card p-4 text-sm text-emerald-700 dark:text-emerald-300" x-show="!selectedJob.quality?.warnings?.length">
+                  <span class="inline-flex items-center gap-2"><span x-html="icon('check', 'h-4 w-4')"></span> No problems found in this run.</span></div>
+                <div class="card">
+                  <div class="card-head"><h2 class="card-title">Columns</h2><span class="muted">how complete each one is</span></div>
+                  <div class="p-3"><div class="table-wrap">
+                    <table class="tbl">
+                      <thead><tr><th>Column</th><th>Type</th><th>Filled</th><th>Different values</th><th>Unreadable</th></tr></thead>
+                      <tbody>
+                        <template x-for="[name, c] in Object.entries(selectedJob.quality?.columns || {})" :key="name">
+                          <tr>
+                            <td class="font-medium" x-text="pretty(name)"></td>
+                            <td><span class="type-badge" x-text="typeLabel(c.type) || 'text'"></span></td>
+                            <td><div class="flex items-center gap-2">
+                              <div class="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                <div class="h-full rounded-full" :class="c.fill >= 0.8 ? 'bg-emerald-500' : c.fill >= 0.4 ? 'bg-amber-400' : 'bg-rose-400'" :style="`width:${Math.round(c.fill * 100)}%`"></div></div>
+                              <span class="tabular-nums text-xs text-slate-500" x-text="Math.round(c.fill * 100) + '%'"></span></div></td>
+                            <td class="tabular-nums" x-text="fmt(c.distinct)"></td>
+                            <td class="tabular-nums" :class="c.unreadable && 'text-amber-600'" x-text="c.unreadable || '—'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div></div>
+                </div>
+                <div class="card p-4" x-show="selectedJob.quality?.pages_failed?.length">
+                  <div class="text-sm font-medium text-slate-900 dark:text-white">Pages that could not be read</div>
+                  <ul class="mt-2 space-y-1 text-xs">
+                    <template x-for="f in selectedJob.quality?.pages_failed || []" :key="f.url">
+                      <li class="break-all"><a class="link" :href="f.url" target="_blank" rel="noopener noreferrer" x-text="f.url"></a>
+                        <span class="text-slate-500" x-text="' · ' + f.error"></span></li>
+                    </template>
+                  </ul>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Changes since the previous run -->
+          <div class="space-y-4" x-show="resultTab==='changes'" x-cloak>
+            <div class="card p-6 text-center" x-show="busy==='compare'"><span class="spinner text-brand-600"></span></div>
+            <p class="card p-6 text-center muted" x-show="compareError" x-text="compareError"></p>
+            <template x-if="compare && busy!=='compare'">
+              <div class="space-y-4">
+                <p class="muted text-sm" x-text="`Compared with the run of ${timeAgo(compare.previous_at)} · items matched by ${compare.key === 'whole row' ? 'all their values' : pretty(compare.key)}`"></p>
+                <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <template x-for="k in ['added','removed','changed','same']" :key="k">
+                    <button class="card p-4 text-left transition" :class="compareView === k && 'ring-2 ring-brand-500/40'" @click="compareView = k" :disabled="k === 'same'">
+                      <div class="text-xs capitalize text-slate-500" x-text="{added: 'New items', removed: 'Gone', changed: 'Changed', same: 'Unchanged'}[k]"></div>
+                      <div class="mt-1 text-xl font-semibold tabular-nums" :class="{added: 'text-emerald-600', removed: 'text-rose-600', changed: 'text-amber-600', same: 'text-slate-900 dark:text-white'}[k]" x-text="fmt(compare.counts[k])"></div>
+                    </button>
+                  </template>
+                </div>
+                <div class="card">
+                  <div class="p-3">
+                    <p class="muted p-6 text-center" x-show="!compareRows().length">Nothing here.</p>
+                    <div class="table-wrap max-h-[55vh]" x-show="compareRows().length">
+                      <table class="tbl">
+                        <thead><tr>
+                          <template x-for="c in compareColumns()" :key="c"><th x-text="pretty(c)"></th></template>
+                          <th x-show="compareView==='changed'">What changed</th>
+                        </tr></thead>
+                        <tbody>
+                          <template x-for="(item, i) in compareRows().slice(0, 100)" :key="i">
+                            <tr>
+                              <template x-for="c in compareColumns()" :key="c">
+                                <td>
+                                  <template x-if="isImage(rowOf(item)[c])"><img :src="rowOf(item)[c]" class="h-10 w-10 rounded-md object-cover" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
+                                  <template x-if="isUrl(rowOf(item)[c]) && !isImage(rowOf(item)[c])"><a class="link" :href="rowOf(item)[c]" target="_blank" rel="noopener noreferrer">Open</a></template>
+                                  <template x-if="!isUrl(rowOf(item)[c])"><span class="line-clamp-2" x-text="cellText(rowOf(item)[c])"></span></template>
+                                </td>
+                              </template>
+                              <td x-show="compareView==='changed'">
+                                <template x-for="[col, v] in Object.entries(item.changes || {})" :key="col">
+                                  <div class="whitespace-nowrap text-xs"><span class="font-medium" x-text="pretty(col) + ': '"></span>
+                                    <span class="text-rose-600 line-through" x-text="cellText(v[0])"></span> → <span class="text-emerald-600" x-text="cellText(v[1])"></span></div>
+                                </template>
+                              </td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div class="card" x-show="resultTab==='data'">
+            <div class="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3 dark:border-slate-800">
+              <div class="relative min-w-[12rem] flex-1">
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" x-html="icon('search', 'h-4 w-4')"></span>
+                <input type="search" x-model="search" placeholder="Search the data" class="input pl-9" aria-label="Search the data">
+              </div>
+              <div class="relative">
+                <button class="btn" @click="colMenu = !colMenu" @click.outside="colMenu = false"
+                        x-text="`Columns ${visibleColumns().length}/${allColumns().length}`"></button>
+                <div class="menu max-h-72 w-56 overflow-auto" x-show="colMenu" x-cloak x-transition.opacity>
+                  <template x-for="c in allColumns()" :key="c">
+                    <label class="menu-item cursor-pointer">
+                      <input type="checkbox" :checked="!hiddenCols.includes(c)" @change="toggleCol(c)" class="checkbox"> <span x-text="pretty(c)"></span></label>
+                  </template>
+                </div>
+              </div>
+              <label class="flex items-center gap-2 px-1 text-sm" x-show="selectedJob.personal?.fields?.length">
+                <input type="checkbox" x-model="showPersonal" @change="loadRecords()" class="checkbox"> Show personal data</label>
+              <div class="relative" x-data="{ open: false }">
+                <button class="btn btn-primary" @click="open = !open" @click.outside="open = false" :disabled="!records.length">
+                  <span x-html="icon('download', 'h-4 w-4')"></span> Download</button>
+                <div class="menu" x-show="open" x-cloak x-transition.opacity>
+                  <a class="menu-item" :href="exportUrl('xlsx')" @click="open=false">Excel (.xlsx)</a>
+                  <a class="menu-item" :href="exportUrl('csv')" @click="open=false">CSV (.csv)</a>
+                  <div class="px-2.5 pb-1 pt-1.5 text-[11px] text-slate-400">Only the columns you show</div>
+                </div>
+              </div>
+              <div class="relative" x-data="{ open: false }">
+                <button class="btn btn-icon" @click="open = !open" @click.outside="open = false" aria-label="More"><span x-html="icon('dots', 'h-4 w-4')"></span></button>
+                <div class="menu w-56" x-show="open" x-cloak x-transition.opacity>
+                  <button class="menu-item" @click="toggleKeep(selectedJob); open=false" x-text="selectedJob.keep ? 'Allow automatic clean-up' : 'Keep (never auto-delete)'"></button>
+                  <button class="menu-item text-rose-600 dark:text-rose-400" x-show="!['queued','running'].includes(selectedJob.status)" @click="deleteJob(selectedJob); open=false">
+                    <span x-html="icon('trash', 'h-4 w-4')"></span> Delete this run</button>
+                </div>
+              </div>
+            </div>
+            <div class="p-3">
+              <div class="table-wrap max-h-[60vh]" x-show="records.length">
+                <table class="tbl">
+                  <thead><tr>
+                    <template x-for="c in visibleColumns()" :key="c">
+                      <th class="cursor-pointer select-none hover:text-slate-800 dark:hover:text-slate-200" @click="sortBy(c)" :aria-sort="sortKey===c ? (sortAsc ? 'ascending' : 'descending') : 'none'">
+                        <span class="inline-flex items-center gap-1"><span x-text="pretty(c)"></span>
+                          <span class="text-brand-500" x-text="sortKey===c ? (sortAsc ? '↑' : '↓') : ''"></span></span></th>
+                    </template>
+                  </tr></thead>
+                  <tbody>
+                    <template x-for="(r, i) in pagedRows()" :key="i">
+                      <tr><template x-for="c in visibleColumns()" :key="c">
+                        <td>
+                          <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
+                          <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link inline-flex items-center gap-1" :href="r[c]" target="_blank" rel="noopener noreferrer">Open <span x-html="icon('external', 'h-3 w-3')"></span></a></template>
+                          <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :class="typeof r[c] === 'number' && 'tabular-nums'" :title="r[c]" x-text="cellText(r[c])"></span></template>
+                        </td>
+                      </template></tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-3 px-1 pt-3 text-sm" x-show="records.length">
+                <span class="tabular-nums text-slate-500" x-text="rangeText()"></span>
+                <div class="flex items-center gap-2">
+                  <select x-model.number="pageSize" @change="page = 1" class="input w-auto py-1 text-xs" aria-label="Rows per page">
+                    <option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option><option value="250">250 / page</option>
+                  </select>
+                  <button class="btn btn-sm" :disabled="page <= 1" @click="page--" aria-label="Previous page"><span x-html="icon('left', 'h-4 w-4')"></span></button>
+                  <span class="tabular-nums text-slate-500" x-text="`${Math.min(page, totalPages())} / ${totalPages()}`"></span>
+                  <button class="btn btn-sm" :disabled="page >= totalPages()" @click="page++" aria-label="Next page"><span x-html="icon('chevron', 'h-4 w-4')"></span></button>
+                </div>
+              </div>
+              <p class="muted p-8 text-center" x-show="!records.length"
+                 x-text="['queued','running'].includes(selectedJob.status) ? 'Collecting… rows appear here as they arrive.' : 'This run has no rows.'"></p>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -11,6 +11,7 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from app import config, db
+from app.agent import store as agent_store
 from app.extraction import extractor
 from app.fetching import blockdetect, fetcher
 from app.runs import export, jobs
@@ -26,6 +27,7 @@ def tmp_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     vault.set_key_for_tests(Fernet.generate_key())
     db.init()
+    agent_store.init()          # what the app's start-up does (TestClient here skips it)
     fetcher._settings_cache.clear()
     sessions._mem.clear()
     yield tmp_path

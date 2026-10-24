@@ -14,7 +14,8 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import JSONResponse, Response
+from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -319,13 +320,55 @@ def _remember_render(domain: str, page: fetcher.Page) -> str:
 
 # ---- routes: page and status -------------------------------------------------------
 
-@app.get("/")
-def index():
-    return FileResponse(config.STATIC_DIR / "index.html")
+templates = Jinja2Templates(directory=config.TEMPLATES_DIR)
+
+
+def _page(request: Request, page_file: str, active: str, title: str, **data):
+    """Render one page of the UI. Page data goes into data-* attributes on <body> (no inline scripts)."""
+    return templates.TemplateResponse(request, page_file, {"active": active, "title": title, "data": data})
+
+
+@app.get("/", include_in_schema=False)
+def page_home(request: Request):
+    return _page(request, "pages/home.html", "home", "Home")
+
+
+@app.get("/scrapes", include_in_schema=False)
+def page_scrapes(request: Request):
+    return _page(request, "pages/scrapes.html", "scrapes", "Saved scrapes")
+
+
+@app.get("/scrapes/new", include_in_schema=False)
+def page_new_scrape(request: Request, template: str = "", url: str = ""):
+    return _page(request, "pages/new_scrape.html", "new", "New scrape", template=template[:40], url=url[:2000])
+
+
+@app.get("/scrapes/{scrape_id}/edit", include_in_schema=False)
+def page_edit_scrape(request: Request, scrape_id: int):
+    return _page(request, "pages/new_scrape.html", "scrapes", "Edit scrape", scrape_id=scrape_id)
+
+
+@app.get("/results", include_in_schema=False)
+@app.get("/results/{job_id}", include_in_schema=False)
+def page_results(request: Request, job_id: int | None = None, tab: str = "data"):
+    return _page(request, "pages/results.html", "results", "Results", job_id=job_id or "",
+                 tab=tab if tab in ("data", "quality", "changes") else "data")
+
+
+@app.get("/settings", include_in_schema=False)
+def page_settings(request: Request):
+    return _page(request, "pages/settings.html", "settings", "Settings")
+
+
+@app.get("/agent", include_in_schema=False)
+@app.get("/agent/runs/{run_id}", include_in_schema=False)
+def page_agent(request: Request, run_id: int | None = None):
+    return _page(request, "agent/workspace.html", "agent", "Agent", run_id=run_id or "")
 
 
 @app.get("/api/status")
 def status():
+    recent = db.list_jobs(100)
     return {"ai_enabled": config.ai_enabled(), "model": config.ai_model(), "provider": config.AI_PROVIDER,
             "default_fields": config.DEFAULT_FIELDS, "respect_robots": config.RESPECT_ROBOTS,
             "delay": [config.MIN_DELAY, config.MAX_DELAY], "max_pages": config.MAX_PAGES_PER_URL,
@@ -333,7 +376,10 @@ def status():
             "budget": [config.DAILY_BUDGET, config.DAILY_BUDGET_LOGGED_IN],
             "session_max_age_days": config.SESSION_MAX_AGE_DAYS,
             "retention": {"cache_hours": config.CACHE_TTL_HOURS, "job_days": config.JOB_RETENTION_DAYS},
-            "needs_you": [j["id"] for j in db.list_jobs(100) if j["status"] == "needs_you"],
+            "needs_you": [j["id"] for j in recent if j["status"] == "needs_you"],
+            "active_jobs": sum(1 for j in recent if j["status"] in ("queued", "running")),
+            "saved_scrapes": db.count_scrapes(),
+            "active_agent_runs": sum(1 for r in agent_store.list_runs(50) if r["status"] in agent_store.ACTIVE),
             "agent": agent_runner.status()}
 
 

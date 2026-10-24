@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{ title }} · Universal Scraper</title>
+  <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
+  <link rel="apple-touch-icon" href="/static/img/logo.svg">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script defer src="/static/js/core.js"></script>
+  {% block scripts %}{% endblock %}
+  <script defer src="/static/js/vendor/alpine-3.14.1.min.js"></script>
+</head>
+<body x-data="page({% block page %}{% endblock %}())" data-active="{{ active }}"
+      {% for key, value in data.items() %} data-{{ key | replace('_', '-') }}="{{ value }}"{% endfor %}>
+
+<div class="flex min-h-screen">
+
+  <!-- ===================================================== Sidebar -->
+  <aside class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-slate-200/80 bg-slate-50 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-900 lg:translate-x-0"
+         :class="menuOpen ? 'translate-x-0 shadow-pop' : '-translate-x-full'">
+    <a href="/" class="flex items-center gap-2.5 px-4 pb-4 pt-5">
+      <img src="/static/img/logo.svg" alt="" class="h-8 w-8 shrink-0 drop-shadow-sm" width="32" height="32">
+      <div class="leading-tight">
+        <div class="text-[15px] font-semibold text-slate-900 dark:text-white">Universal Scraper</div>
+        <div class="text-[11px] text-slate-500">Web data, made simple</div>
+      </div>
+    </a>
+
+    <div class="px-3 pb-3">
+      <a class="btn btn-primary w-full justify-center" href="/scrapes/new">
+        <span x-html="icon('plus', 'h-4 w-4')"></span> New scrape
+      </a>
+    </div>
+
+    <nav class="flex-1 space-y-0.5 px-3" aria-label="Main">
+      <a class="nav-item {% if active == 'home' %}nav-active{% endif %}" href="/" {% if active == 'home' %}aria-current="page"{% endif %}>
+        <span x-html="icon('home', 'nav-icon')"></span> Home
+      </a>
+      <a class="nav-item" href="/agent" x-show="agentEnabled()" x-cloak>
+        <span x-html="icon('sparkles', 'nav-icon')"></span> Agent
+        <span class="ml-auto chip chip-blue" x-show="status?.active_agent_runs" x-cloak><span class="dot animate-pulse"></span><span x-text="status?.active_agent_runs"></span></span>
+        <span class="ml-auto rounded bg-brand-50 px-1.5 text-[10px] font-semibold uppercase text-brand-600 dark:bg-brand-500/10 dark:text-brand-300" x-show="!status?.active_agent_runs">New</span>
+      </a>
+      <a class="nav-item {% if active == 'scrapes' %}nav-active{% endif %}" href="/scrapes" {% if active == 'scrapes' %}aria-current="page"{% endif %}>
+        <span x-html="icon('folder', 'nav-icon')"></span> Saved scrapes
+        <span class="ml-auto text-xs tabular-nums text-slate-400" x-text="status?.saved_scrapes || ''"></span>
+      </a>
+      <a class="nav-item {% if active == 'results' %}nav-active{% endif %}" href="/results" {% if active == 'results' %}aria-current="page"{% endif %}>
+        <span x-html="icon('table', 'nav-icon')"></span> Results
+        <span class="ml-auto chip chip-amber" x-show="status?.needs_you?.length" x-cloak x-text="status?.needs_you?.length"></span>
+        <span class="ml-auto chip chip-blue" x-show="!status?.needs_you?.length && status?.active_jobs" x-cloak>
+          <span class="dot animate-pulse"></span><span x-text="status?.active_jobs"></span></span>
+      </a>
+      <a class="nav-item {% if active == 'settings' %}nav-active{% endif %}" href="/settings" {% if active == 'settings' %}aria-current="page"{% endif %}>
+        <span x-html="icon('cog', 'nav-icon')"></span> Settings
+      </a>
+    </nav>
+  </aside>
+  <div class="fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-[2px] lg:hidden" x-show="menuOpen" x-cloak x-transition.opacity @click="menuOpen=false"></div>
+
+  <!-- ===================================================== Main column -->
+  <div class="flex min-w-0 flex-1 flex-col lg:pl-60">
+    <header class="sticky top-0 z-20 border-b border-slate-200/80 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
+      <div class="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:px-8">
+        <button class="btn btn-icon lg:hidden" @click="menuOpen = true" aria-label="Menu"><span x-html="icon('menu', 'h-5 w-5')"></span></button>
+        <nav class="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Breadcrumb">
+          {% if active != 'home' %}
+          <a class="text-slate-500 hover:text-slate-900 dark:hover:text-white" href="/">Home</a>
+          <span class="text-slate-300 dark:text-slate-600" x-html="icon('chevron', 'h-4 w-4')"></span>
+          {% endif %}
+          <span class="truncate font-medium text-slate-900 dark:text-white">{{ title }}</span>
+        </nav>
+        <div class="ml-auto flex items-center gap-2">
+          <a class="hidden items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-600/20 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 sm:flex"
+             href="/results" x-show="status?.active_jobs" x-cloak>
+            <span class="spinner h-3 w-3"></span>
+            <span x-text="status?.active_jobs === 1 ? '1 scrape running' : status?.active_jobs + ' scrapes running'"></span>
+          </a>
+          <button class="btn btn-icon" @click="cycleTheme()" :title="themeLabel()" :aria-label="themeLabel()">
+            <span x-html="icon(themeIcon(), 'h-[18px] w-[18px]')"></span>
+          </button>
+          {% if active != 'new' %}
+          <a class="btn btn-primary hidden sm:inline-flex" href="/scrapes/new">
+            <span x-html="icon('plus', 'h-4 w-4')"></span> New scrape
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto w-full max-w-6xl flex-1 space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+{% include "partials/alerts.html" %}
+{% block content %}{% endblock %}
+    </main>
+
+    <footer class="border-t border-slate-200/70 px-4 py-4 text-center text-xs text-slate-400 dark:border-slate-800 sm:px-8">
+      Follows each site's crawling rules · never solves CAPTCHAs for you · passwords never stored · personal data hidden by default
+    </footer>
+  </div>
+</div>
+
+{% include "partials/snackbar.html" %}
+{% include "partials/dialog.html" %}
+{% include "partials/browser_window.html" %}
+</body>
+</html>

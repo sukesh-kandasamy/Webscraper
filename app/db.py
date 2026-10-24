@@ -283,6 +283,11 @@ def delete_scrape(scrape_id: int) -> None:
         c.execute("DELETE FROM scrapes WHERE id=?", (scrape_id,))
 
 
+def count_scrapes() -> int:
+    with tx() as c:
+        return c.execute("SELECT COUNT(*) FROM scrapes").fetchone()[0]
+
+
 def list_scrapes() -> list[dict]:
     """Saved scrapes, newest activity first, each with a summary of its latest run."""
     with tx() as c:

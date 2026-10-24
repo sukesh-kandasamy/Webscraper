@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block page %}scrapesPage{% endblock %}
+{% block scripts %}<script defer src="/static/js/pages/scrapes.js"></script>{% endblock %}
+{% block content %}
+<section class="space-y-6 animate-fade-up">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div><h1 class="page-title">Saved scrapes</h1><p class="muted mt-1">Set up once, run again whenever you need fresh data.</p></div>
+    <div class="relative w-full sm:w-72" x-show="scrapes.length">
+      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" x-html="icon('search', 'h-4 w-4')"></span>
+      <input type="search" x-model="scrapeQuery" class="input pl-9" placeholder="Search saved scrapes" aria-label="Search saved scrapes">
+    </div>
+  </div>
+  <div class="card px-6 py-14 text-center" x-show="!scrapes.length">
+    <span class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10" x-html="icon('folder', 'h-6 w-6')"></span>
+    <p class="font-medium text-slate-900 dark:text-white">No saved scrapes yet</p>
+    <p class="muted mt-1">Create one and it appears here, ready to run again.</p>
+    <button class="btn btn-primary mt-5" @click="startWizard()"><span x-html="icon('plus', 'h-4 w-4')"></span> New scrape</button>
+  </div>
+  <p class="muted" x-show="scrapes.length && !filteredScrapes().length" x-cloak>No saved scrape matches “<span x-text="scrapeQuery"></span>”.</p>
+  <div class="grid gap-4 md:grid-cols-2">
+    <template x-for="s in filteredScrapes()" :key="s.id">
+      <div class="card flex min-w-0 flex-col p-5 transition hover:shadow-pop">
+        <div class="flex items-start gap-3">
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"
+                x-html="icon(({ecommerce: 'cart', jobs: 'briefcase', real_estate: 'house', stocks_finance: 'chart', directory: 'building', news_articles: 'news'})[s.page_type] || 'table', 'h-[18px] w-[18px]')"></span>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5"><div class="truncate font-semibold text-slate-900 dark:text-white" x-text="s.name"></div>
+              <span class="chip chip-blue shrink-0" x-show="s.mode === 'agent'" x-cloak title="Set up by the agent">Agent</span></div>
+            <div class="truncate text-xs text-slate-500" x-text="s.domain + (s.urls.length > 1 ? ` · ${s.urls.length} links` : '') + (s.page_type ? ' · ' + pageTypeLabel(s.page_type) : '')"></div>
+          </div>
+          <div class="relative" x-data="{ open: false }">
+            <button class="btn-ghost p-1.5" @click="open = !open" @click.outside="open = false" aria-label="More actions"><span x-html="icon('dots', 'h-4 w-4')"></span></button>
+            <div class="menu" x-show="open" x-cloak x-transition.opacity>
+              <button class="menu-item" @click="open=false; editScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Edit columns</button>
+              <button class="menu-item" @click="open=false; renameScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Rename</button>
+              <button class="menu-item" @click="open=false; duplicateScrape(s)"><span x-html="icon('copy', 'h-4 w-4 text-slate-400')"></span> Duplicate</button>
+              <button class="menu-item" x-show="s.can_rerecord" @click="open=false; rerecordScrape(s.id)"><span x-html="icon('sparkles', 'h-4 w-4 text-slate-400')"></span> Re-record with the agent</button>
+              <button class="menu-item text-rose-600 dark:text-rose-400" @click="open=false; deleteScrape(s)"><span x-html="icon('trash', 'h-4 w-4')"></span> Delete</button>
+            </div>
+          </div>
+        </div>
+        <p class="mt-3 line-clamp-2 text-sm text-slate-600 dark:text-slate-300" x-show="s.request_summary" x-cloak x-text="s.request_summary"></p>
+        <details class="group mt-2 text-xs" x-show="s.route_steps?.length" x-cloak>
+          <summary class="text-slate-500"><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-3.5 w-3.5')"></span>
+            <span x-text="`Replays ${s.route_steps.length} recorded step${s.route_steps.length === 1 ? '' : 's'} · no AI`"></span></summary>
+          <ol class="ml-5 mt-1.5 list-decimal space-y-0.5 text-slate-600 dark:text-slate-300">
+            <template x-for="(st, i) in s.route_steps" :key="i"><li x-text="st"></li></template>
+          </ol>
+        </details>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <template x-for="c in s.columns.slice(0, 6)" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template>
+          <span class="chip chip-gray" x-show="s.columns.length > 6" x-text="'+' + (s.columns.length - 6)"></span>
+        </div>
+        <div class="mt-auto flex items-center gap-3 border-t border-slate-100 pt-4 dark:border-slate-800" :class="'mt-4'">
+          <div class="min-w-0 flex-1 text-xs text-slate-500">
+            <template x-if="s.last_run"><span class="inline-flex items-center gap-1.5"><span class="chip" :class="statusChip(s.last_run.status)" x-text="statusLabel(s.last_run.status)"></span>
+              <span x-text="`${fmt(s.last_run.rows)} rows · ${timeAgo(s.last_run.created_at)}`"></span></span></template>
+            <span x-show="!s.last_run">Not run yet</span>
+          </div>
+          <button class="btn btn-sm" @click="openLatestRun(s)" :disabled="!s.last_run">Results</button>
+          <button class="btn btn-primary btn-sm" @click="runScrape(s)"><span x-html="icon('play', 'h-3.5 w-3.5')"></span> Run</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</section>
+{% endblock %}

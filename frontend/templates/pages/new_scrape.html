@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+{% block page %}newScrapePage{% endblock %}
+{% block scripts %}<script defer src="/static/js/pages/new-scrape.js"></script>{% endblock %}
+{% block content %}
+<section class="space-y-6 animate-fade-up">
+  <div>
+    <h1 class="page-title" x-text="editingScrapeId ? 'Edit scrape' : 'New scrape'"></h1>
+    <p class="muted mt-1">Paste a link, check the columns, collect the data.</p>
+  </div>
+
+  <!-- stepper -->
+  <ol class="grid grid-cols-3 gap-2" aria-label="Steps">
+    <template x-for="(s, i) in [{t: 'Link', d: 'Which page'}, {t: 'Columns', d: 'What to collect'}, {t: 'Collect', d: 'Name and run'}]" :key="i">
+      <li>
+        <button class="flex w-full items-center gap-3 rounded-xl border p-3 text-left transition disabled:cursor-default"
+                :class="step === i + 1 ? 'border-brand-300 bg-white shadow-card ring-1 ring-brand-500/20 dark:border-brand-500/50 dark:bg-slate-900'
+                       : step > i + 1 ? 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900'
+                       : 'border-dashed border-slate-200 dark:border-slate-800'"
+                :disabled="i + 1 >= step || !!busy" @click="step = i + 1">
+          <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-semibold"
+                :class="step > i + 1 ? 'bg-emerald-500 text-white' : step === i + 1 ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'">
+            <template x-if="step > i + 1"><span x-html="icon('check', 'h-4 w-4')"></span></template>
+            <template x-if="step <= i + 1"><span x-text="i + 1"></span></template>
+          </span>
+          <span class="hidden min-w-0 sm:block">
+            <span class="block text-sm font-medium" :class="step >= i + 1 ? 'text-slate-900 dark:text-white' : 'text-slate-400'" x-text="s.t"></span>
+            <span class="block text-xs text-slate-500" x-text="s.d"></span>
+          </span>
+        </button>
+      </li>
+    </template>
+  </ol>
+
+  <!-- loading state while the page is read -->
+  <div class="card p-6" x-show="['analyse','ai','add','details'].includes(busy)" x-cloak>
+    <div class="flex items-start gap-4">
+      <span class="spinner mt-1 h-5 w-5 text-brand-600"></span>
+      <div class="min-w-0 flex-1">
+        <div class="font-medium text-slate-900 dark:text-white" x-text="loadingSteps()[loadStep]"></div>
+        <ul class="mt-3 space-y-1.5 text-sm">
+          <template x-for="(t, i) in loadingSteps()" :key="i">
+            <li class="flex items-center gap-2" :class="i < loadStep ? 'text-emerald-600 dark:text-emerald-400' : i === loadStep ? 'text-slate-900 dark:text-white' : 'text-slate-400'">
+              <span class="grid h-4 w-4 place-items-center">
+                <template x-if="i < loadStep"><span x-html="icon('check', 'h-4 w-4')"></span></template>
+                <template x-if="i >= loadStep"><span class="h-1.5 w-1.5 rounded-full bg-current"></span></template>
+              </span>
+              <span x-text="t"></span>
+            </li>
+          </template>
+        </ul>
+        <div class="mt-5 space-y-2" aria-hidden="true">
+          <div class="skeleton h-3 w-full"></div><div class="skeleton h-3 w-11/12"></div><div class="skeleton h-3 w-4/5"></div>
+        </div>
+        <p class="mt-4 text-xs text-slate-400">This usually takes 5–20 seconds.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 1 -->
+  <div class="card" x-show="step === 1 && !['analyse','ai'].includes(busy)">
+    <div class="card-body space-y-6">
+      <div>
+        <label class="label" for="url-main">Page link</label>
+        <input id="url-main" type="url" x-model="urlMain" class="input py-2.5 text-[15px]" placeholder="https://example.com/category/laptops"
+               @keydown.enter.prevent="analyse(false)">
+        <p class="mt-1.5 text-xs text-slate-500">Use a page that shows many similar items: search results, a category, a table. Not a single product page.</p>
+        <button class="mt-2 text-xs link" @click="showExtra = !showExtra" x-text="showExtra ? 'Hide extra links' : '+ Add more pages from the same site'"></button>
+        <textarea x-show="showExtra" x-cloak x-model="urlsExtra" rows="3" class="input mt-2 font-mono text-xs"
+                  placeholder="One link per line, for example other categories of the same site"></textarea>
+      </div>
+
+      <div x-show="!listMode">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <label class="label mb-0" for="prompt">Describe what you need</label>
+          <button class="text-xs link" @click="listMode = true">or just list the columns</button>
+        </div>
+        <textarea id="prompt" x-model="prompt" rows="3" maxlength="2000" class="input mt-1.5 text-[15px] leading-relaxed"
+                  :placeholder="promptPlaceholder()" @keydown.ctrl.enter.prevent="next()" @keydown.meta.enter.prevent="next()"></textarea>
+        <div class="mt-2 flex flex-wrap items-center gap-1.5">
+          <span class="mr-1 text-xs text-slate-500">Start from an example:</span>
+          <template x-for="t in templates" :key="t.id">
+            <button class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition"
+                    :class="template?.id === t.id ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
+                           : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'"
+                    @click="pickTemplate(t)">
+              <span x-html="icon(t.icon, 'h-3.5 w-3.5')"></span><span x-text="t.name"></span></button>
+          </template>
+        </div>
+        <p class="mt-2 text-xs text-slate-500">Say which details you want, and any conditions: <span class="italic">“only men's shoes under ₹3,000, cheapest first”</span>. Ctrl+Enter to continue.</p>
+      </div>
+
+      <div x-show="listMode" x-cloak>
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <label class="label mb-0" for="fields">Columns you want <span class="hint">· optional, separated by commas</span></label>
+          <button class="text-xs link" @click="listMode = false">describe it in your own words instead</button>
+        </div>
+        <input id="fields" type="text" x-model="fieldsText" class="input mt-1.5" placeholder="Leave empty and the AI picks the important ones"
+               @keydown.enter.prevent="analyse(false)">
+        <label class="mt-2.5 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <input type="checkbox" x-model="autoColumns" class="checkbox"> Also add any other important columns the AI finds
+        </label>
+      </div>
+
+      <!-- what the AI understood: editable before the page is read -->
+      <div x-show="!listMode && request && requestFor === prompt.trim()" x-cloak
+           class="rounded-xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/5">
+        <div class="flex items-start gap-2">
+          <span class="mt-0.5 text-brand-600 dark:text-brand-300" x-html="icon('sparkles', 'h-4 w-4')"></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-semibold text-slate-900 dark:text-white">Here's what we'll collect</div>
+            <p class="text-xs text-slate-600 dark:text-slate-300" x-show="request?.summary" x-text="request?.summary"></p>
+          </div>
+        </div>
+        <div x-show="request?.question" x-cloak class="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">
+          <span class="mt-0.5 text-amber-500" x-html="icon('warn', 'h-4 w-4')"></span>
+          <span><span x-text="request?.question"></span> <span class="text-amber-700/80 dark:text-amber-200/80">Add the answer to your description and continue again.</span></span>
+        </div>
+        <div class="mt-3">
+          <div class="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">Columns</div>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <template x-for="c in request?.columns || []" :key="c.name">
+              <span class="inline-flex items-center gap-1 rounded-lg border bg-white py-0.5 pl-2 pr-0.5 text-sm shadow-sm dark:bg-slate-800"
+                    :class="c.auto_added ? 'border-dashed border-slate-300 text-slate-500 dark:border-slate-600' : 'border-slate-200 dark:border-slate-700'"
+                    :title="(c.meaning || '') + (c.auto_added ? ' (added automatically: removes duplicates and lets item pages open)' : '')">
+                <button class="font-medium hover:text-brand-600" @click="renameReqColumn(c)" x-text="pretty(c.name)"></button>
+                <span class="type-badge" x-show="typeLabel(c.type)" x-text="typeLabel(c.type)"></span>
+                <button class="rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
+                        @click="removeReqColumn(c.name)" :aria-label="'Remove ' + c.name"><span x-html="icon('x', 'h-3.5 w-3.5')"></span></button>
+              </span>
+            </template>
+            <form class="flex items-center gap-1" @submit.prevent="addReqColumn()">
+              <input type="text" x-model="newReqColumn" class="input h-7 w-36 py-0 text-xs" placeholder="Add a column…" aria-label="Add a column">
+            </form>
+            <span class="chip chip-blue" x-show="request?.auto" x-cloak title="The AI also adds other important columns it finds">+ other important columns</span>
+          </div>
+        </div>
+        <div class="mt-3" x-show="request?.filters?.length || request?.sort?.column || request?.limit" x-cloak>
+          <div class="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">Only keep</div>
+          <div class="flex flex-wrap gap-1.5">
+            <template x-for="(f, i) in request?.filters || []" :key="i">
+              <span class="chip chip-amber gap-1 pr-1"><span x-text="filterLabel(f)"></span>
+                <button class="rounded hover:text-rose-600" @click="removeFilter(i)" aria-label="Remove condition"><span x-html="icon('x', 'h-3 w-3')"></span></button></span>
+            </template>
+            <span class="chip chip-gray gap-1 pr-1" x-show="request?.sort?.column">
+              <span x-text="'sorted by ' + pretty(request?.sort?.column || '') + ' (' + sortWords() + ')'"></span>
+              <button class="rounded hover:text-rose-600" @click="request.sort = {column: '', desc: false}" aria-label="Remove sorting"><span x-html="icon('x', 'h-3 w-3')"></span></button></span>
+            <span class="chip chip-gray gap-1 pr-1" x-show="request?.limit">
+              <span x-text="'first ' + request?.limit"></span>
+              <button class="rounded hover:text-rose-600" @click="request.limit = 0" aria-label="Remove limit"><span x-html="icon('x', 'h-3 w-3')"></span></button></span>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-slate-500" x-show="request?.details_hint" x-cloak>
+          Some of this is usually on each item's own page. After the page is read you can switch on <span class="font-medium">item pages</span>.</p>
+      </div>
+
+      <div x-show="blockedPage" x-cloak class="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+        <span class="text-amber-500" x-html="icon('warn', 'h-5 w-5')"></span>
+        <div class="flex-1">
+          <div class="font-semibold" x-text="(blockedPage?.domain || '') + ' asked for a human check'"></div>
+          <p class="mt-0.5 text-amber-800/90 dark:text-amber-200/90">The app never solves these automatically. Solve it yourself in a browser window, then try again.</p>
+          <button class="btn btn-sm mt-3" @click="startSiteSolve()" :disabled="!status?.browser_available">Open to solve</button>
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+      <span class="text-xs text-slate-400" x-show="needsUnderstanding()" x-cloak>The AI reads your description first (a few seconds).</span>
+      <button class="btn btn-primary btn-lg" @click="next()" :disabled="!!busy">
+        <span x-show="busy==='understand'" class="spinner"></span>
+        <span x-text="busy==='understand' ? 'Reading your request…' : needsUnderstanding() ? 'Continue' : 'Find the data'"></span></button>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="space-y-5" x-show="step === 2 && !['analyse','ai','add','details'].includes(busy)">
+    <div class="card">
+      <div class="card-body space-y-5">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div class="text-lg font-semibold text-slate-900 dark:text-white">
+            Found <span class="tabular-nums" x-text="fmt(analysis?.row_count)"></span> items<span x-show="analysis?.request_labels?.length && analysis?.match_count !== analysis?.row_count" x-cloak> ·
+            <span class="tabular-nums text-brand-600 dark:text-brand-300" x-text="fmt(analysis?.match_count)"></span> match your request</span></div>
+          <span class="muted" x-text="'on ' + (analysis?.domain || '')"></span>
+          <span class="chip chip-green" x-show="analysis?.page_type" x-text="pageTypeLabel(analysis?.page_type)"></span>
+          <span class="chip chip-blue" x-show="analysis?.logged_in" x-cloak><span x-html="icon('lock', 'h-3 w-3')"></span> using your login</span>
+          <span class="chip chip-gray" x-show="advanced" x-cloak x-text="'setup: ' + (analysis?.source || '')"></span>
+        </div>
+
+        <div x-show="analysis?.request_labels?.length" x-cloak class="flex flex-wrap items-center gap-1.5 text-sm">
+          <span class="text-slate-500">Your request:</span>
+          <template x-for="l in analysis?.request_labels || []" :key="l">
+            <span class="chip" :class="(analysis?.skipped_filters || []).includes(l) ? 'chip-gray line-through' : 'chip-amber'"
+                  :title="(analysis?.skipped_filters || []).includes(l) ? 'Not applied: this column is empty on the page' : ''" x-text="l"></span></template>
+        </div>
+        <p x-show="analysis?.skipped_filters?.length" x-cloak class="text-xs text-slate-500"
+           x-text="'Not applied, because that column is empty on the page: ' + (analysis?.skipped_filters || []).join(', ') + '. If the page you chose already shows only those items, that is fine.'"></p>
+
+        <div>
+          <div class="mb-2 flex flex-wrap items-baseline gap-2">
+            <span class="text-sm font-medium text-slate-900 dark:text-slate-100" x-text="`Columns (${recipeColumns().length})`"></span>
+            <span class="text-xs text-slate-400">Click a name to rename · × to remove · dot shows how often it was found</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <template x-for="c in recipeColumns()" :key="c">
+              <span class="group inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800"
+                    :title="fillOf(c) === null ? '' : `Found in ${Math.round(fillOf(c) * 100)}% of items`">
+                <span class="h-2 w-2 rounded-full" :class="fillClass(c)"></span>
+                <button class="font-medium text-slate-700 hover:text-brand-600 dark:text-slate-200" @click="renameColumn(c)" x-text="pretty(c)" :disabled="!!busy"></button>
+                <span class="type-badge" x-show="typeLabel(analysis?.column_types?.[c])" x-text="typeLabel(analysis?.column_types?.[c])"></span>
+                <span class="text-xs tabular-nums text-slate-400" x-show="fillOf(c) !== null" x-text="Math.round(fillOf(c) * 100) + '%'"></span>
+                <button class="rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
+                        @click="removeColumn(c)" :disabled="!!busy" :aria-label="'Remove ' + c"><span x-html="icon('x', 'h-3.5 w-3.5')"></span></button>
+              </span>
+            </template>
+            <form class="flex items-center gap-1.5" @submit.prevent="addColumn()">
+              <input type="text" x-model="newColumn" class="input h-8 w-44 py-0" placeholder="Add a column…" aria-label="Add a column">
+              <button class="btn btn-sm h-8" :disabled="!!busy || !newColumn.trim() || !status?.ai_enabled">Add</button>
+            </form>
+          </div>
+        </div>
+
+        <div x-show="analysis?.absent?.length" x-cloak class="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+          <span class="mt-0.5 text-slate-400" x-html="icon('info', 'h-4 w-4')"></span>
+          <span>Not on this list page: <span class="font-medium" x-text="(analysis?.absent || []).map(pretty).join(', ')"></span>.
+            <span class="text-slate-500">They're probably on each item's own page: switch on <span class="font-medium">item pages</span> below.</span></span>
+        </div>
+        <p x-show="advanced && analysis?.notes" x-cloak x-text="analysis?.notes"
+           class="rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400"></p>
+        <div x-show="analysis?.personal_fields?.length" x-cloak
+             class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <span class="mt-0.5 text-amber-500" x-html="icon('lock', 'h-4 w-4')"></span>
+          <span>Some columns contain personal data (<span x-text="(analysis?.personal_fields || []).map(pretty).join(', ')"></span>).
+            Phone numbers and emails stay hidden unless you choose to collect them in the next step.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" x-show="analysis?.row_count">
+      <div class="card-body">
+        <div class="flex items-start gap-3">
+          <button type="button" role="switch" :aria-checked="detailOn()" class="switch mt-0.5" :class="detailOn() && 'switch-on'"
+                  @click="toggleDetails()" :disabled="!!busy || (!detailOn() && (!status?.ai_enabled || !analysis?.url_field))"
+                  aria-label="Also open each item's page"><span></span></button>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Also open each item's own page for more details</div>
+            <p class="mt-0.5 text-xs text-slate-500" x-show="!detailOn()">Collects things listing cards leave out: full specs, description, seller details, salary… Slower: one extra page per item, with the same polite pauses.</p>
+            <p class="mt-0.5 text-xs text-amber-700 dark:text-amber-300" x-show="!detailOn() && !analysis?.url_field" x-cloak>Needs a column with each item's link (url).</p>
+            <div x-show="detailOn()" x-cloak class="mt-2 space-y-2">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-xs text-slate-500">From item pages:</span>
+                <template x-for="c in detailColumns()" :key="c">
+                  <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    <span x-text="pretty(c)"></span>
+                    <span class="text-slate-400" x-show="detailSample()[c] !== undefined && detailSample()[c] !== ''" x-text="'= ' + shortText(detailSample()[c])"></span>
+                  </span>
+                </template>
+              </div>
+              <p class="text-xs text-amber-700 dark:text-amber-300" x-show="analysis?.detail_missing?.length" x-cloak
+                 x-text="'Not found on the first item page: ' + (analysis?.detail_missing || []).map(pretty).join(', ')"></p>
+              <p class="text-xs text-slate-500" x-text="detailEstimate()"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2 class="card-title">Preview</h2><span class="muted" x-text="analysis?.request_labels?.length ? 'first 10 matching rows, as they will be saved' : 'first 10 rows, as they will be saved'"></span>
+        <span class="ml-auto text-brand-600" x-show="busy==='preview'" x-cloak><span class="spinner"></span></span></div>
+      <div class="p-3">
+        <div class="table-wrap max-h-[26rem]" x-show="analysis?.rows?.length">
+          <table class="tbl">
+            <thead><tr><template x-for="c in columns(analysis?.rows)" :key="c"><th x-text="pretty(c)"></th></template></tr></thead>
+            <tbody>
+              <template x-for="(r, i) in (analysis?.rows || []).slice(0, 10)" :key="i">
+                <tr><template x-for="c in columns(analysis?.rows)" :key="c">
+                  <td>
+                    <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700" alt="" loading="eager" referrerpolicy="no-referrer"></template>
+                    <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link inline-flex items-center gap-1" :href="r[c]" target="_blank" rel="noopener noreferrer">Open <span x-html="icon('external', 'h-3 w-3')"></span></a></template>
+                    <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :class="typeof r[c] === 'number' && 'tabular-nums'" :title="r[c]" x-text="cellText(r[c])"></span></template>
+                  </td>
+                </template></tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted p-6 text-center" x-show="!analysis?.rows?.length">No rows yet. Try “Ask the AI again”, or adjust the setup in Advanced mode (Settings).</p>
+      </div>
+    </div>
+
+    <!-- advanced: setup + site settings -->
+    <div class="card" x-show="advanced" x-cloak>
+      <div class="divide-y divide-slate-100 dark:divide-slate-800">
+        <details class="group px-5 py-4">
+          <summary><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-4 w-4')"></span> Column setup (JSON)</summary>
+          <textarea x-model="recipeText" rows="14" spellcheck="false" class="input mt-3 bg-slate-50 font-mono text-xs leading-relaxed dark:bg-slate-950" aria-label="Column setup JSON"></textarea>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button class="btn btn-sm" @click="previewRecipe()" :disabled="!!busy">Preview again</button>
+            <button class="btn btn-sm" @click="saveRecipeForSite()" :disabled="!!busy || !analysis?.domain">Save as this site's default</button>
+          </div>
+        </details>
+        <details class="group px-5 py-4">
+          <summary><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-4 w-4')"></span>
+            Site settings <span class="ml-1 text-xs font-normal text-slate-400" x-text="settingsSummary()"></span></summary>
+          <div class="mt-4 grid gap-4 sm:grid-cols-4">
+            <div><label class="label">Daily page limit</label>
+              <input type="number" min="1" x-model.number="settings.daily_budget" class="input" :placeholder="status?.budget?.[0]"></div>
+            <div><label class="label">Min wait (s)</label>
+              <input type="number" min="0" step="0.5" x-model.number="settings.min_delay" class="input" :placeholder="status?.delay?.[0]"></div>
+            <div><label class="label">Max wait (s)</label>
+              <input type="number" min="0" step="0.5" x-model.number="settings.max_delay" class="input" :placeholder="status?.delay?.[1]"></div>
+            <div><label class="label">Page loading</label>
+              <select x-model="settings.render" class="input">
+                <option value="auto">Automatic</option>
+                <option value="never">Simple (fast)</option>
+                <option value="always">Like a browser</option>
+              </select></div>
+          </div>
+          <div class="mt-4 grid gap-2.5 text-sm sm:grid-cols-2">
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.ai_allowed" class="checkbox"> Let the AI analyse this site</label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.use_session" class="checkbox"> Use my saved login for this site</label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.honest_ua" class="checkbox"> Identify as UniversalScraper</label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="settings.blocked" class="checkbox"> Never scrape this site</label>
+          </div>
+          <button class="btn btn-sm mt-4" @click="saveSettings()" :disabled="!!busy || !analysis?.domain">Save site settings</button>
+        </details>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex gap-2">
+        <button class="btn" @click="step = 1"><span x-html="icon('left', 'h-4 w-4')"></span> Back</button>
+        <button class="btn" @click="analyse(true)" :disabled="!!busy || !status?.ai_enabled" title="Let the AI look at the page again">
+          <span x-html="icon('refresh', 'h-4 w-4')"></span> Ask the AI again</button>
+      </div>
+      <button class="btn btn-primary btn-lg" @click="step = 3" :disabled="!!busy || !analysis?.row_count">Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="space-y-5" x-show="step === 3" x-cloak>
+    <div class="grid gap-5 lg:grid-cols-[1fr_20rem]">
+      <div class="card">
+        <div class="card-body space-y-6">
+          <div>
+            <label class="label" for="scrape-name">Name</label>
+            <input id="scrape-name" type="text" x-model="scrapeName" class="input py-2.5 text-[15px]" maxlength="120">
+            <p class="mt-1.5 text-xs text-slate-500">It's saved under Saved scrapes, ready to run again.</p>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between">
+              <label class="label" for="pages">Pages to collect</label>
+              <span class="text-sm font-semibold tabular-nums text-slate-900 dark:text-white" x-text="maxPages + (urls().length > 1 ? ' per link' : '')"></span>
+            </div>
+            <input id="pages" type="range" min="1" :max="Math.min(50, status?.max_pages || 10)" x-model.number="maxPages" class="w-full accent-brand-600"
+                   :disabled="allPages" :class="allPages && 'opacity-40'">
+            <label class="mt-2 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300" x-show="hasPaging()">
+              <input type="checkbox" x-model="allPages" class="checkbox"> Collect all pages <span class="text-xs text-slate-400">(up to 50, stops when no new items appear)</span></label>
+            <p class="mt-1 text-xs text-slate-500" x-text="paginationHint()"></p>
+            <p class="mt-1 text-xs text-slate-500" x-show="analysis?.stated_total" x-cloak
+               x-text="`The site says it has about ${fmt(analysis?.stated_total)} items; this page shows ${fmt(analysis?.row_count)}.`"></p>
+          </div>
+          <div x-show="analysis?.personal_fields?.length" x-cloak class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+            <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Collect personal data?</div>
+            <p class="mt-0.5 text-xs text-slate-500">Only tick a column if you have a lawful reason, e.g. contacting suppliers you already work with. Otherwise phones and emails stay hidden.</p>
+            <div class="mt-3 flex flex-wrap gap-4 text-sm">
+              <template x-for="f in analysis?.personal_fields || []" :key="f">
+                <label class="flex items-center gap-2"><input type="checkbox" x-model="personalChoice[f]" class="checkbox"> <span x-text="pretty(f)"></span></label>
+              </template>
+            </div>
+            <input type="text" x-show="personalFieldsChosen().length" x-cloak x-model="personalPurpose" class="input mt-3" placeholder="Why do you need it?">
+          </div>
+        </div>
+      </div>
+      <aside class="card h-fit p-5">
+        <div class="eyebrow">Summary</div>
+        <dl class="mt-3 space-y-3 text-sm">
+          <div><dt class="text-slate-500">Site</dt><dd class="font-medium text-slate-900 dark:text-white" x-text="(analysis?.domain || '') + (urls().length > 1 ? ` · ${urls().length} links` : '')"></dd></div>
+          <div><dt class="text-slate-500">Type</dt><dd class="font-medium text-slate-900 dark:text-white" x-text="pageTypeLabel(analysis?.page_type) || '—'"></dd></div>
+          <div><dt class="text-slate-500">Columns</dt>
+            <dd class="mt-1 flex flex-wrap gap-1"><template x-for="c in recipeColumns()" :key="c"><span class="chip chip-gray" x-text="pretty(c)"></span></template>
+              <template x-for="c in detailColumns()" :key="'d-' + c"><span class="chip chip-blue" title="From each item's own page" x-text="pretty(c)"></span></template></dd></div>
+          <div x-show="analysis?.request_labels?.length" x-cloak><dt class="text-slate-500">Only keep</dt>
+            <dd class="mt-1 flex flex-wrap gap-1"><template x-for="l in analysis?.request_labels || []" :key="l"><span class="chip chip-amber" x-text="l"></span></template></dd></div>
+          <div><dt class="text-slate-500">Item pages</dt><dd class="text-slate-700 dark:text-slate-300" x-text="detailOn() ? 'Opened for more details' : 'Not opened'"></dd></div>
+          <div><dt class="text-slate-500">Pace</dt><dd class="text-slate-700 dark:text-slate-300">Short polite pauses between pages</dd></div>
+        </dl>
+      </aside>
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <button class="btn" @click="step = 2"><span x-html="icon('left', 'h-4 w-4')"></span> Back</button>
+      <div class="flex gap-2">
+        <button class="btn" @click="saveScrape(false)" :disabled="!!busy"><span x-show="busy==='save'" class="spinner"></span> Save for later</button>
+        <button class="btn btn-primary btn-lg" @click="saveScrape(true)" :disabled="!!busy">
+          <span x-show="busy==='run'" class="spinner"></span><span x-show="busy!=='run'" x-html="icon('play', 'h-4 w-4')"></span> Start collecting</button>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -12,6 +12,7 @@ DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = Path(os.getenv("SCRAPER_DB", DATA_DIR / "scraper.db"))
 BUILTIN_RECIPES_DIR = ROOT / "app" / "recipes"
 STATIC_DIR = ROOT / "frontend" / "public"      # the UI, served at /static
+TEMPLATES_DIR = ROOT / "frontend" / "templates"   # one template per page
 
 # Politeness
 MIN_DELAY = float(os.getenv("SCRAPER_MIN_DELAY", "2"))

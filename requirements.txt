@@ -8,11 +8,12 @@ playwright>=1.64        # optional: browser rendering; then run  python -m playw
 pandas>=3.0
 openpyxl>=3.1
 python-dotenv>=1.0
+jinja2>=3.1             # page templates
 pytest>=8.0
 
 # Security (see docs/plans/03-security.md)
 regex>=2026.9
 cryptography>=50
 keyring>=25
-pip-audit>=2.7          # dev: python check.py
+pip-audit>=2.7          # dev: python scripts/check.py
 pytailwindcss>=0.2      # dev: python scripts/build_css.py (only to change the UI)

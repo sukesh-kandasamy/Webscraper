@@ -1,0 +1,34 @@
+<template x-if="win">
+  <div class="overlay">
+    <div class="card w-full max-w-lg animate-fade-up" role="dialog" aria-modal="true">
+      <div class="card-head">
+        <div class="min-w-0 flex-1">
+          <h2 class="card-title" x-text="win?.mode === 'login' ? 'Log in to ' + win?.domain : 'Solve the check on ' + (win?.domain || '')"></h2>
+          <p class="truncate text-xs text-slate-500" x-text="win?.url"></p>
+        </div>
+        <span class="chip" :class="win?.status === 'open' ? 'chip-green' : (['error','timeout','cancelled'].includes(win?.status) ? 'chip-red' : 'chip-amber')" x-text="win?.status"></span>
+      </div>
+      <div class="card-body space-y-3 text-sm">
+        <p x-show="win?.status === 'starting'" class="flex items-center gap-2"><span class="spinner text-brand-600"></span> Opening a browser window…</p>
+        <template x-if="win?.status === 'open'">
+          <div class="space-y-3">
+            <p x-show="win?.mode === 'login'">A browser window is open. <b>Log in there yourself.</b> The app never sees your password; it only keeps the login, encrypted, for this site.</p>
+            <p x-show="win?.mode !== 'login'">A browser window is open. <b>Solve the check yourself</b>, wait for the normal page, then come back here.</p>
+            <div x-show="win?.mode === 'login' || win?.kind === 'login'">
+              <label class="label">Account name <span class="hint">· optional label</span></label>
+              <input type="text" x-model="win.account" class="input" maxlength="120">
+            </div>
+          </div>
+        </template>
+        <p class="text-rose-600 dark:text-rose-400" x-show="['error','timeout'].includes(win?.status)" x-text="win?.message || 'The window closed.'"></p>
+      </div>
+      <div class="flex justify-end gap-2 rounded-b-xl border-t border-slate-100 bg-slate-50/70 px-5 py-3.5 dark:border-slate-800 dark:bg-slate-900/60">
+        <button class="btn" @click="cancelWindow()">Cancel</button>
+        <button class="btn btn-primary" @click="finishWindow()" :disabled="win?.status !== 'open' || busy === 'window'">
+          <span x-show="busy === 'window'" class="spinner"></span>
+          <span x-text="win?.mode === 'login' ? 'I’m logged in' : 'I’ve solved it'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</template>

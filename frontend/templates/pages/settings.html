@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block page %}settingsPage{% endblock %}
+{% block scripts %}<script defer src="/static/js/pages/settings.js"></script>{% endblock %}
+{% block content %}
+<section class="space-y-6 animate-fade-up">
+  <div><h1 class="page-title">Settings</h1><p class="muted mt-1">Sites you've used, appearance and app information.</p></div>
+
+  <div class="card">
+    <div class="card-head"><h2 class="card-title">Appearance</h2></div>
+    <div class="card-body flex flex-wrap gap-2">
+      <template x-for="t in [{id: 'system', label: 'System', icon: 'monitor'}, {id: 'light', label: 'Light', icon: 'sun'}, {id: 'dark', label: 'Dark', icon: 'moon'}]" :key="t.id">
+        <button class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition"
+                :class="theme === t.id ? 'border-brand-300 bg-brand-50 text-brand-700 ring-1 ring-brand-500/20 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
+                       : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'"
+                @click="theme = t.id"><span x-html="icon(t.icon, 'h-4 w-4')"></span><span x-text="t.label"></span></button>
+      </template>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2 class="card-title">Advanced mode</h2></div>
+    <div class="card-body flex items-start gap-3">
+      <button type="button" role="switch" :aria-checked="advanced" aria-label="Advanced mode" class="switch mt-0.5"
+              :class="advanced && 'switch-on'" @click="advanced = !advanced"><span></span></button>
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Show technical options</div>
+        <p class="mt-0.5 text-xs text-slate-500">The column setup as JSON, per-site settings (page limits, waiting time, browser loading), logging in to sites and the activity log.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2 class="card-title">Agent mode</h2></div>
+    <div class="card-body space-y-4">
+      <div class="flex items-start gap-3">
+        <button type="button" role="switch" :aria-checked="agentEnabled()" aria-label="Agent mode" class="switch mt-0.5"
+                :class="agentEnabled() && 'switch-on'" @click="agentShown = !agentShown" :disabled="!status?.agent?.enabled"><span></span></button>
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Show Agent mode</div>
+          <p class="mt-0.5 text-xs text-slate-500">An AI agent (browser-use) finds the results on a site for you, then the app collects them. Guided mode stays as it is.</p>
+        </div>
+      </div>
+      <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+        <div class="flex justify-between gap-4"><dt class="text-slate-500">AI for the agent</dt><dd class="text-right font-medium" x-text="status?.agent ? `${status.agent.provider} · ${status.agent.model}` : '—'"></dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-slate-500">Sees screenshots</dt><dd class="font-medium" x-text="status?.agent?.vision ? 'Yes' : 'No (text only)'"></dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-slate-500">Installed</dt><dd class="font-medium" x-text="status?.agent?.installed ? 'Yes (.venv-agent)' : 'No'"></dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-slate-500">Default limits</dt><dd class="text-right font-medium" x-text="status?.agent ? `${status.agent.limits.steps} steps · ${status.agent.limits.minutes} min · ${status.agent.limits.ai_calls} AI calls` : '—'"></dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2 class="card-title">Sites</h2>
+      <span class="muted">daily limits, pauses and saved logins</span>
+      <button class="btn-ghost ml-auto" @click="loadSites()"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Refresh</button></div>
+    <div class="px-5 py-2">
+      <p class="muted py-6 text-center" x-show="!sites.length">No sites yet.</p>
+      <ul class="divide-y divide-slate-100 dark:divide-slate-800">
+        <template x-for="s in sites" :key="s.domain">
+          <li class="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+            <div class="min-w-[12rem] flex-1">
+              <div class="font-medium text-slate-900 dark:text-slate-100" x-text="s.domain"></div>
+              <div class="mt-1 flex flex-wrap gap-1.5">
+                <span class="chip chip-blue" x-show="s.session"
+                      x-text="(s.session?.kind === 'login' ? 'logged in' + (s.session?.account ? ' as ' + s.session.account : '') : 'human check passed') + ' · ' + Math.max(0, Math.round((s.session?.expires_in_hours || 0) / 24)) + ' days left'"></span>
+                <span class="chip chip-gray" x-text="fmt(s.usage_today) + ' of ' + fmt(s.budget) + ' pages today'"></span>
+                <span class="chip chip-red" x-show="s.cooldown_left_min > 0" x-text="'paused ' + s.cooldown_left_min + ' min'"></span>
+                <span class="chip chip-red" x-show="s.settings?.blocked">never scrape</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button class="btn-ghost" @click="startLogin(s)" :disabled="!status?.browser_available" x-show="advanced"
+                      x-text="s.session?.kind === 'login' ? 'Log in again' : 'Log in'"></button>
+              <button class="btn-ghost" x-show="s.session" @click="forgetSession(s)">Remove login</button>
+              <button class="btn-ghost" x-show="s.cooldown_left_min > 0" @click="clearCooldown(s)">End pause</button>
+              <button class="btn-ghost" @click="toggleBlocked(s)" x-text="s.settings?.blocked ? 'Allow' : 'Never scrape'"></button>
+              <button class="btn-ghost hover:!text-rose-600" @click="deleteSiteData(s)">Delete data</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card" x-show="advanced" x-cloak>
+    <details class="group" @toggle="if ($event.target.open) loadActivity()">
+      <summary class="card-head !border-b-0"><span class="chev text-slate-400 transition" x-html="icon('chevron', 'h-4 w-4')"></span>
+        <span class="card-title">Activity log</span><span class="muted">what was opened, downloaded and changed</span></summary>
+      <div class="border-t border-slate-100 px-5 pb-5 pt-3 dark:border-slate-800">
+        <div class="mb-2 flex justify-end"><button class="btn-ghost" @click="loadActivity()">Refresh</button></div>
+        <p class="muted" x-show="!activity.length">Nothing logged yet.</p>
+        <ul class="max-h-96 space-y-0.5 overflow-auto text-sm">
+          <template x-for="(a, i) in activity" :key="i">
+            <li class="flex gap-3 rounded-md px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+              <span class="w-20 shrink-0 text-xs tabular-nums text-slate-400" x-text="timeAgo(a.ts)"></span>
+              <span class="w-52 shrink-0 font-medium text-slate-700 dark:text-slate-200" x-text="eventLabel(a.event)"></span>
+              <span class="min-w-0 truncate text-slate-500" :title="eventDetail(a)" x-text="eventDetail(a)"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2 class="card-title">About</h2></div>
+    <dl class="grid gap-x-8 gap-y-3 p-5 text-sm sm:grid-cols-2">
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">AI</dt><dd class="text-right font-medium" x-text="status?.ai_enabled ? `${status.provider} · ${status.model}` : 'Not set up (add a key to .env)'"></dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Browser loading</dt><dd class="font-medium" x-text="status?.browser_available ? 'Ready' : 'Not installed'"></dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Wait between pages</dt><dd class="font-medium" x-text="(status?.delay || []).join('–') + ' seconds'"></dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Daily limit per site</dt><dd class="font-medium" x-text="fmt((status?.budget || [])[0]) + ' pages'"></dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Saved logins expire after</dt><dd class="font-medium" x-text="(status?.session_max_age_days || '') + ' days'"></dd></div>
+      <div class="flex justify-between gap-4"><dt class="text-slate-500">Results kept for</dt><dd class="font-medium" x-text="(status?.retention?.job_days || '') + ' days'"></dd></div>
+    </dl>
+  </div>
+</section>
+{% endblock %}
