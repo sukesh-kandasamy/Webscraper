@@ -90,12 +90,6 @@
           <p class="mt-0.5 text-xs text-slate-500">An AI agent (browser-use) finds the results on a site for you, then the app collects them. Guided mode stays as it is.</p>
         </div>
       </div>
-      <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-        <div class="flex justify-between gap-4"><dt class="text-slate-500">AI for the agent</dt><dd class="text-right font-medium" x-text="status?.agent ? `${status.agent.provider} · ${status.agent.model}` : '—'"></dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-slate-500">Sees screenshots</dt><dd class="font-medium" x-text="status?.agent?.vision ? 'Yes' : 'No (text only)'"></dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-slate-500">Installed</dt><dd class="font-medium" x-text="status?.agent?.installed ? 'Yes (.venv-agent)' : 'No'"></dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-slate-500">Default limits</dt><dd class="text-right font-medium" x-text="status?.agent ? `${status.agent.limits.steps} steps · ${status.agent.limits.minutes} min · ${status.agent.limits.ai_calls} AI calls` : '—'"></dd></div>
-      </dl>
     </div>
   </div>
 
