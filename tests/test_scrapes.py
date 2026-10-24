@@ -5,7 +5,9 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from app import db, fetcher, vault
+from app import db
+from app.fetching import fetcher
+from app.security import vault
 
 PUBLIC = "http://93.184.216.34"
 PAGE = "<ul>" + "".join(f"<li class='c'><b>Item {i}</b><i>{i}0</i><a href='/p/{i}'>x</a></li>" for i in range(4)) + "</ul>"

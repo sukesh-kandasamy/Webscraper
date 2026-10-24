@@ -1006,7 +1006,7 @@ function scraper() {
     agentProblem() {
       const a = this.status?.agent;
       if (!a) return "";
-      if (!a.installed) return "The agent's environment isn't installed. In the project folder run:  python -m venv .venv-agent  then  .venv-agent\\Scripts\\pip install -r requirements-agent.txt";
+      if (!a.installed) return "The agent's environment isn't installed. In the project folder run:  python -m venv .venv-agent  then  .venv-agent\\Scripts\\pip install -r agent_worker\\requirements.txt";
       if (!a.key_set) return `It needs an AI key for ${a.provider} in .env.`;
       if (!a.browser) return "It needs Microsoft Edge or Google Chrome installed.";
       return "";

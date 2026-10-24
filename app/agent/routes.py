@@ -18,7 +18,9 @@ import re
 import time
 from urllib.parse import urljoin, urlsplit
 
-from .. import blockdetect, browser, config, extractor, fetcher
+from .. import config
+from ..extraction import extractor
+from ..fetching import blockdetect, browser, fetcher
 from . import guard
 
 ACTIONS = extractor.ROUTE_ACTIONS

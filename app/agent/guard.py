@@ -9,7 +9,9 @@ The worker asks the app first; nothing the AI says can widen these rules:
 import re
 from urllib.parse import urlsplit
 
-from .. import config, fetcher, netguard
+from .. import config
+from ..fetching import fetcher
+from ..security import netguard
 
 # Clicks that act in the world (send, buy, apply ...) or reveal contact details.
 RISKY_CLICK = re.compile(

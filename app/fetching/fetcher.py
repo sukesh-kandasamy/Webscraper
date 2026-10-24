@@ -19,7 +19,9 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from . import audit, blockdetect, config, db, netguard, robots, sessions
+from .. import config, db
+from ..security import audit, netguard, sessions
+from . import blockdetect, robots
 
 
 class FetchError(Exception):
@@ -390,7 +392,7 @@ def fetch_rendered(url: str, item_selector: str = "", load_more: str = "", scrol
 def looks_empty(html: str, recipe: dict | None) -> bool:
     """True when the HTML holds no listings: the recipe finds no rows, or (without a recipe)
     no repeated listing blocks can be found. That usually means the site renders with JavaScript."""
-    from . import extractor, recipe_builder  # lazy to avoid an import cycle at module load
+    from ..extraction import extractor, recipe_builder  # lazy to avoid an import cycle at module load
 
     if recipe:
         return not extractor.extract(html, recipe, "https://x/")

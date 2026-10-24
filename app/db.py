@@ -322,7 +322,7 @@ def _job_encrypted(c: sqlite3.Connection, job_id: int) -> bool:
 
 
 def add_records(job_id: int, page: str, rows: list[dict]) -> None:
-    from . import vault  # lazy: only needed for logged-in jobs
+    from .security import vault  # lazy: only needed for logged-in jobs
 
     with tx() as c:
         enc = _job_encrypted(c, job_id)
@@ -335,7 +335,7 @@ def add_records(job_id: int, page: str, rows: list[dict]) -> None:
 
 def get_record_pages(job_id: int) -> list[tuple[str, dict]]:
     """(page, row) for every record of a job, in order."""
-    from . import vault
+    from .security import vault
 
     with tx() as c:
         rows = c.execute("SELECT page, data FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
@@ -345,7 +345,7 @@ def get_record_pages(job_id: int) -> list[tuple[str, dict]]:
 
 def replace_records(job_id: int, items: list[tuple[str, dict]]) -> None:
     """Replace all records of a job (after sorting / trimming to the requested limit)."""
-    from . import vault
+    from .security import vault
 
     with tx() as c:
         enc = _job_encrypted(c, job_id)
@@ -384,7 +384,7 @@ def get_records(job_id: int) -> list[dict]:
     for r in rows:
         data = r["data"]
         if data.startswith("enc:"):
-            from . import vault
+            from .security import vault
             out.append(vault.decrypt_json(data[4:]))
         else:
             out.append(json.loads(data))

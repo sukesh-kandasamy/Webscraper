@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from app import extractor, recipe_builder, robots
+from app.extraction import extractor, recipe_builder
+from app.fetching import robots
 
 ROOT = Path(__file__).resolve().parent.parent
 CASES = [

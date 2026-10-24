@@ -1,7 +1,9 @@
 """Render-mode decisions in fetch_smart, with fetch and the browser replaced by fakes."""
 import pytest
 
-from app import config, db, extractor, fetcher
+from app import config, db
+from app.extraction import extractor
+from app.fetching import fetcher
 
 EMPTY = "<html><body><div id='app'></div><script>/* renders listings */</script></body></html>"
 FULL = "<ul>" + "".join(f"<li class='c'><a href='/p{i}'>Product {i}</a> A listing card with enough "

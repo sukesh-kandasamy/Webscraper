@@ -2,7 +2,7 @@
 
 What Universal Scraper does to keep **you**, **your accounts**, **your data** and **the websites you
 scrape** safe, where secrets live, and what to do when something goes wrong. The design and threat
-model are in [PLAN-security.md](PLAN-security.md). Run `python check.py` for a live report.
+model are in [the security plan](plans/03-security.md). Run `python scripts/check.py` for a live report.
 
 ## What the app will never do
 
@@ -47,13 +47,13 @@ computer is lost.
 | Account bans | Per-site daily page budget (500, or 200 when logged in), adaptive backoff, `Retry-After` honoured, cool-down after 429 / repeated challenges | `fetcher` |
 | Scraping a site you are not allowed to | robots.txt is enforced; logging in needs your confirmation that it is your own account and the site allows automated access; do-not-scrape list. Checking a site's terms of use is up to you. | `main.start_login`, `fetcher.is_opted_out` |
 | Secrets in logs | Log filter redacts API keys, cookies, bearer tokens, `?token=` parameters | `app/logsafe.py` |
-| Secrets committed to git | `.githooks/pre-commit` runs `tools/secret_scan.py`; `.env`, `data/`, `*.db`, `*.bin` are ignored and refused | `tools/secret_scan.py` |
-| Vulnerable dependencies | Exact versions in `requirements.lock`; `pip-audit` in `check.py` | `check.py` |
+| Secrets committed to git | `.githooks/pre-commit` runs `scripts/secret_scan.py`; `.env`, `data/`, `*.db`, `*.bin` are ignored and refused | `scripts/secret_scan.py` |
+| Vulnerable dependencies | Exact versions in `requirements.lock`; `pip-audit` in `scripts/check.py` | `scripts/check.py` |
 
 ## Routine checks
 
 ```bash
-python check.py
+python scripts/check.py
 ```
 
 Runs the test suite, the secret scan, `pip-audit`, checks that `.env` / `data/` are not in git, that

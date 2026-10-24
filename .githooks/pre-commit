@@ -5,4 +5,4 @@ ROOT="$(git rev-parse --show-toplevel)"
 if [ -x "$ROOT/.venv/Scripts/python.exe" ]; then PY="$ROOT/.venv/Scripts/python.exe"
 elif [ -x "$ROOT/.venv/bin/python" ]; then PY="$ROOT/.venv/bin/python"
 else PY="python"; fi
-exec "$PY" "$ROOT/tools/secret_scan.py" --staged
+exec "$PY" "$ROOT/scripts/secret_scan.py" --staged

@@ -15,7 +15,11 @@ import math
 import threading
 import time
 
-from .. import audit, db, details, extractor, fetcher, jobs, logsafe, recipe_builder
+from .. import db
+from ..extraction import details, extractor, recipe_builder
+from ..fetching import fetcher
+from ..runs import jobs
+from ..security import audit, logsafe
 from . import runner, store
 
 MAX_ROUNDS = 2

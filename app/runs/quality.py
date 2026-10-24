@@ -6,7 +6,7 @@
 """
 import re
 
-from . import extractor, normalize
+from ..extraction import extractor, normalize
 
 _TOTAL_PATTERNS = [
     # "1-48 of over 10,000 results", "Showing 1–24 of 1,250", "21 to 40 of 812 jobs"

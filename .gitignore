@@ -1,10 +1,16 @@
+# Local environments
 .venv/
-data/
+.venv-agent/
+
+# Your data and secrets (never committed; the pre-commit hook also refuses them)
 .env
+data/
+
+# Python and test caches
 __pycache__/
 *.pyc
 .pytest_cache/
 *.log
-data/sessions/
-data/audit.log
-.venv-agent/
+
+# Tool working folders
+.claude/worktrees/

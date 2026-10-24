@@ -1,7 +1,7 @@
 """Find API keys, tokens and cookies before they get committed.
 
-    python tools/secret_scan.py            # scan all tracked files
-    python tools/secret_scan.py --staged   # scan what is about to be committed (pre-commit hook)
+    python scripts/secret_scan.py            # scan all tracked files
+    python scripts/secret_scan.py --staged   # scan what is about to be committed (pre-commit hook)
 
 Exit code 1 when something looks like a secret.
 """
@@ -25,7 +25,7 @@ PATTERNS = [
                                   r"[A-Za-z0-9_\-]{16,}[\"']?\s*$")),
 ]
 FORBIDDEN_FILES = re.compile(r"(^|/)(\.env|.*\.db|.*\.bin|audit\.log)$")
-SKIP_FILES = {"tools/secret_scan.py", "tests/test_security.py"}
+SKIP_FILES = {"scripts/secret_scan.py", "tests/test_security.py"}
 
 
 def _git(*args: str) -> str:

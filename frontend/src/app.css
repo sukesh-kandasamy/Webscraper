@@ -1,4 +1,4 @@
-/* Source styles. Compiled to static/app.css by:  python tools/build_css.py */
+/* Source styles. Compiled to frontend/public/app.css by:  python scripts/build_css.py */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

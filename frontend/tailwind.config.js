@@ -1,6 +1,6 @@
-/** Tailwind build config. Rebuild the CSS after UI changes:  python tools/build_css.py */
+/** Tailwind build config. Rebuild the CSS after UI changes:  python scripts/build_css.py */
 module.exports = {
-  content: ["./static/index.html", "./static/app.js"],
+  content: ["./public/index.html", "./public/app.js"],
   darkMode: "class",
   theme: {
     extend: {

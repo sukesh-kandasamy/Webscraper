@@ -7,7 +7,8 @@ import threading
 import time
 from collections import deque
 
-from . import config, logsafe
+from .. import config
+from . import logsafe
 
 _lock = threading.Lock()
 

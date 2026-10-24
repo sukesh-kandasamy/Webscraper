@@ -5,8 +5,11 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from app import config, db, extractor, fetcher, netguard, recipe_builder, vault
+from app import config, db
 from app.agent import guard, handoff, planner, runner, store
+from app.extraction import extractor, recipe_builder
+from app.fetching import fetcher
+from app.security import netguard, vault
 
 PUBLIC = "http://93.184.216.34"
 LIST = "<ul>" + "".join(f"<li class='c'><h3><a href='/p/{i}'>Mystery book number {i}</a></h3><p class='price'>£{i}9.99</p></li>"
@@ -278,10 +281,10 @@ def test_openai_provider_structured_call(monkeypatch):
 def test_openai_keys_are_redacted_and_scanned():
     import sys
     from pathlib import Path
-    from app import logsafe
+    from app.security import logsafe
     key = "sk-proj-" + "Ab1_-" * 10
     assert key not in logsafe.redact(f"auth {key}")
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     import secret_scan
     assert any(p.search(f"OPENAI_API_KEY={key}") for _, p in secret_scan.PATTERNS)
 

@@ -7,8 +7,12 @@ import time
 import pytest
 from cryptography.fernet import Fernet
 
-from app import browser, config, db, extractor, fetcher, jobs, vault
+from app import config, db
 from app.agent import routes
+from app.extraction import extractor
+from app.fetching import browser, fetcher
+from app.runs import jobs
+from app.security import vault
 
 PAGE = """<!doctype html><html><body>
 <div id="cookie-box">We use cookies <button id="cookie-ok">Accept all</button></div>
@@ -138,8 +142,8 @@ def test_job_with_a_route_collects_without_ai(local_ok):
 def test_handoff_checks_and_saves_the_route(local_ok, monkeypatch):
     """The agent reached in-page results: the handoff replays its steps, saves them with the scrape, and
     the first run already replays them (no AI after the agent)."""
-    from app import recipe_builder, request_parser
     from app.agent import handoff, store
+    from app.extraction import recipe_builder, request_parser
     store.init()
 
     def fake_build(html, url, fields, rendered=False, redact=False, auto=False, request=None):

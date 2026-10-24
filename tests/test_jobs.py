@@ -4,7 +4,9 @@ import time
 
 import pytest
 
-from app import config, db, fetcher, jobs
+from app import config, db
+from app.fetching import fetcher
+from app.runs import jobs
 
 PAGE1 = """<ul><li class="c"><a href="/p1">A</a></li><li class="c"><a href="/p2">B</a></li></ul>
 <a class="next" href="/list?page=2">next</a>"""

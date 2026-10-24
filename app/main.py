@@ -18,9 +18,12 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import (audit, browser, config, db, details, export, extractor, fetcher, jobs, logsafe, netguard,
-               normalize, privacy, quality, recipe_builder, request_parser, robots, sessions)
+from . import config, db
 from .agent import api as agent_api, routes as agent_routes, runner as agent_runner, store as agent_store
+from .extraction import details, extractor, normalize, recipe_builder, request_parser
+from .fetching import browser, fetcher, robots
+from .runs import export, jobs, quality
+from .security import audit, logsafe, netguard, privacy, sessions
 
 PREVIEW_ROWS = 20
 
@@ -62,7 +65,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Universal Scraper", version="0.2", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
-app.mount("/static", StaticFiles(directory=config.ROOT / "static"), name="static")
+app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 app.include_router(agent_api.router)
 app.include_router(agent_api.worker)
 
@@ -318,7 +321,7 @@ def _remember_render(domain: str, page: fetcher.Page) -> str:
 
 @app.get("/")
 def index():
-    return FileResponse(config.ROOT / "static" / "index.html")
+    return FileResponse(config.STATIC_DIR / "index.html")
 
 
 @app.get("/api/status")

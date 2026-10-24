@@ -1,4 +1,4 @@
-"""Security tests, one group per threat in PLAN-security.md (T1-T14)."""
+"""Security tests, one group per threat in docs/plans/03-security.md (T1-T14)."""
 import sqlite3
 import sys
 import threading
@@ -10,8 +10,11 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from app import (blockdetect, config, db, export, extractor, fetcher, jobs, logsafe, netguard,
-                 privacy, sessions, vault)
+from app import config, db
+from app.extraction import extractor
+from app.fetching import blockdetect, fetcher
+from app.runs import export, jobs
+from app.security import logsafe, netguard, privacy, sessions, vault
 
 PUBLIC = "http://93.184.216.34"      # a public IP literal: no DNS lookups in tests
 
@@ -314,7 +317,7 @@ def test_log_redaction():
 
 
 def test_secret_scanner_patterns():
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     import secret_scan
     hits = [label for label, p in secret_scan.PATTERNS
             if p.search("GROQ_API_KEY=gsk_" + "a" * 40 + "\n")]

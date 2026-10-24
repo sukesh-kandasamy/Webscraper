@@ -9,8 +9,11 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from app import config, db, extractor, fetcher, jobs, normalize, quality, recipe_builder, request_parser, \
-    structured, vault
+from app import config, db
+from app.extraction import extractor, normalize, recipe_builder, request_parser, structured
+from app.fetching import fetcher
+from app.runs import jobs, quality
+from app.security import vault
 
 PUBLIC = "http://93.184.216.34"
 

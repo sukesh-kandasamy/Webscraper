@@ -10,10 +10,11 @@ import subprocess
 import threading
 import time
 
-from .. import browser, config
+from .. import config
+from ..fetching import browser
 
 TOKEN = secrets.token_urlsafe(32)
-WORKER = config.ROOT / "agent_worker.py"
+WORKER = config.ROOT / "agent_worker" / "worker.py"
 LOG = config.DATA_DIR / "agent_worker.log"
 
 _lock = threading.Lock()
@@ -83,7 +84,7 @@ def ensure(app_url: str) -> None:
             return
         if not installed():
             raise RuntimeError("Agent mode isn't installed. Run  python -m venv .venv-agent  and  "
-                               ".venv-agent\\Scripts\\pip install -r requirements-agent.txt")
+                               ".venv-agent\\Scripts\\pip install -r agent_worker\\requirements.txt")
         log = open(LOG, "a", encoding="utf-8")
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         _proc = subprocess.Popen([str(config.AGENT_PYTHON), "-X", "utf8", "-s", str(WORKER)], cwd=str(config.ROOT),

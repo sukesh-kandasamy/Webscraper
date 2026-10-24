@@ -17,7 +17,8 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from . import audit, config, netguard, vault
+from .. import config
+from . import audit, netguard, vault
 
 KIND_LOGIN = "login"        # you logged in: personal account data, stricter budget, encrypted records
 KIND_BROWSER = "browser"    # cookies from passing a browser check by hand; not an account login

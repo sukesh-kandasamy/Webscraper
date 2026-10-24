@@ -23,8 +23,12 @@ Safety:
 import threading
 import time
 
-from . import audit, config, db, extractor, fetcher, normalize, privacy, quality, request_parser
-from .agent.routes import RouteBroken
+from .. import config, db
+from ..agent.routes import RouteBroken
+from ..extraction import extractor, normalize, request_parser
+from ..fetching import fetcher
+from ..security import audit, privacy
+from . import quality
 
 _stop_flags: dict[int, threading.Event] = {}
 _slots = threading.BoundedSemaphore(config.MAX_CONCURRENT_JOBS)
@@ -253,7 +257,7 @@ class _Run:
     def crawl_route(self, start_url: str) -> None:
         """Agent scrapes whose filters live inside the page: replay the recorded steps (no AI), then
         collect the pages inside the same browser."""
-        from .agent import routes
+        from ..agent import routes
 
         route = self.recipe["route"]
         db.update_job(self.job_id, message=f"Replaying {len(route)} recorded steps on {start_url}")

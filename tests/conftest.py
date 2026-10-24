@@ -1,7 +1,9 @@
 """Every test writes to a temporary data folder: never the real database, sessions or activity log."""
 import pytest
 
-from app import config, fetcher, sessions
+from app import config
+from app.fetching import fetcher
+from app.security import sessions
 
 
 @pytest.fixture(autouse=True)

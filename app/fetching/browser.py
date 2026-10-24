@@ -14,7 +14,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import blockdetect, config, netguard
+from .. import config
+from ..security import netguard
+from . import blockdetect
 
 # Stylesheets are kept: some infinite-scroll pages decide what to load from the laid-out page height.
 SKIP_RESOURCES = {"image", "media", "font"}

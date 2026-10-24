@@ -11,7 +11,11 @@
 import threading
 import time
 
-from .. import audit, config, db, details, extractor, fetcher, jobs, logsafe, recipe_builder, sessions
+from .. import config, db
+from ..extraction import details, extractor, recipe_builder
+from ..fetching import fetcher
+from ..runs import jobs
+from ..security import audit, logsafe, sessions
 from . import guard, routes, store, supervisor
 
 

@@ -12,7 +12,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .. import audit, blockdetect, config, fetcher, jobs, logsafe, recipe_builder, sessions
+from .. import config
+from ..extraction import recipe_builder
+from ..fetching import blockdetect, fetcher
+from ..runs import jobs
+from ..security import audit, logsafe, sessions
 from . import guard, handoff, planner, runner, store
 
 router = APIRouter(prefix="/api/agent")

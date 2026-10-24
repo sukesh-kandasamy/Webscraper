@@ -39,7 +39,8 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import regex as safe_regex   # same syntax as re, plus a timeout
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
-from . import config, structured
+from .. import config
+from . import structured
 
 _WS = re.compile(r"\s+")
 ROUTE_ACTIONS = ("navigate", "click", "input", "select_dropdown", "send_keys", "scroll", "go_back", "wait")

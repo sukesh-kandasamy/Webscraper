@@ -10,9 +10,9 @@ openpyxl>=3.1
 python-dotenv>=1.0
 pytest>=8.0
 
-# Security (see PLAN-security.md)
+# Security (see docs/plans/03-security.md)
 regex>=2026.9
 cryptography>=50
 keyring>=25
 pip-audit>=2.7          # dev: python check.py
-pytailwindcss>=0.2      # dev: python tools/build_css.py (only to change the UI)
+pytailwindcss>=0.2      # dev: python scripts/build_css.py (only to change the UI)

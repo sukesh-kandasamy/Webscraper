@@ -3,7 +3,11 @@
 Shared by Guided mode (the item-page switch in step 2) and Agent mode (turned on when the request
 needs details the list page doesn't show).
 """
-from . import audit, config, db, fetcher, jobs, netguard, recipe_builder
+from .. import config, db
+from ..fetching import fetcher
+from ..runs import jobs
+from ..security import audit, netguard
+from . import recipe_builder
 
 
 class DetailError(Exception):

@@ -16,7 +16,8 @@ One short AI call reads the prompt (no page HTML is sent). The request then guid
 """
 import re
 
-from . import config, normalize, recipe_builder
+from .. import config
+from . import normalize, recipe_builder
 
 OPS = ("lt", "lte", "gt", "gte", "eq", "ne", "contains", "not_contains")
 OP_LABELS = {"lt": "<", "lte": "≤", "gt": ">", "gte": "≥", "eq": "=", "ne": "≠",

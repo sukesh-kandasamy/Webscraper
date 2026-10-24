@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 VENV_PY = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 PY = str(VENV_PY if VENV_PY.exists() else Path(sys.executable))
 
@@ -34,7 +34,7 @@ def check_tests() -> None:
 
 
 def check_secrets() -> None:
-    r = run([PY, str(ROOT / "tools" / "secret_scan.py")])
+    r = run([PY, str(ROOT / "scripts" / "secret_scan.py")])
     record("PASS" if r.returncode == 0 else "FAIL", "Secret scan of tracked files",
            r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "")
 

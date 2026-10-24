@@ -1,6 +1,6 @@
 # Universal Scraper: Draft Plan (v0.1)
 
-> The draft is built. The plan for what comes next is in [PLAN-v2.md](PLAN-v2.md).
+> The draft is built. The plan for what comes next is in [02-features.md](02-features.md).
 
 > **Status (2026-10-16): draft built.** Milestones 1–5 and 7 are done; milestone 6 (second site)
 > was done with a built-in TradeIndia recipe. The AI recipe builder is written but **not yet tested

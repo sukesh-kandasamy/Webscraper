@@ -10,7 +10,9 @@ row filters, so nothing is lost if the site has no such filter.
 """
 from urllib.parse import urlsplit
 
-from .. import config, netguard, recipe_builder, request_parser
+from .. import config
+from ..extraction import recipe_builder, request_parser
+from ..security import netguard
 from . import guard
 
 MAX_GOAL_CHARS = 2000

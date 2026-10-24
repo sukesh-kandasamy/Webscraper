@@ -8,7 +8,7 @@
 >   page detection in the browser. IndiaMART jobs now scroll for more products.
 >   **Still open:** 1.3 table pages, 1.4 embedded JSON data.
 > - Phases 2–4: not started.
-> - Security, logged-in sites and blockers are planned separately in [PLAN-security.md](PLAN-security.md).
+> - Security, logged-in sites and blockers are planned separately in [03-security.md](03-security.md).
 
 The draft (v0.1) proved the idea: URL in, AI-built recipe, preview, crawl, table, export. This plan
 takes it from a draft to a tool you can rely on every day. It is split into five phases. Each phase is

@@ -10,7 +10,9 @@ from collections import defaultdict
 import anthropic
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
-from . import config, extractor, normalize, privacy, structured
+from .. import config
+from ..security import privacy
+from . import extractor, normalize, structured
 
 DROP_TAGS = ["script", "style", "svg", "noscript", "iframe", "link", "meta", "head", "template"]
 KEEP_ATTRS = {"class", "id", "href", "src", "itemprop", "title", "aria-label", "role", "data-src"}

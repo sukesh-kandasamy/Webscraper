@@ -11,7 +11,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from . import config
+from .. import config
 
 
 class UnsafeURL(ValueError):
