@@ -87,7 +87,7 @@ Agent mode runs in its own environment, so its packages never mix with the app's
 
 ```bash
 python -m venv .venv-agent
-.venv-agent\Scripts\pip install -r requirements-agent.txt
+.venv-agent\Scripts\pip install -r agent_worker\requirements.txt
 ```
 
 It works best with an AI that can see screenshots: add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` (it is
@@ -121,15 +121,15 @@ suggests a category page instead. For example, IndiaMART allows `dir.indiamart.c
 ## Changing the UI
 
 Everything the page needs is served by the app itself (no CDNs), so it works offline and behind company
-firewalls. Styles are compiled from `static/src/app.css` with Tailwind:
+firewalls. Styles are compiled from `frontend/src/app.css` with Tailwind:
 
 ```bash
-python tools/build_css.py           # once
-python tools/build_css.py --watch   # while editing static/index.html or static/app.js
+python scripts/build_css.py           # once
+python scripts/build_css.py --watch   # while editing frontend/public/index.html or app.js
 ```
 
 `pip install pytailwindcss` provides the Tailwind CLI (it downloads it on first use). The compiled
-`static/app.css` is committed, so running the app never needs this step.
+`frontend/public/app.css` is committed, so running the app never needs this step.
 
 ## Logged-in pages, CAPTCHAs and personal data
 
@@ -145,11 +145,11 @@ python tools/build_css.py --watch   # while editing static/index.html or static/
   to the AI. To collect a field unmasked, tick it before starting the job and say why.
 - **Activity log** lists every fetch, export, login and settings change.
 
-Details: [SECURITY.md](SECURITY.md). Check everything with `python check.py`.
+Details: [docs/SECURITY.md](docs/SECURITY.md). Check everything with `python scripts/check.py`.
 
 ## Recipes
 
-A recipe is plain JSON. See [app/extractor.py](app/extractor.py) for every option.
+A recipe is plain JSON. See [app/extraction/extractor.py](app/extraction/extractor.py) for every option.
 
 ```json
 {
@@ -198,34 +198,39 @@ with the price, brand or salary.
 
 ## Project layout
 
-| Path | What it does |
+```
+Web-Scraping/
+├── README.md  run.py  requirements.txt  requirements.lock  .env.example
+├── app/                  the web app (FastAPI)
+│   ├── main.py           routes + serves the UI; Host / Origin checks, security headers
+│   ├── config.py         settings (from .env)
+│   ├── db.py             SQLite: recipes, jobs, records, page cache (data/scraper.db)
+│   ├── fetching/         getting pages politely and safely
+│   ├── security/         protecting you and your data
+│   ├── extraction/       turning pages into clean rows
+│   ├── runs/             background runs and their results
+│   ├── agent/            Agent mode (plans, guard, handoff, routes, check & fix)
+│   └── recipes/          built-in recipes, loaded at startup
+├── frontend/             the UI
+│   ├── public/           served at /static: index.html, app.js (Alpine.js), compiled app.css, logo, vendor/
+│   ├── src/app.css       Tailwind source
+│   └── tailwind.config.js
+├── agent_worker/         the browser-use process, in its own environment (.venv-agent)
+├── scripts/              check.py (security report), build_css.py, secret_scan.py
+├── tests/                python -m pytest tests (offline, on saved pages and a local test site)
+├── docs/                 SECURITY.md and the plans behind each part of the app
+└── data/                 your database, logins, logs (local only, never committed)
+```
+
+| Folder | Files |
 |---|---|
-| `app/main.py` | FastAPI routes + serves the UI; Host / Origin checks, security headers |
-| `app/netguard.py` | Refuses local / private network targets (SSRF guard) |
-| `app/sessions.py` | Encrypted login sessions; visible browser windows for logging in / solving checks |
-| `app/vault.py` | Encryption with a key from the OS credential store |
-| `app/blockdetect.py` | Recognises CAPTCHA, challenge, access-denied and login pages |
-| `app/privacy.py` | Detects and masks phones / emails; redacts page text before AI calls |
-| `app/audit.py`, `app/logsafe.py` | Activity log; secret redaction in logs |
-| `app/fetcher.py` | HTTP client: robots.txt, per-site throttling, retries, cache, block detection; `fetch_smart` picks HTTP or browser |
-| `app/browser.py` | Headless Chromium rendering (Playwright): wait for the page, click "load more" / scroll, detect challenge pages |
-| `app/robots.py` | robots.txt parser with `*` / `$` wildcard support |
-| `app/extractor.py` | Applies a recipe to HTML or embedded JSON; pagination; field fill-rate report |
-| `app/recipe_builder.py` | Finds repeated listing blocks, asks the AI (Groq or Claude) for a recipe, tests it, retries once with feedback; item-page recipes |
-| `app/request_parser.py` | "Describe what you need" → columns with meanings and types, filters, sort, limit; applies them to rows |
-| `app/normalize.py` | Typed values: money (currencies, lakh / crore), numbers, ratings, percentages, dates |
-| `app/structured.py` | JSON-LD and embedded app-state data in pages |
-| `app/quality.py` | Quality report per run: coverage, failures, duplicates, column fill; health check against the last run |
-| `app/jobs.py` | Background crawl jobs |
-| `app/agent/` | Agent mode: `planner.py` (goal → plan), `guard.py` (what the agent may do), `api.py` (UI + worker API), `handoff.py` (results page → engine), `routes.py` (record and replay the agent's steps without AI), `runner.py` (starts the worker), `store.py` (runs and steps) |
-| `agent_worker.py` | The browser-use process (runs in `.venv-agent`, talks to the app's local API with a one-time token) |
-| `app/details.py` | Item-page set-up shared by Guided and Agent mode |
-| `app/db.py` | SQLite: recipes, jobs, records, page cache (`data/scraper.db`) |
-| `app/recipes/*.json` | Built-in recipes, loaded at startup |
-| `static/` | Single-page UI: `index.html`, `app.js` (Alpine.js), compiled `app.css`, `vendor/alpine-*.min.js` |
-| `static/src/app.css`, `tailwind.config.js`, `tools/build_css.py` | Tailwind source and build (only needed when changing the UI) |
-| `tests/` | `python -m pytest tests` (runs offline on saved pages; `test_security.py` covers each threat) |
-| `check.py`, `tools/secret_scan.py`, `.githooks/` | Security report; secret scanning (also as a pre-commit hook) |
+| `app/fetching/` | `fetcher.py` (HTTP: robots.txt, per-site throttling, retries, cache, budgets; `fetch_smart` picks HTTP or browser) · `browser.py` (headless Chromium: wait, "load more", scroll) · `robots.py` (robots.txt with `*` / `$` wildcards) · `blockdetect.py` (CAPTCHA, challenge, access-denied and login pages) |
+| `app/security/` | `netguard.py` (refuses local / private network targets) · `vault.py` (encryption key in the OS credential store) · `sessions.py` (encrypted logins; visible windows for logging in / solving checks) · `privacy.py` (masks phones / emails; redacts page text before AI calls) · `audit.py` (activity log) · `logsafe.py` (keeps secrets out of logs) |
+| `app/extraction/` | `extractor.py` (applies a recipe to HTML or embedded JSON; pagination) · `recipe_builder.py` (finds the listing, asks the AI for a recipe, tests it; item-page recipes) · `request_parser.py` ("Describe what you need" → columns, conditions, sort, limit) · `normalize.py` (money, numbers, ratings, dates) · `structured.py` (JSON-LD and embedded app data) · `details.py` (item pages) |
+| `app/runs/` | `jobs.py` (background runs: typing, de-duplication, conditions, item pages, retries) · `quality.py` (quality report and health check) · `export.py` (CSV / Excel) |
+| `app/agent/` | `planner.py` (goal → plan) · `guard.py` (what the agent may do) · `api.py` (UI + worker API) · `handoff.py` (results page → engine) · `routes.py` (record and replay steps without AI) · `supervisor.py` (check and fix) · `runner.py` (starts the worker) · `store.py` (runs and steps) |
+| `agent_worker/` | `worker.py` (browser-use, talks to the app's local API with a one-time token) · `requirements.txt` / `.lock` |
+| `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) |
 
 ## Settings (`.env`)
 
@@ -251,12 +256,13 @@ with the price, brand or salary.
 
 ## What's next
 
-- Product (company server, guided screens, saved scrapes, admin): [PLAN-product.md](PLAN-product.md)
-- Security and logged-in scraping: [PLAN-security.md](PLAN-security.md) (SSRF guard, safe exports,
+- Product (company server, guided screens, saved scrapes, admin): [04-product.md](docs/plans/04-product.md)
+- Security and logged-in scraping: [03-security.md](docs/plans/03-security.md) (SSRF guard, safe exports,
   encrypted login sessions, pause-and-resume on CAPTCHAs, personal-data protection).
-- Features: [PLAN-v2.md](PLAN-v2.md): browser rendering for JavaScript sites, detail-page crawling, clean numeric
+- Features: [02-features.md](docs/plans/02-features.md): browser rendering for JavaScript sites, detail-page crawling, clean numeric
 output, recipe auto-repair, scheduled re-runs with price history, a point-and-click field picker.
-- Complete data and the describe-what-you-need prompt: [PLAN-data.md](PLAN-data.md) (built).
+- Complete data and the describe-what-you-need prompt: [05-data.md](docs/plans/05-data.md) (built).
+- Agent mode with browser-use: [06-agent.md](docs/plans/06-agent.md) (phases 1–3 built).
 
 ## Ground rules built in
 
