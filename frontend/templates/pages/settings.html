@@ -19,8 +19,7 @@
 
   <div class="card" id="ai">
     <div class="card-head"><h2 class="card-title">AI models</h2>
-      <span class="chip chip-gray ml-auto" x-show="ai?.custom" x-cloak>Chosen here</span>
-      <span class="chip chip-gray ml-auto" x-show="ai && !ai.custom" x-cloak>From .env</span></div>
+      <span class="chip chip-gray ml-auto" x-show="ai?.custom" x-cloak>Chosen here</span></div>
     <div class="card-body space-y-6" x-show="ai" x-cloak>
       <template x-for="role in aiRoles" :key="role.id">
         <div class="grid gap-3 md:grid-cols-[200px_1fr] md:gap-6">
