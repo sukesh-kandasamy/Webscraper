@@ -131,6 +131,7 @@ function shell() {
     theme: store("theme") || "system",
     toasts: [],
     dialog: null,                // {title, message, input, value, confirmText, danger}
+    dialogOpen: false,           // shown or not; dialog keeps its contents while it closes
     menuOpen: false,
     advanced: store("advanced") === true,
     agentShown: store("agentShown") !== false,
@@ -154,7 +155,7 @@ function shell() {
       this.$watch("theme", v => { store("theme", v); applyTheme(v); });
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applyTheme(this.theme));
       document.addEventListener("keydown", e => {
-        if (e.key === "Escape" && this.dialog) this.closeDialog(false);
+        if (e.key === "Escape" && this.dialogOpen) this.closeDialog(false);
         if (e.key === "Escape") { this.menuOpen = false; this.colMenu = false; }
       });
       const f = takeFlash();
@@ -193,6 +194,7 @@ function shell() {
     ask(opts) {
       return new Promise(resolve => {
         this.dialog = { title: "", message: "", input: false, value: "", confirmText: "OK", danger: false, ...opts, resolve };
+        this.dialogOpen = true;
         this.$nextTick(() => document.getElementById(this.dialog.input ? "dialog-input" : "dialog-ok")?.focus());
       });
     },
@@ -204,8 +206,8 @@ function shell() {
     },
     closeDialog(ok) {
       const d = this.dialog;
-      if (!d) return;
-      this.dialog = null;
+      if (!d || !this.dialogOpen) return;
+      this.dialogOpen = false;
       d.resolve(ok ? (d.input ? (d.value || "").trim() : true) : (d.input ? null : false));
     },
     toast(msg, type = "success") {

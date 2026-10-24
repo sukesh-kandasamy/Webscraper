@@ -1,5 +1,5 @@
 <!-- Dialog (M3 basic dialog): confirm / prompt -->
-<template x-if="dialog">
+<template x-if="dialogOpen">
   <div class="overlay" @click.self="closeDialog(false)">
     <div class="dialog animate-fade-up" role="dialog" aria-modal="true" :aria-label="dialog.title">
       <form @submit.prevent="closeDialog(true)">

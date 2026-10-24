@@ -37,6 +37,28 @@ function agentPage() {
       return "";
     },
     agentBusyCount() { return this.agentRuns.filter(r => ["queued", "navigating", "collecting", "fixing"].includes(r.status)).length; },
+    runTitle(r) { return r?.title || r?.plan?.summary || r?.goal || ""; },
+    async renameAgentRun(r) {
+      const title = await this.promptDialog("Rename this run", "Name (leave empty to use the plan's summary)", this.runTitle(r), "Rename");
+      if (title === null) return;
+      try {
+        const res = await api("PUT", `/api/agent/runs/${r.uid}/title`, { title });
+        for (const x of [r, this.agentRun]) if (x && x.id === r.id) x.title = res.title;
+      } catch (e) { this.showError(e); }
+    },
+    async deleteAgentRun(r) {
+      if (["queued", "navigating", "collecting", "fixing"].includes(r.status)) {
+        this.toast("Stop the run before deleting it.", "error"); return;
+      }
+      if (!await this.confirmDialog("Delete this agent run?",
+        `“${this.runTitle(r)}” and its steps and screenshots are removed. Results it collected and saved scrapes stay.`)) return;
+      try {
+        await api("DELETE", `/api/agent/runs/${r.uid}`);
+        if (this.agentRun?.id === r.id) this.newAgentRun();
+        this.toast("Agent run deleted.");
+        await this.loadAgentRuns();
+      } catch (e) { this.showError(e); }
+    },
     agentActive() { return ["queued", "navigating", "collecting", "fixing"].includes(this.agentRun?.status); },
     fixLabel(kind) {
       return { item_pages: "Item pages", more_pages: "More pages", pagination: "Next-page control",

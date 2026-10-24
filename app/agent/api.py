@@ -156,6 +156,19 @@ def stop_run(run_id: str):
     return _view(store.get(run_id))
 
 
+class TitleIn(BaseModel):
+    title: str = Field(default="", max_length=200)
+
+
+@router.put("/runs/{run_id}/title")
+def rename_run(run_id: str, body: TitleIn):
+    """Give a run your own name in the history; an empty name goes back to the plan's summary."""
+    run = _run_or_404(run_id)
+    title = " ".join(body.title.split())
+    store.update(run["id"], title=title)
+    return {"title": title}
+
+
 @router.delete("/runs/{run_id}")
 def delete_run(run_id: str):
     run = _run_or_404(run_id)
@@ -163,6 +176,7 @@ def delete_run(run_id: str):
     if run["status"] in store.ACTIVE:
         raise HTTPException(409, "Stop the run before deleting it.")
     store.delete(run_id)
+    audit.log("agent_run_deleted", run_id=run_id, run=run["uid"], domain=run["site"])
     shots = config.AGENT_SHOTS_DIR / str(run_id)
     if shots.exists():
         for f in shots.glob("*.jpg"):

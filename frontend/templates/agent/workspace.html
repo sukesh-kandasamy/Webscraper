@@ -34,15 +34,29 @@
           <div class="mb-2">
             <div class="label-m px-3 pb-1 pt-3 text-on-surface-variant" x-text="g.label"></div>
             <template x-for="r in g.runs" :key="r.id">
-              <button class="state flex w-full items-center gap-3 rounded-full px-3 py-2.5 text-left"
-                      :class="agentRun?.id === r.id ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface'"
-                      @click="openAgentRun(r.uid); historyOpen = false">
-                <span class="h-2 w-2 shrink-0 rounded-full" :class="runDot(r.status)"></span>
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm" x-text="r.plan?.summary || r.goal"></span>
-                  <span class="block truncate text-xs text-on-surface-variant"><span class="font-mono" x-text="r.uid"></span><span x-text="` · ${r.site} · ${agentStatusLabel(r.status)}`"></span></span>
-                </span>
-              </button>
+              <div class="group relative" x-data="{ open: false }" :class="open && 'z-20'">
+                <button class="state flex w-full items-center gap-3 rounded-full py-2.5 pl-3 pr-10 text-left"
+                        :class="agentRun?.id === r.id ? 'bg-secondary-container text-on-secondary-container' : 'text-on-surface'"
+                        @click="openAgentRun(r.uid); historyOpen = false">
+                  <span class="h-2 w-2 shrink-0 rounded-full" :class="runDot(r.status)"></span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm" x-text="runTitle(r)"></span>
+                    <span class="block truncate text-xs text-on-surface-variant"><span class="font-mono" x-text="r.uid"></span><span x-text="` · ${r.site} · ${agentStatusLabel(r.status)}`"></span></span>
+                  </span>
+                </button>
+                <div class="absolute right-1 top-1/2 -translate-y-1/2">
+                  <button class="btn btn-icon h-8 w-8 lg:opacity-0 lg:focus:opacity-100 lg:group-hover:opacity-100"
+                          :class="(open || agentRun?.id === r.id) && 'lg:opacity-100'" :aria-label="'More actions for ' + runTitle(r)"
+                          title="Rename or delete" @click.stop="open = !open" @click.outside="open = false">
+                    <span x-html="icon('more_vert', 'h-[18px] w-[18px]')"></span></button>
+                  <div class="menu z-40" x-show="open" x-cloak x-transition.opacity>
+                    <button class="menu-item" @click="open = false; renameAgentRun(r)">
+                      <span class="text-on-surface-variant" x-html="icon('edit', 'h-4 w-4')"></span> Rename</button>
+                    <button class="menu-item text-error" @click="open = false; deleteAgentRun(r)">
+                      <span x-html="icon('delete', 'h-4 w-4')"></span> Delete</button>
+                  </div>
+                </div>
+              </div>
             </template>
           </div>
         </template>
@@ -198,7 +212,7 @@
               <div class="flex flex-wrap items-start gap-3">
                 <div class="min-w-0 flex-1">
                   <span class="chip" :class="agentChip(agentRun.status)"><span class="dot" :class="agentActive() && 'animate-pulse'"></span><span x-text="agentStatusLabel(agentRun.status)"></span></span>
-                  <h2 class="headline-s mt-2 text-on-surface" x-text="agentRun.plan.summary || agentRun.goal"></h2>
+                  <h2 class="headline-s mt-2 text-on-surface" x-text="runTitle(agentRun)"></h2>
                   <button class="mt-1 inline-flex items-center gap-1 font-mono text-xs text-on-surface-variant hover:text-on-surface"
                           title="Copy Run ID" @click="copyText(agentRun.uid)"><span x-text="agentRun.uid"></span><span x-html="icon('content_copy', 'h-3.5 w-3.5')"></span></button>
                   <span class="ml-2 font-mono text-xs text-on-surface-variant" x-show="agentRun.job_uid" x-text="'· ' + agentRun.job_uid"></span>
