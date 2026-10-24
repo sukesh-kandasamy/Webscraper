@@ -67,3 +67,20 @@ def test_static_assets_and_status_counters(client):
     assert client.get("/static/../app/config.py").status_code == 404
     s = client.get("/api/status").json()
     assert {"active_jobs", "active_agent_runs", "saved_scrapes", "needs_you"} <= set(s)
+
+
+def test_agent_workspace_has_its_own_layout(client):
+    page = client.get("/agent").text
+    assert 'aria-label="Main"' not in page and "Back to Universal Scraper" in page
+    assert 'aria-label="Agent runs"' in page
+    home = client.get("/").text
+    assert 'aria-label="Main"' in home and 'href="/agent"' in home
+
+
+def test_design_assets_are_served_locally(client):
+    for path in ("/static/js/icons.js", "/static/fonts/roboto-latin-wght-normal.woff2",
+                 "/static/fonts/ROBOTO-LICENSE.txt"):
+        assert client.get(path).status_code == 200, path
+    assert "MATERIAL_ICONS" in client.get("/static/js/icons.js").text
+    css = client.get("/static/css/app.css").text
+    assert "Roboto" in css and "--md-primary" in css and "fonts.googleapis" not in css

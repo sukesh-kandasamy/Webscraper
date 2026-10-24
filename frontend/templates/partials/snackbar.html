@@ -1,11 +1,12 @@
-<div class="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
+<!-- Snackbars (M3): bottom of the screen, one line, dismissable -->
+<div class="pointer-events-none fixed inset-x-0 bottom-6 z-[60] flex flex-col items-center gap-2 px-4" aria-live="polite">
   <template x-for="t in toasts" :key="t.id">
-    <div class="pointer-events-auto flex items-start gap-3 rounded-xl border bg-white p-3.5 text-sm shadow-pop animate-fade-up dark:bg-slate-900"
-         :class="t.type === 'error' ? 'border-rose-200 dark:border-rose-500/30' : 'border-slate-200 dark:border-slate-700'">
-      <span :class="t.type === 'error' ? 'text-rose-500' : t.type === 'info' ? 'text-brand-500' : 'text-emerald-500'"
-            x-html="icon(t.type === 'error' ? 'error' : t.type === 'info' ? 'info' : 'check', 'h-5 w-5')"></span>
-      <span class="flex-1 text-slate-700 dark:text-slate-200" x-text="t.msg"></span>
-      <button class="text-slate-400 hover:text-slate-600" @click="toasts = toasts.filter(x => x.id !== t.id)" aria-label="Dismiss"><span x-html="icon('x', 'h-4 w-4')"></span></button>
+    <div class="snackbar w-full max-w-[560px] animate-fade-up">
+      <span class="shrink-0" :class="t.type === 'error' ? 'text-error-container' : 'text-inverse-primary'"
+            x-html="icon(t.type === 'error' ? 'error' : t.type === 'info' ? 'info' : 'check_circle', 'h-5 w-5')"></span>
+      <span class="flex-1 py-1.5" x-text="t.msg"></span>
+      <button class="btn btn-icon h-9 w-9 text-inverse-on-surface" @click="toasts = toasts.filter(x => x.id !== t.id)" aria-label="Dismiss">
+        <span x-html="icon('close', 'h-5 w-5')"></span></button>
     </div>
   </template>
 </div>

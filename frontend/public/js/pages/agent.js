@@ -9,6 +9,7 @@ function agentPage() {
     agentLimits: { steps: 40, minutes: 10, ai_calls: 60 },
     agentTimer: null,
     agentExamples: AGENT_EXAMPLES,
+    historyOpen: false,
 
     async start() {
       if (this.status?.agent?.limits) this.agentLimits = { ...this.status.agent.limits };
@@ -47,6 +48,23 @@ function agentPage() {
                needs_you: "chip-amber", limit: "chip-amber", stopped: "chip-gray", error: "chip-red" }[s] || "chip-gray";
     },
     agentSteps() { return this.agentRun?.steps_list || []; },
+    // Run history grouped like Google's apps: Today, then Earlier.
+    agentGroups() {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const t = today.getTime() / 1000;
+      return [{ label: "Today", runs: this.agentRuns.filter(r => r.created_at >= t) },
+              { label: "Earlier", runs: this.agentRuns.filter(r => r.created_at < t) }].filter(g => g.runs.length);
+    },
+    runDot(s) {
+      return { done: "bg-success", draft: "bg-outline", queued: "bg-warning", navigating: "bg-primary animate-pulse",
+               collecting: "bg-primary animate-pulse", fixing: "bg-primary animate-pulse", needs_you: "bg-warning",
+               limit: "bg-warning", error: "bg-error", stopped: "bg-outline" }[s] || "bg-outline";
+    },
+    stepTone(kind) {
+      return { action: "bg-primary-container text-on-primary-container", thought: "bg-surface-container-high text-on-surface-variant",
+               info: "bg-success-container text-on-success-container", warn: "bg-warning-container text-on-warning-container" }[kind]
+             || "bg-surface-container-high text-on-surface-variant";
+    },
     agentTiles() {
       const r = this.agentRun || {};
       const secs = r.elapsed_s || 0;

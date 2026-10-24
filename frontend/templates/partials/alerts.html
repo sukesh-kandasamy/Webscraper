@@ -1,26 +1,26 @@
-<!-- Error card -->
+<!-- Error banner -->
 <div x-show="error" x-cloak x-transition.opacity role="alert"
-     class="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100">
-  <span class="mt-0.5 text-rose-500" x-html="icon('error', 'h-5 w-5')"></span>
-  <div class="min-w-0 flex-1">
-    <div class="font-semibold" x-text="error?.title"></div>
-    <div class="mt-0.5 text-rose-800/90 dark:text-rose-200/90" x-show="error?.hint" x-text="error?.hint"></div>
-    <details class="mt-2" x-show="advanced && error?.raw"><summary class="text-xs opacity-70">Technical details</summary>
+     class="flex items-start gap-4 rounded-m3-md bg-error-container px-4 py-3 text-sm text-on-error-container">
+  <span class="mt-0.5" x-html="icon('error', 'h-6 w-6')"></span>
+  <div class="min-w-0 flex-1 py-0.5">
+    <div class="title-s" x-text="error?.title"></div>
+    <div class="mt-0.5 opacity-90" x-show="error?.hint" x-text="error?.hint"></div>
+    <details class="mt-2" x-show="advanced && error?.raw"><summary class="text-xs opacity-80">Technical details</summary>
       <div class="mt-1 break-words font-mono text-xs opacity-80" x-text="error?.raw"></div></details>
   </div>
-  <button class="btn-ghost text-rose-700 dark:text-rose-200" @click="error=null" aria-label="Close"><span x-html="icon('x', 'h-4 w-4')"></span></button>
+  <button class="btn btn-icon -my-1 -mr-2 text-on-error-container" @click="error=null" aria-label="Dismiss"><span x-html="icon('close', 'h-5 w-5')"></span></button>
 </div>
 
 <!-- Runs waiting for a person -->
 <template x-for="j in needsYouJobs()" :key="'ny' + j.id">
-  <div class="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-    <span class="text-amber-500" x-html="icon('warn', 'h-5 w-5')"></span>
+  <div class="flex flex-wrap items-center gap-4 rounded-m3-md bg-warning-container px-4 py-3 text-sm text-on-warning-container">
+    <span x-html="icon('warning', 'h-6 w-6')"></span>
     <div class="min-w-0 flex-1">
-      <div class="font-semibold" x-text="`“${jobTitle(j)}” needs you`"></div>
-      <div class="text-amber-800/90 dark:text-amber-200/90" x-text="j.progress"></div>
+      <div class="title-s" x-text="`“${jobTitle(j)}” needs you`"></div>
+      <div class="opacity-90" x-text="j.progress"></div>
     </div>
+    <button class="btn btn-sm border-on-warning-container/40 text-on-warning-container" @click="stopJob(j)">Stop</button>
     <button class="btn btn-primary btn-sm" @click="startJobSolve(j)" :disabled="!status?.browser_available"
             x-text="j.paused_kind === 'login' ? 'Open to log in' : 'Open to solve'"></button>
-    <button class="btn btn-sm" @click="stopJob(j)">Stop</button>
   </div>
 </template>

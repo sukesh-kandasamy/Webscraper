@@ -9,24 +9,22 @@
   </div>
 
   <!-- stepper -->
-  <ol class="grid grid-cols-3 gap-2" aria-label="Steps">
+  <ol class="flex items-center gap-2" aria-label="Steps">
     <template x-for="(s, i) in [{t: 'Link', d: 'Which page'}, {t: 'Columns', d: 'What to collect'}, {t: 'Collect', d: 'Name and run'}]" :key="i">
-      <li>
-        <button class="flex w-full items-center gap-3 rounded-xl border p-3 text-left transition disabled:cursor-default"
-                :class="step === i + 1 ? 'border-brand-300 bg-white shadow-card ring-1 ring-brand-500/20 dark:border-brand-500/50 dark:bg-slate-900'
-                       : step > i + 1 ? 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900'
-                       : 'border-dashed border-slate-200 dark:border-slate-800'"
-                :disabled="i + 1 >= step || !!busy" @click="step = i + 1">
-          <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-semibold"
-                :class="step > i + 1 ? 'bg-emerald-500 text-white' : step === i + 1 ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'">
-            <template x-if="step > i + 1"><span x-html="icon('check', 'h-4 w-4')"></span></template>
+      <li class="flex min-w-0 flex-1 items-center gap-2 last:flex-none">
+        <button class="state flex min-w-0 items-center gap-3 rounded-full py-2 pl-2 pr-4 text-left disabled:cursor-default"
+                :disabled="i + 1 >= step || !!busy" @click="step = i + 1" :aria-current="step === i + 1 ? 'step' : null">
+          <span class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-medium"
+                :class="step > i + 1 ? 'bg-primary text-on-primary' : step === i + 1 ? 'bg-primary text-on-primary' : 'border border-outline text-on-surface-variant'">
+            <template x-if="step > i + 1"><span x-html="icon('check', 'h-5 w-5')"></span></template>
             <template x-if="step <= i + 1"><span x-text="i + 1"></span></template>
           </span>
           <span class="hidden min-w-0 sm:block">
-            <span class="block text-sm font-medium" :class="step >= i + 1 ? 'text-slate-900 dark:text-white' : 'text-slate-400'" x-text="s.t"></span>
-            <span class="block text-xs text-slate-500" x-text="s.d"></span>
+            <span class="block text-sm font-medium" :class="step >= i + 1 ? 'text-on-surface' : 'text-on-surface-variant'" x-text="s.t"></span>
+            <span class="block text-xs text-on-surface-variant" x-text="s.d"></span>
           </span>
         </button>
+        <span class="h-px min-w-[1rem] flex-1 bg-outline-variant" x-show="i < 2"></span>
       </li>
     </template>
   </ol>
@@ -79,11 +77,8 @@
         <div class="mt-2 flex flex-wrap items-center gap-1.5">
           <span class="mr-1 text-xs text-slate-500">Start from an example:</span>
           <template x-for="t in templates" :key="t.id">
-            <button class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition"
-                    :class="template?.id === t.id ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200'
-                           : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'"
-                    @click="pickTemplate(t)">
-              <span x-html="icon(t.icon, 'h-3.5 w-3.5')"></span><span x-text="t.name"></span></button>
+            <button class="chip-outline" :class="template?.id === t.id && 'chip-selected'" @click="pickTemplate(t)" :aria-pressed="template?.id === t.id">
+              <span x-html="icon(template?.id === t.id ? 'check' : t.icon, 'h-[18px] w-[18px]')"></span><span x-text="t.name"></span></button>
           </template>
         </div>
         <p class="mt-2 text-xs text-slate-500">Say which details you want, and any conditions: <span class="italic">“only men's shoes under ₹3,000, cheapest first”</span>. Ctrl+Enter to continue.</p>

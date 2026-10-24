@@ -1,25 +1,23 @@
+<!-- Dialog (M3 basic dialog): confirm / prompt -->
 <template x-if="dialog">
   <div class="overlay" @click.self="closeDialog(false)">
-    <div class="card w-full max-w-md animate-fade-up" role="dialog" aria-modal="true" :aria-label="dialog.title">
+    <div class="dialog animate-fade-up" role="dialog" aria-modal="true" :aria-label="dialog.title">
       <form @submit.prevent="closeDialog(true)">
-        <div class="flex gap-4 p-6">
-          <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full"
-                :class="dialog.danger ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10' : 'bg-brand-50 text-brand-600 dark:bg-brand-500/10'"
-                x-html="icon(dialog.danger ? 'warn' : dialog.input ? 'pencil' : 'info', 'h-5 w-5')"></span>
-          <div class="min-w-0 flex-1">
-            <h2 class="text-base font-semibold text-slate-900 dark:text-white" x-text="dialog.title"></h2>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400" x-show="dialog.message && !dialog.input" x-text="dialog.message"></p>
-            <template x-if="dialog.input">
-              <div class="mt-3">
-                <label class="label" for="dialog-input" x-text="dialog.message"></label>
-                <input id="dialog-input" type="text" x-model="dialog.value" class="input" maxlength="300">
-              </div>
-            </template>
-          </div>
+        <div class="flex flex-col items-center text-center" :class="dialog.input && 'items-start text-left'">
+          <span class="mb-4" :class="dialog.danger ? 'text-error' : 'text-secondary'" x-show="!dialog.input"
+                x-html="icon(dialog.danger ? 'warning' : 'info', 'h-6 w-6')"></span>
+          <h2 class="headline-s text-on-surface" x-text="dialog.title"></h2>
+          <p class="body-m mt-4 text-on-surface-variant" x-show="dialog.message && !dialog.input" x-text="dialog.message"></p>
         </div>
-        <div class="flex justify-end gap-2 rounded-b-xl border-t border-slate-100 bg-slate-50/70 px-6 py-3.5 dark:border-slate-800 dark:bg-slate-900/60">
-          <button type="button" class="btn" @click="closeDialog(false)">Cancel</button>
-          <button id="dialog-ok" type="submit" class="btn" :class="dialog.danger ? 'btn-danger' : 'btn-primary'" x-text="dialog.confirmText"></button>
+        <template x-if="dialog.input">
+          <div class="mt-4">
+            <label class="label text-on-surface-variant" for="dialog-input" x-text="dialog.message"></label>
+            <input id="dialog-input" type="text" x-model="dialog.value" class="input" maxlength="300">
+          </div>
+        </template>
+        <div class="mt-6 flex justify-end gap-2">
+          <button type="button" class="btn-ghost h-10 px-3 text-sm" @click="closeDialog(false)">Cancel</button>
+          <button id="dialog-ok" type="submit" class="btn-ghost h-10 px-3 text-sm" :class="dialog.danger ? 'text-error' : ''" x-text="dialog.confirmText"></button>
         </div>
       </form>
     </div>
