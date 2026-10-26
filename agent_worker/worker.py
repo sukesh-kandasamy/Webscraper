@@ -1,11 +1,13 @@
-"""Agent worker: runs browser-use in its own environment (.venv-agent), one run at a time.
+"""Agent worker: runs browser-use in its own environment (.venv-agent), one browse sub-task at a time.
 
-Started by the app (app/agent/runner.py) and talks to it only through its local API:
-  GET  /api/agent/worker/next                 claim the next approved run
+The ReAct loop in the app sends it one thing to do in a real browser ("pick Goa in the destination box and
+search") when a page needs clicking or typing. Started by the app (app/agent/runner.py) and talks to it only
+through its local API:
+  GET  /api/agent/worker/next                 claim the next browse sub-task
   POST /api/agent/worker/runs/{id}/check      may the agent do this? (site, robots.txt, risky clicks)
   POST /api/agent/worker/runs/{id}/step       record a step (+ screenshot); the app answers "stop?"
-  POST /api/agent/worker/runs/{id}/arrived    the results list: the app takes over and collects
-  POST /api/agent/worker/runs/{id}/finish     the run ended without reaching the results
+  POST /api/agent/worker/runs/{id}/arrived    the sub-task is done: the page goes back to the loop
+  POST /api/agent/worker/runs/{id}/finish     the sub-task ended without getting there
 
 Every action the AI chooses is checked by the app before it runs; refused actions come back to the AI
 as an error so it can choose another way. Telemetry and cloud features are off (set by the app).
@@ -152,7 +154,7 @@ def sentence(name: str, params: dict, el: dict) -> str:
         "close": "Closed a tab",
         "search_page": f"Searched the page for “{params.get('pattern', params.get('query', ''))}”",
         "find_elements": "Looked for elements on the page",
-        "results_reached": "Reached the results list",
+        "results_reached": "Sub-task done",
         "done": "Finished",
     }.get(name, name.replace("_", " ").capitalize())
 
@@ -161,7 +163,6 @@ class Run:
     def __init__(self, job: dict):
         self.id = job["id"]
         self.job = job
-        self.kind = job.get("kind", "run")           # "run": a whole run; "browse": one sub-task of the ReAct loop
         base = job.get("counters") or {}             # a sub-task continues the run's counters
         self.base_steps = int(base.get("steps") or 0)
         self.ai_calls = int(base.get("ai_calls") or 0)
@@ -188,8 +189,8 @@ class GuardedTools(Tools):
 
         self.widgets = skills.Skills(self, self._check, self._record)
 
-        @self.action("Call this when the current page shows the LIST of results the person wants (after "
-                     "applying the filters you could). note: one line about the filters applied.")
+        @self.action("Call this when your sub-task is done and the current page shows what was asked for. "
+                     "note: one line about what you did.")
         async def results_reached(note: str, browser_session) -> ActionResult:
             return await self._arrive(note, browser_session)
 
@@ -238,8 +239,8 @@ class GuardedTools(Tools):
         if res.get("ok"):
             self.run.arrived = True
             return ActionResult(is_done=True, success=True,
-                                extracted_content="The app took over and is collecting the results.")
-        return ActionResult(error=f"Not accepted as the results list: {res.get('reason', 'unknown')}. Keep going.")
+                                extracted_content="The app took the page back.")
+        return ActionResult(error=f"The app did not accept this page: {res.get('reason', 'unknown')}. Keep going.")
 
     async def act(self, action, browser_session, *args, **kwargs):
         self.run.browser_session = browser_session
@@ -247,8 +248,7 @@ class GuardedTools(Tools):
             if params is None:
                 continue
             params = params if isinstance(params, dict) else {}
-            # Ending with success without results_reached: try the hand-over, so a list the agent did reach
-            # is collected (and a page that isn't one sends the agent back to work).
+            # Ending with success without results_reached: hand the page back all the same.
             if name == "done" and params.get("success") and not self.run.arrived:
                 return await self._arrive(str(params.get("text", ""))[:400], browser_session)
             el = await describe(browser_session, params["index"]) if params.get("index") is not None else {}
@@ -364,12 +364,9 @@ async def execute(job: dict) -> None:
         except Exception:
             pass
     if run.arrived:
-        what = "browser sub-task done" if run.kind == "browse" else "handed over"
-        log(f"run {run.id}: {what} after {run.steps - run.base_steps} steps, {run.ai_calls} AI calls")
+        log(f"run {run.id}: browser sub-task done after {run.steps - run.base_steps} steps, {run.ai_calls} AI calls")
         post(f"/api/agent/worker/runs/{run.id}/step", kind="info",
-             text=(f"The browser finished its sub-task in {run.steps - run.base_steps} steps, {round(time.time() - started)}s."
-                   if run.kind == "browse" else
-                   f"The agent finished in {run.steps} steps, {run.ai_calls} AI calls, {round(time.time() - started)}s."),
+             text=f"The browser finished its sub-task in {run.steps - run.base_steps} steps, {round(time.time() - started)}s.",
              **run.counters())
         return
     if "HUMAN CHECK" in final.upper() and not run.stop_reason:
@@ -380,9 +377,9 @@ async def execute(job: dict) -> None:
         message = (message or "The site asked for a human check.") + \
             " The agent never solves these. Use “Open to solve”, solve it yourself, then “Try again”."
     elif status == "limit" and not message:
-        message = f"Reached the limit of {limits.get('steps')} steps before finding the results."
+        message = f"Used its {limits.get('steps')} steps without finishing the sub-task."
     elif status == "error" and not message:
-        message = "The agent could not reach the results list."
+        message = "The browser could not finish the sub-task."
     post(f"/api/agent/worker/runs/{run.id}/finish", status=status, message=message, **run.counters())
     log(f"run {run.id}: {status}: {message[:120]}")
 

@@ -203,10 +203,8 @@ def clean_plan(raw: dict, goal: str, site: str) -> dict:
         pages = 3
     item_pages = raw.get("item_pages") if raw.get("item_pages") in ("yes", "no", "auto") else "auto"
     request = request_parser.clean_request(raw.get("request") or raw, goal)
-    engine = raw.get("engine") if raw.get("engine") in ("react", "browser") else config.AGENT_ENGINE
     return {"start_url": start, "navigation": nav, "checklist": checklist_for(raw, request), "request": request,
             "pages": pages, "item_pages": item_pages, "auto_fix": raw.get("auto_fix", True) is not False,
-            "engine": engine if engine in ("react", "browser") else "react",
             "summary": request.get("summary", ""), "question": request.get("question", "")}
 
 
@@ -241,29 +239,3 @@ the text "HUMAN CHECK".
 note of what you did; the app reads the page you are on. Do not collect data yourself.
 - If the sub-task can't be done within a few tries, call done with success=false and say what you see."""
 
-
-def task_text(plan: dict) -> str:
-    """The instructions browser-use gets: reach the results list, nothing else."""
-    req = plan["request"]
-    cols = ", ".join(c["name"] + (f" ({c['type']})" if c.get("type") else "")
-                     for c in req["columns"] if not c.get("auto_added"))
-    conditions = "; ".join(request_parser.describe(req)) or "none"
-    steps = "\n".join(f"{i}. {s}" for i, s in enumerate(plan["navigation"], 1))
-    return f"""Your job: reach the page that LISTS the results described below, on {guard.site_domain(plan['start_url'])}, \
-using the site's own search box, categories, filters and sort controls. Do not collect the data yourself.
-
-Plan:
-{steps}
-
-The person wants these details for each item: {cols or 'all important details'}.
-Conditions (apply them with the site's own filters if it has them; skip any it doesn't have): {conditions}.
-
-Rules:
-- Stay on {guard.site_domain(plan['start_url'])}. Never log in, sign up, contact anyone, buy, apply, post, or \
-type personal information. Some actions are refused by the app; if one is refused, choose another way.
-- Close or decline cookie / newsletter / app pop-ups (choose "reject" or "necessary only" when offered).
-- If the site shows a CAPTCHA or "verify you are human" page, stop and call done with success=false and \
-the text "HUMAN CHECK".
-- When the current page shows the list of matching results, call the action results_reached (with a one-line \
-note of which filters you applied), then call done.
-- If you can't find a way to the results within a few tries, call done with success=false and explain briefly."""

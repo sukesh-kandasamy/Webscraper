@@ -175,7 +175,10 @@ def decide(ctx) -> Step:
             ctx.ai_calls += 1
             text, status = str(getattr(e, "message", "") or e), getattr(e, "status_code", None)
             p = llm_errors.classify(text, status, ctx.provider, ctx.model)
-            if not p and _no_answer(e):       # timed out or unreachable after the request's own retry
+            if not p and _no_answer(e):       # timed out or unreachable: one more try, then treat it as down
+                if attempt == 0:
+                    time.sleep(1)
+                    continue
                 name = llm_errors.PROVIDERS.get(ctx.provider, ctx.provider)
                 p = {"kind": "server", "fatal": True, "wait_s": 0,
                      "message": f"{name} did not answer in time ({type(e).__name__}), twice."}

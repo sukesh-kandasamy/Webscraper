@@ -110,9 +110,8 @@ def make_plan(body: PlanIn):
     except Exception as e:  # noqa: BLE001
         raise _ai_error(e)
     limits = LimitsIn().model_dump()
-    run_id = store.create(body.goal.strip(), guard.site_domain(plan["start_url"]), plan["start_url"], plan, limits,
-                          engine=plan.get("engine", "react"))
-    audit.log("agent_planned", run_id=run_id, domain=guard.site_domain(plan["start_url"]), engine=plan.get("engine"))
+    run_id = store.create(body.goal.strip(), guard.site_domain(plan["start_url"]), plan["start_url"], plan, limits)
+    audit.log("agent_planned", run_id=run_id, domain=guard.site_domain(plan["start_url"]))
     return _view(store.get(run_id))
 
 
@@ -127,7 +126,7 @@ def edit_plan(run_id: str, body: PlanEdit):
     except planner.PlanError as e:
         raise HTTPException(400, str(e))
     store.update(run_id, plan=plan, start_url=plan["start_url"], site=guard.site_domain(plan["start_url"]),
-                 checklist=plan["checklist"], engine=plan.get("engine", "react"))
+                 checklist=plan["checklist"])
     return _view(store.get(run_id))
 
 
@@ -143,20 +142,10 @@ def start_run(run_id: str, request: Request, body: LimitsIn | None = None):
     ok, why = guard.check_url(run["start_url"], run["site"])
     if not ok:
         raise HTTPException(403, f"The agent can't start there: {why}")
-    engine = run.get("engine") or run["plan"].get("engine") or config.AGENT_ENGINE
     store.update(run_id, status="queued", limits=(body or LimitsIn()).model_dump(), message="Waiting for the agent",
-                 engine=engine)
-    if engine == "react":
-        react.start(run_id, str(request.base_url))
-    else:
-        try:
-            runner.ensure(str(request.base_url))
-        except RuntimeError as e:
-            store.update(run_id, status="draft", message="")
-            raise HTTPException(400, str(e))
-        store.add_step(run_id, "info", f"Started with {config.AGENT_PROVIDER} · {config.AGENT_MODEL}. "
-                                       "Opening a browser…")
-    audit.log("agent_started", run_id=run_id, domain=run["site"], provider=config.AGENT_PROVIDER, engine=engine)
+                 engine="react")
+    react.start(run_id, str(request.base_url))
+    audit.log("agent_started", run_id=run_id, domain=run["site"], provider=config.AGENT_PROVIDER)
     return _view(store.get(run_id))
 
 
@@ -177,7 +166,7 @@ def stop_run(run_id: str):
     if run["status"] in ("draft", "queued", "question"):
         store.update(run_id, status="stopped", message="Stopped before it started" if run["status"] != "question"
                      else "Stopped by you.", finished_at=time.time())
-    elif run["status"] in ("navigating", "thinking", "browsing", "fixing"):
+    elif run["status"] in ("thinking", "browsing", "fixing"):
         store.update(run_id, stop_requested=1, message="Stopping…")
     elif run["status"] == "collecting" and run.get("job_id"):
         jobs.stop(run["job_id"])
@@ -275,22 +264,17 @@ def _worker_job(run: dict, start_url: str) -> dict:
 
 @worker.get("/next")
 def next_run():
-    """The worker's next job: a browse sub-task of a ReAct run first, else a whole run of the browser engine."""
+    """The worker's next job: the oldest browse sub-task of a ReAct run, or {} when there is none."""
     runner.seen()
     task = store.claim_browse_task()
-    if task:
-        run = store.get(task["run_id"])
-        if run and run["status"] == "browsing":
-            return {**_worker_job(run, task["start_url"]), "kind": "browse", "task_id": task["id"], "task": task["task"],
-                    "limits": {**run["limits"], **task["limits"]}, "counters": task["counters_base"]}
+    if not task:
+        return {}
+    run = store.get(task["run_id"])
+    if not run or run["status"] != "browsing":
         store.finish_browse_task(task["id"], "failed", message="The run was no longer waiting for the browser.")
-    run = store.claim_next()
-    if not run:
         return {}
-    if run.get("engine") == "react":                 # not the worker's: give it back
-        store.transition(run["id"], "navigating", "queued", message="Waiting for the agent")
-        return {}
-    return {**_worker_job(run, run["start_url"]), "kind": "run", "task": planner.task_text(run["plan"])}
+    return {**_worker_job(run, task["start_url"]), "kind": "browse", "task_id": task["id"], "task": task["task"],
+            "limits": {**run["limits"], **task["limits"]}, "counters": task["counters_base"]}
 
 
 class CheckIn(BaseModel):
@@ -375,25 +359,21 @@ class ArrivedIn(BaseModel):
 
 @worker.post("/runs/{run_id}/arrived")
 def arrived(run_id: int, body: ArrivedIn):
-    """The browser is on the page it was sent for: a whole run hands it to the engine; a browse sub-task
-    gives it back to the ReAct loop."""
+    """The browser is on the page its sub-task was for: the page goes back to the ReAct loop."""
     run = _run_or_404(run_id)
-    if run["status"] not in ("navigating", "browsing"):
-        raise HTTPException(409, "This run is not navigating")
+    if run["status"] != "browsing":
+        raise HTTPException(409, "This run isn't waiting for the browser.")
     ok, why = guard.check_url(body.url, run["site"])
     if not ok:
         return {"ok": False, "reason": why}
     kind = blockdetect.detect(body.html, 200, body.url)
     if kind:
         return {"ok": False, "reason": f"That page is a {blockdetect.describe(kind)}, not the results."}
-    if run["status"] == "browsing":
-        task = store.running_browse_task(run_id)
-        if not task:
-            return {"ok": False, "reason": "The browser sub-task has already ended."}
-        react_tools.browse_html[task["id"]] = body.html
-        store.finish_browse_task(task["id"], "done", result_url=body.url, note=logsafe.redact(body.note))
-        return {"ok": True}
-    handoff.start(run_id, body.url, body.html, body.note)
+    task = store.running_browse_task(run_id)
+    if not task:
+        return {"ok": False, "reason": "The browser sub-task has already ended."}
+    react_tools.browse_html[task["id"]] = body.html
+    store.finish_browse_task(task["id"], "done", result_url=body.url, note=logsafe.redact(body.note))
     return {"ok": True}
 
 
@@ -412,20 +392,14 @@ def finish(run_id: int, body: FinishIn):
                                            "needs_you": "The site asked for a human check.",
                                            "error": "The agent could not reach the results."}[body.status]
     fields = {k: v for k, v in (("steps", body.steps), ("ai_calls", body.ai_calls), ("tokens", body.tokens)) if v is not None}
-    if run["status"] == "browsing":   # a browse sub-task ended without reaching its page: the loop decides what next
-        task = store.running_browse_task(run_id)
-        if task:
-            store.finish_browse_task(task["id"], "failed" if body.status == "error" else body.status, message=msg)
-        if fields:
-            store.update(run_id, **fields)
-        return {"ok": True}
-    if run["status"] != "navigating":
-        return {"ok": True}           # already handed over (collecting) or finished
-    store.update(run_id, status=body.status, message=msg, summary=msg, finished_at=time.time(), **fields)
-    store.add_step(run_id, "warn" if body.status != "stopped" else "info", msg)
-    if body.status == "needs_you":
-        fetcher.update_settings(fetcher.domain_of(run["start_url"]), {"last_challenge": time.time()})
-    audit.log("agent_finished", run_id=run_id, status=body.status)
+    if run["status"] != "browsing":
+        return {"ok": True}           # the loop already moved on (timeout, stop)
+    # The sub-task ended without reaching its page: the loop decides what next (a human check ends the run).
+    task = store.running_browse_task(run_id)
+    if task:
+        store.finish_browse_task(task["id"], "failed" if body.status == "error" else body.status, message=msg)
+    if fields:
+        store.update(run_id, **fields)
     return {"ok": True}
 
 
@@ -453,12 +427,8 @@ def rerecord(scrape_id: int, request: Request, body: LimitsIn | None = None):
     run_id = store.create(info["goal"], guard.site_domain(plan["start_url"]), plan["start_url"], plan,
                           (body or LimitsIn()).model_dump())
     store.update(run_id, target_scrape_id=scrape_id, status="queued", message="Waiting for the agent")
-    store.add_step(run_id, "info", f"Re-recording the steps for “{s['name']}” with {config.AGENT_PROVIDER} · "
-                                   f"{config.AGENT_MODEL}. Opening a browser…")
-    try:
-        runner.ensure(str(request.base_url))
-    except RuntimeError as e:
-        store.update(run_id, status="error", message=str(e), finished_at=time.time())
-        raise HTTPException(400, str(e))
+    store.add_step(run_id, "info", f"Re-recording the steps for “{s['name']}”: the agent finds the results page "
+                                   "again and the new steps replace the old ones.")
+    react.start(run_id, str(request.base_url))
     audit.log("agent_rerecord", run_id=run_id, scrape_id=scrape_id, domain=guard.site_domain(plan["start_url"]))
     return _view(store.get(run_id))

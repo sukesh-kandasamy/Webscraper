@@ -14,6 +14,7 @@ import time
 from ... import db
 from ...fetching import fetcher
 from ...security import logsafe
+from .. import guard
 
 MAX_ENTRIES = 3
 MAX_HOW = 6
@@ -21,18 +22,22 @@ KEPT_TOOLS = ("open_page", "search", "browse", "next_page", "collect")
 
 
 def _domain(url: str) -> str:
-    return fetcher.domain_of(url if "://" in url else "https://" + url)
+    """One key per site, whether given as "www.site.com/page", "https://site.com" or "site.com"."""
+    return guard.site_domain(url)
 
 
 def recall(url: str) -> list[dict]:
     if not url:
         return []
-    entries = fetcher.site_settings(_domain(url)).get("agent_memory") or []
+    entries = (fetcher.site_settings(_domain(url)).get("agent_memory")
+               or fetcher.site_settings("www." + _domain(url)).get("agent_memory") or [])
     return [e for e in entries if isinstance(e, dict)][:MAX_ENTRIES]
 
 
 def forget(url: str) -> None:
     fetcher.update_settings(_domain(url), {"agent_memory": []})
+    if fetcher.site_settings("www." + _domain(url)).get("agent_memory"):     # kept there before 2026-10-26
+        fetcher.update_settings("www." + _domain(url), {"agent_memory": []})
 
 
 def remember(run: dict) -> dict | None:

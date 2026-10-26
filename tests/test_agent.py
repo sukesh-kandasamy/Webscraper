@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import config, db
 from app.agent import guard, handoff, planner, runner, store
+from app.agent.react import tools as react_tools
 from app.extraction import extractor, recipe_builder
 from app.fetching import fetcher
 from app.security import netguard, vault
@@ -88,8 +89,8 @@ def test_clean_plan_keeps_the_site_and_sane_values():
     assert plan["navigation"][-1] == "stop on the results list"
     assert plan["pages"] == 50 and plan["item_pages"] == "auto"
     assert [c["name"] for c in plan["request"]["columns"]] == ["title", "price", "url"]
-    text = planner.task_text(plan)
-    assert "books.test" in text and "results_reached" in text and "price < 20" in text
+    text = planner.browse_task_text(plan, "open the Mystery category", "https://books.test/")
+    assert "books.test" in text and "results_reached" in text and "Your sub-task: open the Mystery category" in text
 
 
 def test_make_plan_with_fake_ai(monkeypatch):
@@ -115,7 +116,6 @@ def client(monkeypatch):
                         fetcher.Page(url, url, 200, LIST, False))
     monkeypatch.setattr(config, "GROQ_API_KEY", "k")
     monkeypatch.setattr(config, "AGENT_PROVIDER", "groq")
-    monkeypatch.setattr(config, "AGENT_ENGINE", "browser")        # these tests drive the browser worker's routes
     monkeypatch.setattr(recipe_builder, "ask_json", lambda system, prompt, schema, name: dict(PLAN))
     started = []
     monkeypatch.setattr(runner, "ensure", lambda url: started.append(url))
@@ -144,18 +144,34 @@ def fake_build(html, url, fields, rendered=False, redact=False, auto=False, requ
     return {"recipe": recipe, "rows": rows, "report": {}, "notes": "", "page_type": "ecommerce", "absent": []}
 
 
-def test_plan_start_worker_flow_and_handoff(client, monkeypatch):
-    monkeypatch.setattr(recipe_builder, "build_recipe", fake_build)
+def _browsing(client, limits=None):
+    """A run whose ReAct loop sent one sub-task to the browser worker."""
     run = client.post("/api/agent/plan", json={"goal": "Mystery books under £20", "site": PUBLIC}).json()
-    assert run["status"] == "draft" and run["plan"]["start_url"] == PUBLIC + "/"
-    started = client.post(f"/api/agent/runs/{run['id']}/start", json={"steps": 20, "minutes": 5, "ai_calls": 30}).json()
-    assert started["status"] == "queued" and client.started
+    store.update(run["id"], status="browsing", started_at=time.time(),
+                 limits=limits or {"steps": 20, "minutes": 5, "ai_calls": 30})
+    task = store.create_browse_task(run["id"], "open the Mystery category", PUBLIC + "/", {"steps": 15, "minutes": 6},
+                                    {"steps": 1, "ai_calls": 2, "tokens": 100})
+    return run, task
 
+
+def _thinking(client, plan=None):
+    """A planned run whose loop is working (the hand-over is called directly in these tests)."""
+    run = client.post("/api/agent/plan", json={"goal": "books", "site": PUBLIC}).json()
+    if plan:
+        client.put(f"/api/agent/runs/{run['id']}/plan", json={"plan": plan(run["plan"])})
+    store.update(run["id"], status="thinking", started_at=time.time(), limits={"steps": 20, "minutes": 5, "ai_calls": 30})
+    return run
+
+
+def test_worker_routes_guard_a_browse_task(client):
+    run, task = _browsing(client)
+    assert run["plan"]["start_url"] == PUBLIC + "/"
     w = {"X-Agent-Token": runner.TOKEN}
     assert client.get("/api/agent/worker/next").status_code == 403            # token required
     job = client.get("/api/agent/worker/next", headers=w).json()
-    assert job["id"] == run["id"] and "results_reached" in job["task"] and job["limits"]["steps"] == 20
-    assert store.get(run["id"])["status"] == "navigating"
+    assert job["kind"] == "browse" and job["id"] == run["id"] and job["task_id"] == task
+    assert job["task"] == "open the Mystery category" and job["limits"]["steps"] == 15 and job["counters"]["tokens"] == 100
+    assert client.get("/api/agent/worker/next", headers=w).json() == {}           # one task, claimed once
 
     refused = client.post(f"/api/agent/worker/runs/{run['id']}/check", headers=w,
                           json={"action": "click", "element": {"tag": "button", "text": "Add to cart"}}).json()
@@ -163,6 +179,9 @@ def test_plan_start_worker_flow_and_handoff(client, monkeypatch):
     off_site = client.post(f"/api/agent/worker/runs/{run['id']}/check", headers=w,
                            json={"action": "navigate", "url": "https://other.test/"}).json()
     assert off_site["ok"] is False
+    personal = client.post(f"/api/agent/worker/runs/{run['id']}/check", headers=w,
+                           json={"action": "input", "element": {"tag": "input", "attributes": {"type": "email"}}, "text": "a@b.c"}).json()
+    assert personal["ok"] is False
     step = client.post(f"/api/agent/worker/runs/{run['id']}/step", headers=w,
                        json={"kind": "action", "text": "Clicked “Mystery”", "url": PUBLIC + "/mystery",
                              "steps": 2, "ai_calls": 3, "tokens": 5400}).json()
@@ -174,23 +193,17 @@ def test_plan_start_worker_flow_and_handoff(client, monkeypatch):
 
     assert client.post(f"/api/agent/worker/runs/{run['id']}/arrived", headers=w,
                        json={"url": PUBLIC + "/mystery", "html": LIST, "note": "Mystery category"}).json()["ok"]
-    for _ in range(100):
-        v = client.get(f"/api/agent/runs/{run['id']}").json()
-        if v["status"] in ("done", "error"):
-            break
-        time.sleep(0.05)
-    assert v["status"] == "done", v["message"]
-    # £19.99 only: the request's "price < 20" filter applied by the engine
-    assert v["job"]["rows"] == 1 and "Collected 1 rows" in v["summary"]
-    texts = [s["text"] for s in v["steps_list"]]
-    assert any(t.startswith("Refused") for t in texts) and any("page address" in t for t in texts)
-    scrape = db.get_scrape(v["scrape_id"])
-    assert scrape["mode"] == "agent" and scrape["urls"] == [PUBLIC + "/mystery"]
+    t = store.get_browse_task(task)
+    assert t["status"] == "done" and t["result_url"] == PUBLIC + "/mystery" and react_tools.browse_html.pop(task) == LIST
+    again = client.post(f"/api/agent/worker/runs/{run['id']}/arrived", headers=w,
+                        json={"url": PUBLIC + "/mystery", "html": LIST}).json()
+    assert again["ok"] is False and "already ended" in again["reason"]
+    texts = [s["text"] for s in store.steps(run["id"])]
+    assert sum(t.startswith("Refused") for t in texts) == 3 and store.get(run["id"])["status"] == "browsing"
 
 
-def test_stop_and_limits(client):
-    run = client.post("/api/agent/plan", json={"goal": "books", "site": PUBLIC}).json()
-    client.post(f"/api/agent/runs/{run['id']}/start", json={"steps": 10, "minutes": 5, "ai_calls": 5})
+def test_stop_and_limits_for_a_browse_task(client):
+    run, task = _browsing(client, {"steps": 10, "minutes": 5, "ai_calls": 5})
     w = {"X-Agent-Token": runner.TOKEN}
     client.get("/api/agent/worker/next", headers=w)
     over = client.post(f"/api/agent/worker/runs/{run['id']}/step", headers=w,
@@ -200,7 +213,15 @@ def test_stop_and_limits(client):
     assert client.post(f"/api/agent/worker/runs/{run['id']}/step", headers=w,
                        json={"kind": "thought", "text": "x"}).json()["reason"] == "stopped"
     client.post(f"/api/agent/worker/runs/{run['id']}/finish", headers=w, json={"status": "stopped"})
-    assert store.get(run["id"])["status"] == "stopped"
+    assert store.get_browse_task(task)["status"] == "stopped"
+    assert store.get(run["id"])["status"] == "browsing"          # the loop itself ends the run on its next look
+
+    other = _thinking(client)                                     # a task whose run stopped waiting is dropped
+    stale = store.create_browse_task(other["id"], "click", PUBLIC + "/", {}, {})
+    assert client.get("/api/agent/worker/next", headers=w).json() == {}
+    assert store.get_browse_task(stale)["status"] == "failed"
+    assert client.post(f"/api/agent/worker/runs/{other['id']}/arrived", headers=w,
+                       json={"url": PUBLIC + "/", "html": LIST}).status_code == 409
 
 
 def test_in_page_filters_collect_the_agents_page(client, monkeypatch):
@@ -208,9 +229,7 @@ def test_in_page_filters_collect_the_agents_page(client, monkeypatch):
     monkeypatch.setattr(recipe_builder, "build_recipe", fake_build)
     monkeypatch.setattr(fetcher, "fetch_smart", lambda url, recipe=None, max_rounds=0, use_cache=True:
                         fetcher.Page(url, url, 200, "<ul><li class='c'><h3><a href='/other'>Other</a></h3></li></ul>", False))
-    run = client.post("/api/agent/plan", json={"goal": "books", "site": PUBLIC}).json()
-    client.post(f"/api/agent/runs/{run['id']}/start", json={})
-    client.get("/api/agent/worker/next", headers={"X-Agent-Token": runner.TOKEN})
+    run = _thinking(client)
     handoff._handoff(run["id"], PUBLIC + "/mystery", LIST, "")
     v = wait_run(client, run["id"])
     assert v["status"] == "done" and v["job"]["rows"] == 1 and v["job"]["pages_done"] == 1
@@ -354,9 +373,7 @@ def test_run_with_a_missing_column_turns_on_item_pages_by_itself(client, monkeyp
     plan = {**PLAN, "columns": PLAN["columns"] + [{"name": "material", "meaning": "", "type": "text", "required": True}],
             "filters": [], "item_pages": "auto"}
     monkeypatch.setattr(recipe_builder, "ask_json", lambda system, prompt, schema, name: dict(plan))
-    run = client.post("/api/agent/plan", json={"goal": "books with material", "site": PUBLIC}).json()
-    client.post(f"/api/agent/runs/{run['id']}/start", json={})
-    client.get("/api/agent/worker/next", headers={"X-Agent-Token": runner.TOKEN})
+    run = _thinking(client)
     handoff._handoff(run["id"], PUBLIC + "/mystery", LIST, "")
     v = wait_run(client, run["id"])
     assert v["status"] == "done", v["message"]
@@ -369,10 +386,33 @@ def test_run_with_a_missing_column_turns_on_item_pages_by_itself(client, monkeyp
 
 def test_auto_fix_off_only_reports(client, monkeypatch):
     monkeypatch.setattr(recipe_builder, "build_recipe", fake_build)
-    run = client.post("/api/agent/plan", json={"goal": "books", "site": PUBLIC}).json()
-    client.put(f"/api/agent/runs/{run['id']}/plan", json={"plan": {**run["plan"], "auto_fix": False}})
-    client.post(f"/api/agent/runs/{run['id']}/start", json={})
-    client.get("/api/agent/worker/next", headers={"X-Agent-Token": runner.TOKEN})
+    run = _thinking(client, lambda plan: {**plan, "auto_fix": False})
     handoff._handoff(run["id"], PUBLIC + "/mystery", LIST, "")
     v = wait_run(client, run["id"])
     assert v["status"] == "done" and v["fixes"] == [] and v["plan"]["auto_fix"] is False
+
+
+# ---- re-record and "find the way again" run on the ReAct loop ---------------------------------
+
+def test_rerecord_and_renavigate_restart_the_react_loop(client, monkeypatch):
+    from app.agent import react, supervisor
+    monkeypatch.setattr(recipe_builder, "build_recipe", fake_build)
+    run = _thinking(client)
+    handoff._handoff(run["id"], PUBLIC + "/mystery", LIST, "")
+    v = wait_run(client, run["id"])
+    assert v["status"] == "done"
+    started = []
+    monkeypatch.setattr(react, "start", lambda run_id, app_url="": started.append((run_id, app_url)))
+
+    rec = client.post(f"/api/agent/rerecord/{v['scrape_id']}", json={"steps": 12, "minutes": 5, "ai_calls": 20}).json()
+    assert rec["status"] == "queued" and rec["target_scrape_id"] == v["scrape_id"] and started == [(rec["id"], "http://localhost/")]
+    assert any(s["text"].startswith("Re-recording the steps for") for s in rec["steps_list"])
+
+    store.update(run["id"], steps=9, ai_calls=11, scratchpad={"history": [], "facts": {}, "digest": "opened Mystery"})
+    monkeypatch.setattr(supervisor, "decide", lambda run, job, recipe: [{"kind": "renavigate", "why": "step 2 is gone"}])
+    monkeypatch.setattr(supervisor.runner, "last_app_url", "http://localhost/")
+    supervisor._check(run["id"])
+    r = store.get(run["id"])
+    assert r["status"] == "queued" and started[-1] == (run["id"], "http://localhost/")
+    assert r["limits"]["steps"] == 29 and r["limits"]["ai_calls"] == 41 and r["fixes"][-1]["kind"] == "renavigate"
+    assert "stopped working (step 2 is gone)" in r["scratchpad"]["digest"] and r["started_at"] > v["started_at"]

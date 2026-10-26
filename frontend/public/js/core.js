@@ -79,7 +79,7 @@ const AGENT_EXAMPLES = [
     goal: "Hockey teams whose name contains 'New': team name, year, wins and losses, all pages." },
 ];
 // The statuses of an agent run that is still working.
-const AGENT_ACTIVE = ["queued", "navigating", "thinking", "browsing", "collecting", "fixing"];
+const AGENT_ACTIVE = ["queued", "thinking", "browsing", "collecting", "fixing"];
 
 const TYPE_LABELS = { money: "price", number: "number", percent: "%", rating: "rating", date: "date", url: "link", image: "image" };
 const OP_LABELS = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", ne: "≠", contains: "contains", not_contains: "doesn't contain" };

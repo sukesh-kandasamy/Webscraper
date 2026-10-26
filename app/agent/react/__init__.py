@@ -8,6 +8,7 @@ page to the normal engine (handoff.py), after which collecting -> fixing -> done
 
     start(run_id, app_url)            run the loop for an approved run on a background thread
     resume(run_id, answer, app_url)   carry on after the person answered the agent's question
+    renavigate(run_id, why, app_url)  find the results page again after the saved steps broke
 """
 import threading
 
@@ -34,6 +35,24 @@ def resume(run_id: int, answer: str, app_url: str = "") -> bool:
     _threads[run_id] = t
     t.start()
     return True
+
+
+def renavigate(run_id: int, why: str, app_url: str = "") -> None:
+    """The check-and-fix step found the recorded steps broken: run the loop again with a fresh step, AI-call
+    and time budget. Its scratchpad keeps what it learned; the digest says what broke."""
+    import time
+
+    from .. import store
+
+    run = store.get(run_id)
+    limits = run["limits"] or {}
+    pad = run.get("scratchpad") or {}
+    pad["digest"] = (pad.get("digest", "") + f" After collecting, the recorded steps stopped working ({why}); "
+                     "find the results page again.").strip()
+    store.update(run_id, status="queued", message="Finding the way again", scratchpad=pad, started_at=time.time(),
+                 limits={**limits, "steps": int(run["steps"] or 0) + int(limits.get("steps", 40)),
+                         "ai_calls": int(run["ai_calls"] or 0) + int(limits.get("ai_calls", 60))})
+    start(run_id, app_url)
 
 
 def running(run_id: int) -> bool:

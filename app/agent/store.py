@@ -4,9 +4,8 @@ Run statuses:
   draft       plan made, waiting for your approval
   queued      approved, waiting to start
   thinking    the ReAct loop is working in the app (react/): think, act with a tool, observe
-  browsing    a browse sub-task is running on the browser worker (phase 2)
-  question    paused: the agent asked you something (phase 2)
-  navigating  the earlier engine: browser-use is moving around the site
+  browsing    a browse sub-task is running on the browser worker
+  question    paused: the agent asked you something
   collecting  the agent reached the results; the normal engine is collecting (job_id)
   fixing      checking the quality report and fixing what it can (supervisor.py)
   done | stopped | needs_you | limit | error
@@ -65,7 +64,7 @@ CREATE TABLE IF NOT EXISTS agent_browse_tasks (   -- one browser sub-task of a R
 );
 """
 
-ACTIVE = ("queued", "navigating", "thinking", "browsing", "collecting", "fixing")
+ACTIVE = ("queued", "thinking", "browsing", "collecting", "fixing")
 PAUSED = ("question",)
 FINISHED = ("done", "stopped", "needs_you", "limit", "error")
 JSON_COLUMNS = ("plan", "limits", "fixes", "scratchpad", "checklist")
@@ -116,12 +115,12 @@ def _run(row) -> dict:
     return d
 
 
-def create(goal: str, site: str, start_url: str, plan: dict, limits: dict, engine: str = "react") -> int:
+def create(goal: str, site: str, start_url: str, plan: dict, limits: dict) -> int:
     with db.tx() as c:
         cur = c.execute("INSERT INTO agent_runs(goal, site, start_url, plan, limits, created_at, public_id, engine, "
                         "checklist) VALUES(?,?,?,?,?,?,?,?,?)",
                         (goal, site, start_url, json.dumps(plan, ensure_ascii=False), json.dumps(limits), time.time(),
-                         db.new_uid(c, "agent_runs", "RUN-"), engine,
+                         db.new_uid(c, "agent_runs", "RUN-"), "react",
                          json.dumps(plan.get("checklist") or [], ensure_ascii=False)))
         return cur.lastrowid
 
@@ -181,17 +180,6 @@ def transition(run_id: int, old: str, new: str, **fields) -> bool:
         cur = c.execute(f"UPDATE agent_runs SET {cols} WHERE id=? AND status=?",
                         (new, *fields.values(), run_id, old))
         return cur.rowcount == 1
-
-
-def claim_next() -> dict | None:
-    """The oldest queued run of the browser engine, marked as navigating (one worker, one run at a time)."""
-    with db.tx() as c:
-        row = c.execute("SELECT * FROM agent_runs WHERE status='queued' AND engine='browser' ORDER BY id LIMIT 1").fetchone()
-        if not row:
-            return None
-        c.execute("UPDATE agent_runs SET status='navigating', started_at=?, message='Opening the site' WHERE id=?",
-                  (time.time(), row["id"]))
-    return get(row["id"])
 
 
 def delete(run_id: int) -> None:

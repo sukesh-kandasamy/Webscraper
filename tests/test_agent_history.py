@@ -35,7 +35,7 @@ def test_rename_and_back_to_the_plans_summary(client):
 
 
 def test_delete_a_finished_run_but_not_a_working_one(client):
-    working = _run(status="navigating")
+    working = _run(status="thinking")
     r = client.delete(f"/api/agent/runs/{working['uid']}")
     assert r.status_code == 409 and store.get(working["id"])
     done = _run(status="done")

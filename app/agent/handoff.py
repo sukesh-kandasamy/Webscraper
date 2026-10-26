@@ -8,32 +8,16 @@
 3. Item pages are switched on when the plan asks for them, or when requested columns aren't on the list.
 4. A saved scrape (mode "agent") and its run are created; the run finishes like any other.
 """
-import threading
-import time
-
 from .. import config, db
 from ..extraction import details, extractor, recipe_builder
 from ..fetching import fetcher
 from ..runs import jobs
-from ..security import audit, logsafe, sessions
+from ..security import audit, sessions
 from . import guard, routes, store, supervisor
 
 
 def _log(run_id: int, kind: str, text: str, **detail) -> None:
     store.add_step(run_id, kind, text, detail=detail or None)
-
-
-def start(run_id: int, url: str, html: str, note: str = "") -> None:
-    threading.Thread(target=_safe, args=(run_id, url, html, note), daemon=True, name=f"handoff-{run_id}").start()
-
-
-def _safe(run_id: int, url: str, html: str, note: str) -> None:
-    try:
-        _handoff(run_id, url, html, note)
-    except Exception as e:  # keep the run meaningful instead of stuck on "collecting"
-        msg = logsafe.redact(f"{type(e).__name__}: {e}")[:400]
-        store.update(run_id, status="error", message=f"Collecting failed: {msg}", finished_at=time.time())
-        _log(run_id, "warn", f"Collecting failed: {msg}")
 
 
 def _same_results(a: list[dict], b: list[dict]) -> bool:

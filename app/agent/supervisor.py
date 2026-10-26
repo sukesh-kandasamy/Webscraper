@@ -180,11 +180,10 @@ def _check(run_id: int) -> None:
         fix = fixes[0]
         _log(run_id, "warn", f"Fixing: {fix['why']}. The agent finds the way again…")
         applied.append({"kind": "renavigate", "why": fix["why"], "result": "re-navigating"})
-        store.update(run_id, status="queued", target_scrape_id=scrape["id"], fixes=applied,
-                     fix_rounds=run.get("fix_rounds", 0) + 1, message="Finding the way again")
+        store.update(run_id, target_scrape_id=scrape["id"], fixes=applied, fix_rounds=run.get("fix_rounds", 0) + 1)
         audit.log("agent_fix", run_id=run_id, kind="renavigate")
-        if runner.last_app_url:
-            runner.ensure(runner.last_app_url)
+        from . import react
+        react.renavigate(run_id, fix["why"], runner.last_app_url)
         return
 
     recipe, pages, changed = scrape["recipe"], scrape["max_pages"], False

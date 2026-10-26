@@ -350,7 +350,7 @@ def test_clean_plan_checklist_and_site_in_goal():
                               "hotels in goa", "booking.test")
     ids = [(c["id"], c["kind"]) for c in plan["checklist"]]
     assert ids == [("must_1", "must"), ("must_2", "must"), ("app_1", "app"), ("app_2", "app"), ("app_3", "app")]
-    assert plan["checklist"][2]["text"] == "price < 20000" and plan["engine"] == "react"
+    assert plan["checklist"][2]["text"] == "price < 20000" and "engine" not in plan
     edited = planner.clean_plan({**plan, "checklist": [{"id": "must_1", "kind": "must", "text": "destination: Goa, India"},
                                                        {"id": "app_1", "kind": "app", "text": "stale"}]}, "hotels", "booking.test")
     assert [c["text"] for c in edited["checklist"]][:2] == ["destination: Goa, India", "price < 20000"]

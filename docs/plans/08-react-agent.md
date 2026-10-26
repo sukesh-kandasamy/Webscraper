@@ -1,6 +1,6 @@
 # Plan: an end-to-end ReAct agent (prompt → data)
 
-> **Status: phase 1 built.** One prompt is enough: the AI suggests sites when none is named (you confirm),
+> **Status: all four phases built.** Phase 1: one prompt is enough: the AI suggests sites when none is named (you confirm),
 > makes a plan with a must / app checklist, and a reason-and-act loop in the app (`app/agent/react/`) finds
 > the results page with guarded tools and hands it to the engine. Live: "Mystery books under £20: title,
 > price, rating, availability" with no site → suggested Waterstones, Foyles, WHSmith → Waterstones → the
@@ -17,7 +17,10 @@
 > re-plan when the loop is stuck (at most 2 per run) and site memory. Live, "Oscar-winning films of 2014"
 > on the same page twice: run 1 wasted a browse on a search box the page doesn't have, re-planned at 12 of
 > 15 steps and collected 16 rows (14 steps, 16 AI calls, 107k tokens); run 2 started from the memory of
-> run 1 and collected the same 16 rows in 5 steps, 7 AI calls, 33k tokens. Phase 4 is next.
+> run 1 and collected the same 16 rows in 5 steps, 7 AI calls, 33k tokens.
+> **Phase 4 built:** `scripts/agent_bench.py` (4 fixed prompts on practice sites) passes 4/4 on gpt-5-mini
+> (62k tokens, 9 min); the earlier browser-driven engine is removed, and re-record and the check-and-fix
+> "find the way again" now run on the ReAct loop.
 
 ## Context
 
@@ -61,8 +64,8 @@ prompt ─▶ POST /api/agent/plan ─(no site)─▶ suggest_sites ─▶ "Whic
   steps in full (4 on Groq), older ones as one-line digests; `llm_errors` names provider problems, waits out
   a short rate limit once, switches to the backup AI, or ends the run (`limit` on a daily limit).
 - **Statuses**: `draft → queued → thinking → collecting → fixing → done | needs_you | error`, plus
-  `stopped | limit`. `SCRAPER_AGENT_ENGINE=browser` keeps the earlier browser-use path (its tests and
-  `/rerecord` still use it) until phase 4.
+  `stopped | limit` (phase 2 adds `browsing` and `question`; the earlier engine's `navigating` is gone since
+  phase 4).
 - **UI**: prompt-only composer with an optional site box; "Which site?" card; the plan's checklist (must
   items editable, app items shown as chips); live checklist ticks on the run; thought / action (tool chip) /
   observation (monospace, "More") in the timeline.
@@ -111,10 +114,33 @@ prompt ─▶ POST /api/agent/plan ─(no site)─▶ suggest_sites ─▶ "Whic
   the draft plan card shows the memory with **Forget**.
 - Brain AI calls now time out after 75 s (`ask_structured(timeout=)`), so a hung request is retried sooner.
 
-## Next phases
+## Phase 4: bench and legacy removal (built)
 
-- **Phase 4 — bench and legacy removal.** `scripts/agent_bench.py`; `/rerecord` on the ReAct engine; drop the
-  browser engine switch.
+- **Bench** (`scripts/agent_bench.py`, run against a test copy with its own `SCRAPER_DATA_DIR`): four prompts
+  that name public practice sites: Mystery books on books.toscrape.com (all pages, ≥ 30 rows), quotes tagged
+  inspirational on quotes.toscrape.com (≥ 10), hockey teams with "New" through scrapethissite's GET search
+  form (≥ 20), Oscar films of 2015 on scrapethissite's AJAX page (≥ 15, needs the browser). Each task forgets
+  the site's memory first (`--keep-memory` to keep it); a question from the agent counts as a miss.
+  `--models provider:model,…` switches the copy's agent AI through `/api/ai` and puts it back. Prints
+  pass / fail, rows, steps, AI calls, tokens, seconds, whether it browsed and re-plans; `--out` writes JSON;
+  exits 1 when a task fails.
+
+  | gpt-5-mini, 26 Oct 2026 | rows | steps | AI calls | tokens | seconds |
+  |---|---:|---:|---:|---:|---:|
+  | books | 32 | 4 | 5 | 9,047 | 127 |
+  | quotes | 10 | 2 | 3 | 6,945 | 122 |
+  | hockey (search form) | 25 | 3 | 4 | 9,676 | 84 |
+  | ajax (browser) | 16 | 5 | 8 | 36,355 | 202 |
+
+- **Legacy removal:** `SCRAPER_AGENT_ENGINE`, `store.claim_next`, `planner.task_text`, `handoff.start`, the
+  `navigating` status and the worker's whole-run mode are gone. The worker only takes browse sub-tasks;
+  `/worker/next`, `/arrived` and `/finish` only serve them. Old rows keep `engine='browser'` in the table;
+  an old draft starts on the ReAct loop.
+- **Re-record** (`POST /api/agent/rerecord/{scrape_id}`) creates a run with the saved plan and starts the
+  ReAct loop; the hand-over updates the same saved scrape (it used to queue a run only the old engine
+  would claim). **Find the way again** (the check-and-fix fix for a broken route) calls
+  `react.renavigate`: the run goes back to `queued` with a fresh step / AI-call / time budget, its
+  scratchpad kept and the digest saying what broke, and the loop starts again.
 
 ## Lessons from the first live runs
 
@@ -136,3 +162,9 @@ prompt ─▶ POST /api/agent/plan ─(no site)─▶ suggest_sites ─▶ "Whic
   and the agent spent a 9-step browse looking for a search box to apply it; the re-plan at 60% of the steps
   got it to collect. The planner prompt now says not to restate what the site already is.
 - An OpenAI request hung for 180 s before its retry answered; brain calls wait 75 s now.
+- The first bench run failed 2 of 4 on "did not answer in time": an OpenAI request timed out once and the
+  brain gave up, because the request layer doesn't retry timeouts. The brain now tries a timed-out call once
+  more before switching to the backup AI or ending the run; the second bench run passed 4/4.
+- Site memory was saved under the start page's host (www.site.com) but forgotten by the site name the UI
+  sends (site.com), so Forget didn't clear it; memory is keyed by the site name now (the old key is still
+  read and cleared).

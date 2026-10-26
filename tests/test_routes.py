@@ -154,7 +154,7 @@ def test_handoff_checks_and_saves_the_route(local_ok, monkeypatch):
     plan = {"start_url": local_ok, "navigation": ["search dragon", "Fiction"], "pages": 2, "item_pages": "no",
             "request": request_parser.clean_request({"columns": ["title", "price"]}), "summary": "Dragon fiction"}
     run_id = store.create("dragon fiction books", "127.0.0.1", local_ok, plan, {})
-    store.update(run_id, status="navigating")
+    store.update(run_id, status="thinking")
     for s in STEPS:                      # what the worker recorded while the agent worked
         store.add_step(run_id, s["kind"], "x", url=local_ok, detail=s["detail"])
     agent_page = routes.replay(local_ok, routes.from_steps(STEPS), RECIPE, 1, "127.0.0.1")[0]

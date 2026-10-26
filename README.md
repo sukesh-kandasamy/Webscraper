@@ -122,8 +122,7 @@ in and typing personal data. Human checks (CAPTCHAs) are never solved: the run s
 AI calls. The agent's AI, and a backup for when it hits a limit, are chosen in Settings → AI models.
 
 The browser sub-tasks need the browser worker, which keeps browser-use in its own environment so its
-packages never mix with the app's (the earlier, fully browser-driven engine is still there behind
-`SCRAPER_AGENT_ENGINE=browser`):
+packages never mix with the app's (sites that work without clicking don't need it):
 
 ```bash
 python -m venv .venv-agent
@@ -147,8 +146,14 @@ the same), the agent's steps are saved as a **route**: before saving, the app re
 plain Playwright to check they reach the same results, and every later run replays them the same way
 (the saved scrape shows *Replays N recorded steps · no AI*; the Quality tab shows *Steps replayed*).
 Cookie and pop-up clicks that don't appear any more are skipped. If a step can't be done because the
-site changed, the run stops with a clear message and **Re-record with the agent** (on the run, or in the
-saved scrape's menu) lets the agent find the way again and updates the same saved scrape.
+site changed, the check-and-fix step sends the agent to find the way again by itself, and **Re-record
+with the agent** (on the run, or in the saved scrape's menu) does the same on demand; either way the new
+steps replace the old ones in the same saved scrape.
+
+**Agent bench:** `scripts/agent_bench.py` runs a fixed set of prompts on public practice sites (books,
+quotes, a search form, a JavaScript page) through Agent mode and prints pass / fail, rows, steps, AI calls,
+tokens and time per model (`--models openai:gpt-5-mini,groq:openai/gpt-oss-120b`). Run it against a test
+copy started with its own `SCRAPER_DATA_DIR`, never your own data.
 
 **Light / dark theme:** the button in the top bar cycles System → Light → Dark (also in Settings).
 
@@ -279,7 +284,7 @@ Web-Scraping/
 │   └── tailwind.config.js
 ├── agent_worker/         the browser-use process, in its own environment (.venv-agent)
 ├── scripts/              check.py (security report), build_css.py, build_ui_assets.mjs, secret_scan.py,
-│                         architecture_diagrams.py (the pictures in docs/architecture)
+│                         architecture_diagrams.py (the pictures in docs/architecture), agent_bench.py
 ├── tests/                python -m pytest tests (offline, on saved pages and a local test site)
 ├── docs/                 SECURITY.md and the plans behind each part of the app
 └── data/                 your database, logins, logs (local only, never committed)
@@ -293,7 +298,7 @@ Web-Scraping/
 | `app/runs/` | `jobs.py` (background runs: typing, de-duplication, conditions, item pages, retries) · `quality.py` (quality report and health check) · `export.py` (CSV / Excel) |
 | `app/agent/` | `planner.py` (goal → plan) · `guard.py` (what the agent may do) · `api.py` (UI + worker API) · `handoff.py` (results page → engine) · `routes.py` (record and replay steps without AI) · `supervisor.py` (check and fix) · `runner.py` (starts the worker) · `store.py` (runs and steps) |
 | `agent_worker/` | `worker.py` (browser-use, talks to the app's local API with a one-time token) · `skills.py` (pick a suggestion, set a date, next page; each click and value checked by the app) · `requirements.txt` / `.lock` |
-| `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `build_ui_assets.mjs` (Material 3 colours, Roboto, Material Symbols from Google's packages) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) |
+| `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `build_ui_assets.mjs` (Material 3 colours, Roboto, Material Symbols from Google's packages) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) · `agent_bench.py` (Agent mode on fixed prompts, per model) |
 
 ## Settings (`.env`)
 
@@ -319,7 +324,6 @@ overrides the provider and model settings below. Keys always stay in
 | `SCRAPER_ALLOW_HOSTS` / `SCRAPER_BLOCKED_DOMAINS` | — | Network-guard exceptions / do-not-scrape list |
 | `SCRAPER_CACHE_TTL_HOURS` | 24 | Page cache |
 | `SCRAPER_AGENT` | 1 | `0` turns Agent mode off |
-| `SCRAPER_AGENT_ENGINE` | `react` | `react`: the think-and-act loop in the app; `browser`: the earlier browser-use-driven path |
 | `SCRAPER_AGENT_PROMPT_CHARS` | 3000 on Groq, else 7000 | Max characters of one page summary shown to the agent's AI |
 | `SCRAPER_AGENT_PROVIDER` / `SCRAPER_AGENT_MODEL` | `anthropic` + `claude-sonnet-5-5` if `ANTHROPIC_API_KEY` is set, else `openai` + `SCRAPER_OPENAI_MODEL` if `OPENAI_API_KEY` is set, else `groq` + gpt-oss-120b | The AI that drives the browser |
 | `SCRAPER_AGENT_FALLBACK_PROVIDER` / `SCRAPER_AGENT_FALLBACK_MODEL` | none | Backup AI for the agent: takes over when its own AI hits a rate or daily limit, runs out of credit or refuses the key (also in Settings → AI models) |

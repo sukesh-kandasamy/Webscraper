@@ -127,3 +127,39 @@ def test_ask_structured_timeout_applies_to_that_call_only(monkeypatch):
     assert recipe_builder.ask_structured("s", [], {}, "n", "openai", "m", timeout=75) == ({"ok": True}, 7)
     recipe_builder.ask_structured("s", [], {}, "n", "openai", "m")
     assert seen == [75, 180]
+
+
+def test_memory_is_one_per_site_with_or_without_www(site):
+    """Remembered under the run's www. address, forgotten by the site name the UI sends (and read back
+    from the old www. key used before)."""
+    from app.fetching import fetcher
+    run = {"goal": "Teams", "start_url": "https://www.hockey.test/pages/forms/", "final_url": "https://www.hockey.test/pages/forms/?q=New",
+           "steps": 3, "scratchpad": {"history": [{"n": 1, "tool": "search", "arg": "q=New", "ok": True}]}}
+    memory.remember(run)
+    assert memory.recall("hockey.test")[0]["results_url"].endswith("?q=New")
+    assert memory.recall("https://www.hockey.test/") == memory.recall("hockey.test")
+    memory.forget("hockey.test")
+    assert memory.recall("https://www.hockey.test/pages/forms/") == []
+    fetcher.update_settings("www.hockey.test", {"agent_memory": [{"goal": "old", "how": []}]})
+    assert memory.recall("hockey.test")[0]["goal"] == "old"
+    memory.forget("hockey.test")
+    assert memory.recall("hockey.test") == []
+
+
+def test_a_timed_out_brain_call_is_tried_once_more(site, monkeypatch):
+    class ReadTimeout(Exception):
+        pass
+    ok = ({"thought": "go", "checklist_done": [], "tool": "open_page", "url": HOME, "pattern": "", "params": [],
+           "fields": [], "form": 0, "pages": 0, "task": "", "question": "", "note": "", "summary": "", "outcome": "ok"}, 40)
+    answers = iter([ReadTimeout("timed out"), ok])
+
+    def ask(*a, **k):
+        x = next(answers)
+        if isinstance(x, Exception):
+            raise x
+        return x
+    monkeypatch.setattr(recipe_builder, "ask_structured", ask)
+    monkeypatch.setattr(brain.time, "sleep", lambda s: None)
+    ctx = ctx_for(make_run())
+    assert brain.decide(ctx).tool == "open_page" and not ctx.using_backup
+    assert store.get(ctx.run_id)["ai_calls"] == 2

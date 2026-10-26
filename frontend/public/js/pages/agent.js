@@ -37,10 +37,7 @@ function agentPage() {
       const a = this.status?.agent;
       if (!a) return "";
       if (!a.key_set) return `It needs an AI key for ${a.provider} in .env.`;
-      if (a.engine === "react") return "";       // thinks in the app; the browser worker is only for sites that need clicking
-      if (!a.installed) return "The agent's environment isn't installed. In the project folder run:  python -m venv .venv-agent  then  .venv-agent\\Scripts\\pip install -r agent_worker\\requirements.txt";
-      if (!a.browser) return "It needs Microsoft Edge or Google Chrome installed.";
-      return "";
+      return "";       // thinks in the app; the browser worker is needed only when a page needs clicking
     },
     agentBusyCount() { return this.agentRuns.filter(r => AGENT_ACTIVE.includes(r.status)).length; },
     runTitle(r) { return r?.title || r?.plan?.summary || r?.goal || ""; },
@@ -81,12 +78,12 @@ function agentPage() {
     },
     agentStatusLabel(s) {
       return { draft: "Plan ready", queued: "Starting", thinking: "Thinking", browsing: "Using the browser",
-               question: "Waiting for your answer", navigating: "Finding the results", collecting: "Collecting",
+               question: "Waiting for your answer", collecting: "Collecting",
                fixing: "Checking & fixing",
                done: "Finished", stopped: "Stopped", needs_you: "Needs you", limit: "Hit a limit", error: "Failed" }[s] || s;
     },
     agentChip(s) {
-      return { done: "chip-green", navigating: "chip-blue", thinking: "chip-blue", browsing: "chip-blue", collecting: "chip-blue",
+      return { done: "chip-green", thinking: "chip-blue", browsing: "chip-blue", collecting: "chip-blue",
                fixing: "chip-blue", queued: "chip-amber", draft: "chip-gray", question: "chip-amber",
                needs_you: "chip-amber", limit: "chip-amber", stopped: "chip-gray", error: "chip-red" }[s] || "chip-gray";
     },
@@ -99,7 +96,7 @@ function agentPage() {
               { label: "Earlier", runs: this.agentRuns.filter(r => r.created_at < t) }].filter(g => g.runs.length);
     },
     runDot(s) {
-      return { done: "bg-success", draft: "bg-outline", queued: "bg-warning", navigating: "bg-primary animate-pulse",
+      return { done: "bg-success", draft: "bg-outline", queued: "bg-warning",
                thinking: "bg-primary animate-pulse", browsing: "bg-primary animate-pulse", question: "bg-warning",
                collecting: "bg-primary animate-pulse", fixing: "bg-primary animate-pulse", needs_you: "bg-warning",
                limit: "bg-warning", error: "bg-error", stopped: "bg-outline" }[s] || "bg-outline";
