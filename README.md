@@ -232,6 +232,11 @@ with the price, brand or salary.
 
 ## Project layout
 
+Pictures of the whole system, the tech stack with versions, both flows and the database are in
+[docs/architecture](docs/architecture/README.md).
+
+![System overview](docs/architecture/01-system-overview.png)
+
 ```
 Web-Scraping/
 ├── README.md  run.py  requirements.txt  requirements.lock  .env.example
@@ -252,7 +257,8 @@ Web-Scraping/
 │   ├── src/              Tailwind source (app.css) and Material 3 colours (theme.css)
 │   └── tailwind.config.js
 ├── agent_worker/         the browser-use process, in its own environment (.venv-agent)
-├── scripts/              check.py (security report), build_css.py, build_ui_assets.mjs, secret_scan.py
+├── scripts/              check.py (security report), build_css.py, build_ui_assets.mjs, secret_scan.py,
+│                         architecture_diagrams.py (the pictures in docs/architecture)
 ├── tests/                python -m pytest tests (offline, on saved pages and a local test site)
 ├── docs/                 SECURITY.md and the plans behind each part of the app
 └── data/                 your database, logins, logs (local only, never committed)
