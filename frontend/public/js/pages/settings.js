@@ -7,13 +7,17 @@ function settingsPage() {
     aiForm: { ai: { provider: "", model: "" }, agent: { provider: "", model: "" }, fallback: { provider: "", model: "" } },
     aiModels: {},                      // provider -> {models, suggested, live}
     aiBusy: "",
+    aiError: "",                       // why the last save was refused, shown next to Save
     aiRoles: [
       { id: "ai", title: "Building scrapes", help: "Finds the columns on a page, reads your request and plans agent runs." },
       { id: "agent", title: "Agent", help: "Drives the browser step by step in Agent mode." },
       { id: "fallback", title: "Agent backup", help: "Takes over when the agent's AI hits a rate or daily limit, runs out of credit or refuses the key." },
     ],
 
-    async start() { await Promise.all([this.loadSites(), this.loadAi()]); },
+    async start() {
+      this.$watch("aiForm", () => { this.aiError = ""; });
+      await Promise.all([this.loadSites(), this.loadAi()]);
+    },
 
     async loadAi() {
       try {
@@ -52,14 +56,21 @@ function settingsPage() {
       return !!this.ai && ["ai", "agent", "fallback"].some(r =>
         this.aiForm[r].provider !== this.saved(r).provider || this.aiForm[r].model !== this.saved(r).model);
     },
+    // A choice that can't be saved, found before asking the app.
+    aiProblem() {
+      const { agent, fallback } = this.aiForm;
+      if (fallback.provider && fallback.provider === agent.provider && fallback.model === agent.model)
+        return "The agent backup is the same model as the agent. Pick a different backup model, or None.";
+      return "";
+    },
     async saveAi() {
-      this.aiBusy = "save";
+      this.aiBusy = "save"; this.aiError = "";
       try {
         const { ai, agent, fallback } = this.aiForm;
         this.ai = await api("PUT", "/api/ai", { ai, agent, agent_fallback: fallback.provider ? fallback : null });
         this.toast("Saved. The app now uses these models.");
         this.loadStatus();
-      } catch (e) { this.showError(e); }
+      } catch (e) { this.aiError = "Not saved: " + (e.message || "the app refused this choice."); }
       finally { this.aiBusy = ""; }
     },
     async afterWindow() { await this.loadSites(); },

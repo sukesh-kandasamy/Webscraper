@@ -142,6 +142,16 @@ def _save(choice: dict | None) -> dict:
 
 @router.put("")
 def put_choice(body: ChoiceIn):
+    try:
+        return _put_choice(body)
+    except HTTPException as e:              # keep the reason, so a refused save can be explained later
+        audit.log("ai_settings_refused", reason=str(e.detail)[:300], provider=body.ai.provider, model=body.ai.model,
+                  agent_provider=body.agent.provider, agent_model=body.agent.model,
+                  agent_fallback=body.agent_fallback.model_dump() if body.agent_fallback else None)
+        raise
+
+
+def _put_choice(body: ChoiceIn):
     ai_changed = (body.ai.provider, body.ai.model) != (config.AI_PROVIDER, config.ai_model())
     agent_changed = (body.agent.provider, body.agent.model) != (config.AGENT_PROVIDER, config.AGENT_MODEL)
     backup = body.agent_fallback.model_dump() if body.agent_fallback else None

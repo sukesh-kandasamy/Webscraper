@@ -102,3 +102,11 @@ def test_backup_cannot_change_during_an_agent_run(client, monkeypatch):
     monkeypatch.setattr(ai_settings, "_agent_busy", lambda: True)
     r = client.put("/api/ai", json={"ai": AI, "agent": AGENT, "agent_fallback": BACKUP})
     assert r.status_code == 409 and config.agent_fallback() is None
+
+
+def test_refused_saves_are_logged_with_the_reason(client):
+    from app.security import audit
+    r = client.put("/api/ai", json={"ai": AI, "agent": AGENT, "agent_fallback": AGENT})
+    assert r.status_code == 400
+    last = [e for e in audit.tail(20) if e["event"] == "ai_settings_refused"][-1]
+    assert "different AI" in last["reason"] and last["agent_fallback"] == AGENT

@@ -61,7 +61,10 @@
         </div>
       </template>
       <div class="flex flex-wrap items-center justify-end gap-3 border-t border-outline-variant pt-4">
-        <button class="btn btn-primary" @click="saveAi()" :disabled="!!aiBusy || !aiDirty()">
+        <p class="mr-auto flex min-w-0 flex-1 basis-72 items-start gap-2 rounded-lg bg-error-container px-3 py-2 text-sm text-on-error-container"
+           role="alert" x-show="aiError || (aiDirty() && aiProblem())" x-cloak>
+          <span class="mt-0.5 shrink-0" x-html="icon('error', 'h-4 w-4')"></span><span class="min-w-0 break-words" x-text="aiError || aiProblem()"></span></p>
+        <button class="btn btn-primary" @click="saveAi()" :disabled="!!aiBusy || !aiDirty() || !!aiProblem()">
           <span class="spinner" x-show="aiBusy === 'save'" x-cloak></span><span x-text="aiBusy === 'save' ? 'Checking…' : 'Save'"></span></button>
       </div>
     </div>
