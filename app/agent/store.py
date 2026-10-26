@@ -2,8 +2,11 @@
 
 Run statuses:
   draft       plan made, waiting for your approval
-  queued      approved, waiting for the agent worker
-  navigating  the agent is moving around the site
+  queued      approved, waiting to start
+  thinking    the ReAct loop is working in the app (react/): think, act with a tool, observe
+  browsing    a browse sub-task is running on the browser worker (phase 2)
+  question    paused: the agent asked you something (phase 2)
+  navigating  the earlier engine: browser-use is moving around the site
   collecting  the agent reached the results; the normal engine is collecting (job_id)
   fixing      checking the quality report and fixing what it can (supervisor.py)
   done | stopped | needs_you | limit | error
@@ -47,8 +50,10 @@ CREATE TABLE IF NOT EXISTS agent_steps (
 );
 """
 
-ACTIVE = ("queued", "navigating", "collecting", "fixing")
+ACTIVE = ("queued", "navigating", "thinking", "browsing", "collecting", "fixing")
+PAUSED = ("question",)
 FINISHED = ("done", "stopped", "needs_you", "limit", "error")
+JSON_COLUMNS = ("plan", "limits", "fixes", "scratchpad", "checklist")
 
 
 def init() -> None:
@@ -66,12 +71,22 @@ def init() -> None:
             c.execute("ALTER TABLE agent_runs ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0")
         if "public_id" not in cols:             # the Run ID people see (RUN-7K3QX9); the number stays internal
             c.execute("ALTER TABLE agent_runs ADD COLUMN public_id TEXT")
+        if "engine" not in cols:                # react (the loop in the app) | browser (the earlier engine)
+            c.execute("ALTER TABLE agent_runs ADD COLUMN engine TEXT NOT NULL DEFAULT 'react'")
+            c.execute("UPDATE agent_runs SET engine='browser'")          # every run so far used it
+            # the ReAct loop's memory between steps, its checklist ticks, and a question for you
+            c.execute("ALTER TABLE agent_runs ADD COLUMN scratchpad TEXT NOT NULL DEFAULT '{}'")
+            c.execute("ALTER TABLE agent_runs ADD COLUMN checklist TEXT NOT NULL DEFAULT '[]'")
+            c.execute("ALTER TABLE agent_runs ADD COLUMN question TEXT NOT NULL DEFAULT ''")
+            c.execute("ALTER TABLE agent_runs ADD COLUMN answer TEXT NOT NULL DEFAULT ''")
         for (run_id,) in c.execute("SELECT id FROM agent_runs WHERE public_id IS NULL OR public_id=''").fetchall():
             c.execute("UPDATE agent_runs SET public_id=? WHERE id=?", (db.new_uid(c, "agent_runs", "RUN-"), run_id))
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_public_id ON agent_runs(public_id)")
-        # The worker process died with the server: its navigating runs can't continue.
+        # The app (and the worker with it) restarted: runs that were working can't continue; a run waiting
+        # for your answer can (it resumes from its scratchpad).
         c.execute("UPDATE agent_runs SET status='error', message='The app restarted while the agent was "
-                  "working. Start it again.', finished_at=? WHERE status='navigating'", (time.time(),))
+                  "working. Start it again.', finished_at=? WHERE status IN ('navigating', 'thinking', 'browsing')",
+                  (time.time(),))
 
 
 def _run(row) -> dict:
@@ -80,16 +95,19 @@ def _run(row) -> dict:
     d["plan"] = json.loads(d["plan"] or "{}")
     d["limits"] = json.loads(d["limits"] or "{}")
     d["fixes"] = json.loads(d.get("fixes") or "[]")
+    d["scratchpad"] = json.loads(d.get("scratchpad") or "{}")
+    d["checklist"] = json.loads(d.get("checklist") or "[]")
     d["stop_requested"] = bool(d["stop_requested"])
     return d
 
 
-def create(goal: str, site: str, start_url: str, plan: dict, limits: dict) -> int:
+def create(goal: str, site: str, start_url: str, plan: dict, limits: dict, engine: str = "react") -> int:
     with db.tx() as c:
-        cur = c.execute("INSERT INTO agent_runs(goal, site, start_url, plan, limits, created_at, public_id) "
-                        "VALUES(?,?,?,?,?,?,?)",
+        cur = c.execute("INSERT INTO agent_runs(goal, site, start_url, plan, limits, created_at, public_id, engine, "
+                        "checklist) VALUES(?,?,?,?,?,?,?,?,?)",
                         (goal, site, start_url, json.dumps(plan, ensure_ascii=False), json.dumps(limits), time.time(),
-                         db.new_uid(c, "agent_runs", "RUN-")))
+                         db.new_uid(c, "agent_runs", "RUN-"), engine,
+                         json.dumps(plan.get("checklist") or [], ensure_ascii=False)))
         return cur.lastrowid
 
 
@@ -117,12 +135,22 @@ def run_uids(ids) -> dict[int, str]:
 def update(run_id: int, **fields) -> None:
     if not fields:
         return
-    for k in ("plan", "limits", "fixes"):
+    for k in JSON_COLUMNS:
         if k in fields and not isinstance(fields[k], str):
             fields[k] = json.dumps(fields[k], ensure_ascii=False)
     cols = ", ".join(f"{k}=?" for k in fields)
     with db.tx() as c:
         c.execute(f"UPDATE agent_runs SET {cols} WHERE id=?", (*fields.values(), run_id))
+
+
+def bump(run_id: int, **counts: int) -> None:
+    """Add to counters (steps, ai_calls, tokens) in one statement, so the loop and the worker never lose
+    each other's updates."""
+    if not counts:
+        return
+    cols = ", ".join(f"{k}={k}+?" for k in counts)
+    with db.tx() as c:
+        c.execute(f"UPDATE agent_runs SET {cols} WHERE id=?", (*counts.values(), run_id))
 
 
 def list_runs(limit: int = 30) -> list[dict]:
@@ -141,9 +169,9 @@ def transition(run_id: int, old: str, new: str, **fields) -> bool:
 
 
 def claim_next() -> dict | None:
-    """The oldest queued run, marked as navigating (one worker, one run at a time)."""
+    """The oldest queued run of the browser engine, marked as navigating (one worker, one run at a time)."""
     with db.tx() as c:
-        row = c.execute("SELECT * FROM agent_runs WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
+        row = c.execute("SELECT * FROM agent_runs WHERE status='queued' AND engine='browser' ORDER BY id LIMIT 1").fetchone()
         if not row:
             return None
         c.execute("UPDATE agent_runs SET status='navigating', started_at=?, message='Opening the site' WHERE id=?",

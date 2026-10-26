@@ -113,6 +113,9 @@ AGENT_MODEL = os.getenv("SCRAPER_AGENT_MODEL", {"anthropic": "claude-sonnet-5-5"
 # Backup AI for the agent: used when its own AI hits a rate or daily limit, has no credit or refuses the key.
 AGENT_FALLBACK_PROVIDER = os.getenv("SCRAPER_AGENT_FALLBACK_PROVIDER", "").lower()
 AGENT_FALLBACK_MODEL = os.getenv("SCRAPER_AGENT_FALLBACK_MODEL", "")
+# Which brain runs an agent run: "react" (the loop in the app: think, act with a tool, observe) or "browser"
+# (the earlier browser-use-driven path, kept until the new one covers everything).
+AGENT_ENGINE = os.getenv("SCRAPER_AGENT_ENGINE", "react").lower()
 AGENT_MAX_STEPS = int(os.getenv("SCRAPER_AGENT_MAX_STEPS", "40"))
 AGENT_MAX_MINUTES = float(os.getenv("SCRAPER_AGENT_MAX_MINUTES", "10"))
 AGENT_MAX_AI_CALLS = int(os.getenv("SCRAPER_AGENT_MAX_AI_CALLS", "60"))
@@ -121,6 +124,12 @@ AGENT_SHOTS_DIR = DATA_DIR / "agent_shots"
 
 def agent_key() -> str:
     return _KEYS.get(AGENT_PROVIDER, _KEYS["groq"])()
+
+
+def agent_prompt_budget() -> int:
+    """Max characters of one page summary shown to the agent's AI (Groq's free tier is the tight one)."""
+    default = 3000 if AGENT_PROVIDER == "groq" else 7000
+    return int(os.getenv("SCRAPER_AGENT_PROMPT_CHARS", default))
 
 
 def agent_vision() -> bool:

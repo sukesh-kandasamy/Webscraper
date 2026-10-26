@@ -115,6 +115,7 @@ def client(monkeypatch):
                         fetcher.Page(url, url, 200, LIST, False))
     monkeypatch.setattr(config, "GROQ_API_KEY", "k")
     monkeypatch.setattr(config, "AGENT_PROVIDER", "groq")
+    monkeypatch.setattr(config, "AGENT_ENGINE", "browser")        # these tests drive the browser worker's routes
     monkeypatch.setattr(recipe_builder, "ask_json", lambda system, prompt, schema, name: dict(PLAN))
     started = []
     monkeypatch.setattr(runner, "ensure", lambda url: started.append(url))

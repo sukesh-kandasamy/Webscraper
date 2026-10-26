@@ -1,6 +1,4 @@
 """Agent plan, phase A: AI provider errors named plainly, a backup AI for the agent, tokens per run."""
-import sys
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -8,8 +6,7 @@ from app import ai_settings, config, db
 from app.agent import runner as agent_runner, store as agent_store
 from app.extraction import recipe_builder
 
-sys.path.insert(0, str(config.ROOT / "agent_worker"))
-import llm_errors  # noqa: E402  (the worker's own module; it has no browser-use imports)
+from app.agent import llm_errors  # noqa: E402  (shared with the worker, which loads it by path)
 
 GROQ_TPD = ("Rate limit reached for model `openai/gpt-oss-120b` in organization `org_x` service tier `on_demand` "
             "on tokens per day (TPD): Limit 200000, Used 198608, Requested 5375. Please try again in 28m40.656s.")

@@ -46,7 +46,7 @@ def seen() -> None:
 
 
 def status() -> dict:
-    return {"enabled": config.AGENT_ENABLED, "installed": installed(), "worker_running": alive(),
+    return {"enabled": config.AGENT_ENABLED, "engine": config.AGENT_ENGINE, "installed": installed(), "worker_running": alive(),
             "provider": config.AGENT_PROVIDER, "model": config.AGENT_MODEL, "vision": config.agent_vision(),
             "fallback": config.agent_fallback(),
             "key_set": bool(config.agent_key()), "browser": bool(installed_browser()),

@@ -75,9 +75,9 @@
         </div>
 
         <!-- 1 · composer -->
-        <section x-show="!agentRun" class="animate-fade-up pt-4 sm:pt-10">
+        <section x-show="!agentRun && !agentCandidates" class="animate-fade-up pt-4 sm:pt-10">
           <h1 class="headline-l text-center font-semibold tracking-[-0.01em] text-on-surface">What should the agent collect?</h1>
-          <p class="body-l mx-auto mt-3 max-w-xl text-center text-on-surface-variant">Name the site and describe the data. The agent finds the results with the site's own search and filters; the app collects them.</p>
+          <p class="body-l mx-auto mt-3 max-w-xl text-center text-on-surface-variant">Describe the data in your own words. If you don't name a site, the agent suggests one; then it finds the results page itself and the app collects.</p>
           <div class="composer mt-8">
             <label for="agent-goal" class="sr-only">What should the agent collect?</label>
             <textarea id="agent-goal" x-model="agentGoal" rows="4" maxlength="2000"
@@ -85,7 +85,9 @@
                       placeholder="Example: 3BHK flats for rent in Whitefield, Bangalore under ₹40,000: price, area, furnishing, owner or agent, posted date. All pages."
                       @keydown.ctrl.enter.prevent="planAgent()" @keydown.meta.enter.prevent="planAgent()"></textarea>
             <div class="composer-bar">
-              <label class="composer-site" for="agent-site">
+              <button type="button" class="chip-outline" x-show="!showSiteBox" @click="showSiteBox = true; $nextTick(() => document.getElementById('agent-site').focus())">
+                <span x-html="icon('language', 'h-4 w-4')"></span> Site (optional)</button>
+              <label class="composer-site" for="agent-site" x-show="showSiteBox" x-cloak>
                 <span class="text-on-surface-variant" x-html="icon('language', 'h-[18px] w-[18px]')"></span>
                 <input id="agent-site" type="text" x-model="agentSite" placeholder="Website, e.g. books.toscrape.com"
                        autocomplete="off" spellcheck="false" aria-label="Website" @keydown.enter.prevent="planAgent()">
@@ -108,7 +110,7 @@
           <div class="mt-6 flex flex-wrap items-center justify-center gap-2">
             <span class="w-full text-center text-xs font-medium text-on-surface-variant sm:w-auto">Try an example</span>
             <template x-for="ex in agentExamples" :key="ex.label">
-              <button class="chip-outline" @click="agentGoal = ex.goal; agentSite = ex.site; $nextTick(() => document.getElementById('agent-goal').focus())">
+              <button class="chip-outline" @click="useExample(ex)">
                 <span x-html="icon('lightbulb', 'h-4 w-4')"></span><span x-text="ex.label"></span></button>
             </template>
           </div>
@@ -116,6 +118,45 @@
             <span x-html="icon('shield', 'h-4 w-4 shrink-0')"></span>
             The agent stays on that site, follows its crawling rules, and only searches, filters and reads. It never logs in, buys, contacts or applies.</p>
         </section>
+
+        <!-- 1b · which site? -->
+        <template x-if="!agentRun && agentCandidates">
+          <section class="card animate-fade-up">
+            <div class="card-head">
+              <span class="text-primary" x-html="icon('travel_explore', 'h-6 w-6')"></span>
+              <div class="min-w-0 flex-1"><h2 class="title-l text-on-surface">Which site?</h2>
+                <p class="muted">Your prompt names no website. These are the agent's suggestions; pick one, or type another.</p></div>
+            </div>
+            <div class="card-body space-y-4">
+              <p class="rounded-m3-sm bg-warning-container px-4 py-3 text-sm text-on-warning-container" x-show="agentCandidates.question" x-text="agentCandidates.question"></p>
+              <p class="muted text-sm" x-show="!agentCandidates.candidates.length">The agent couldn't name a site for this. Type one below.</p>
+              <div class="grid gap-2">
+                <template x-for="c in agentCandidates.candidates" :key="c.site">
+                  <button type="button" class="flex items-start gap-3 rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-left hover:border-outline dark:bg-surface-container-low"
+                          @click="planAgent(c.site)" :disabled="!!busy">
+                    <span class="mt-0.5 text-on-surface-variant" x-html="icon('language', 'h-5 w-5')"></span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block font-medium text-on-surface" x-text="c.site"></span>
+                      <span class="block text-sm text-on-surface-variant" x-text="c.reason"></span>
+                      <span class="mt-1 block text-xs text-on-surface-variant" x-show="c.note" x-text="c.note"></span>
+                    </span>
+                    <span class="text-on-surface-variant" x-html="icon('chevron_right', 'h-5 w-5')"></span>
+                  </button>
+                </template>
+              </div>
+              <p class="text-xs text-on-surface-variant" x-show="agentCandidates.dropped?.length">
+                Not offered: <span x-text="agentCandidates.dropped.map(d => `${d.site} (${d.reason})`).join(', ')"></span></p>
+              <form class="flex flex-wrap items-center gap-2" @submit.prevent="agentOtherSite.trim() && planAgent(agentOtherSite)">
+                <input type="text" x-model="agentOtherSite" class="input h-10 flex-1 basis-60" placeholder="Other site, e.g. www.example.com" aria-label="Other site" autocomplete="off" spellcheck="false">
+                <button class="btn" type="submit" :disabled="!!busy || !agentOtherSite.trim()">Use this site</button>
+              </form>
+            </div>
+            <div class="flex items-center justify-between gap-3 border-t border-outline-variant/60 px-6 py-4">
+              <button class="btn" @click="agentCandidates = null"><span x-html="icon('arrow_back', 'h-5 w-5')"></span> Change the goal</button>
+              <span class="text-xs text-on-surface-variant" x-show="busy === 'agent-plan'"><span class="spinner mr-1 align-middle"></span> Making a plan…</span>
+            </div>
+          </section>
+        </template>
 
         <!-- 2 · plan to approve -->
         <template x-if="agentRun && agentRun.status === 'draft'">
@@ -131,11 +172,29 @@
               <div x-show="agentRun.plan.question" class="flex items-start gap-3 rounded-m3-sm bg-warning-container px-4 py-3 text-sm text-on-warning-container">
                 <span x-html="icon('help', 'h-5 w-5')"></span><span x-text="agentRun.plan.question"></span></div>
               <div>
+                <span class="label">What must be true on the site before collecting</span>
+                <ul class="space-y-2">
+                  <template x-for="c in agentRun.plan.checklist.filter(c => c.kind === 'must')" :key="c.id">
+                    <li class="flex items-center gap-2">
+                      <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-outline text-on-surface-variant" x-html="icon('check', 'h-4 w-4')"></span>
+                      <input type="text" x-model="c.text" class="input py-2" placeholder="e.g. destination: Goa">
+                      <button class="btn btn-icon h-9 w-9" @click="removeMust(c.id)" aria-label="Remove"><span x-html="icon('close', 'h-5 w-5')"></span></button>
+                    </li>
+                  </template>
+                </ul>
+                <button class="btn-ghost mt-2" @click="addMust()"><span x-html="icon('add', 'h-[18px] w-[18px]')"></span> Add a condition</button>
+                <div class="mt-2 flex flex-wrap gap-2" x-show="appItems().length">
+                  <template x-for="c in appItems()" :key="c.id">
+                    <span class="chip chip-gray h-7 px-3 text-[13px]" title="The app applies this to the rows after collecting"><span x-text="c.text"></span> · app</span>
+                  </template>
+                </div>
+              </div>
+              <div>
                 <label class="label">Start page</label>
                 <input type="url" x-model="agentRun.plan.start_url" class="input font-mono text-xs">
               </div>
               <div>
-                <span class="label">Steps on the site</span>
+                <span class="label">Suggested route (a hint for the agent, not a script)</span>
                 <ol class="space-y-2">
                   <template x-for="(s, i) in agentRun.plan.navigation" :key="i">
                     <li class="flex items-center gap-2">
@@ -217,6 +276,14 @@
                           title="Copy Run ID" @click="copyText(agentRun.uid)"><span x-text="agentRun.uid"></span><span x-html="icon('content_copy', 'h-3.5 w-3.5')"></span></button>
                   <span class="ml-2 font-mono text-xs text-on-surface-variant" x-show="agentRun.job_uid" x-text="'· ' + agentRun.job_uid"></span>
                   <p class="body-m mt-1 text-on-surface-variant" x-text="agentRun.summary || agentRun.message"></p>
+                  <ul class="mt-3 flex flex-wrap gap-2" x-show="checklist().length">
+                    <template x-for="c in checklist()" :key="c.id">
+                      <li class="chip h-7 px-3 text-[13px]" :class="c.kind === 'app' ? 'chip-gray' : c.done ? 'chip-green' : 'chip-amber'"
+                          :title="c.kind === 'app' ? 'The app applies this after collecting' : (c.evidence || (c.done ? 'Done' : 'Not yet'))">
+                        <span x-html="icon(c.kind === 'app' ? 'tune' : c.done ? 'check' : 'radio_button_unchecked', 'h-3.5 w-3.5')"></span>
+                        <span x-text="c.text"></span></li>
+                    </template>
+                  </ul>
                 </div>
               </div>
               <div class="progress mt-4" x-show="agentActive()"><span class="!w-2/5 animate-indeterminate"></span></div>
@@ -256,10 +323,20 @@
                   <li class="relative flex gap-4 pb-5 last:pb-0">
                     <span class="absolute left-[15px] top-8 h-[calc(100%-2rem)] w-px bg-outline-variant" x-show="idx < agentSteps().length - 1"></span>
                     <span class="relative z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full" :class="stepTone(s.kind)"
-                          x-html="icon({action: 'bolt', thought: 'wand_stars', info: 'check', warn: 'warning'}[s.kind] || 'info', 'h-[18px] w-[18px]')"></span>
-                    <div class="min-w-0 flex-1 pt-1">
-                      <div class="break-words text-sm [overflow-wrap:anywhere]" :class="s.kind === 'thought' ? 'italic text-on-surface-variant' : 'text-on-surface'" x-text="s.text"></div>
-                      <div class="mt-0.5 truncate text-xs text-on-surface-variant" x-show="s.url && s.kind !== 'thought'" x-text="s.url"></div>
+                          x-html="icon({action: 'bolt', thought: 'wand_stars', observation: 'visibility', info: 'check', warn: 'warning'}[s.kind] || 'info', 'h-[18px] w-[18px]')"></span>
+                    <div class="min-w-0 flex-1 pt-1" x-data="{ more: false }">
+                      <template x-if="s.kind === 'observation'">
+                        <div>
+                          <pre class="whitespace-pre-wrap break-words rounded-lg bg-surface-container px-3 py-2 font-mono text-[12px] leading-5 text-on-surface-variant [overflow-wrap:anywhere]"
+                               x-text="more && s.detail?.full ? s.detail.full : s.text"></pre>
+                          <button class="btn-ghost mt-1 h-7 px-2 text-xs" x-show="(s.detail?.full || '').length > s.text.length" @click="more = !more" x-text="more ? 'Less' : 'More'"></button>
+                        </div>
+                      </template>
+                      <template x-if="s.kind !== 'observation'">
+                        <div class="break-words text-sm [overflow-wrap:anywhere]" :class="s.kind === 'thought' ? 'italic text-on-surface-variant' : 'text-on-surface'">
+                          <span class="type-badge mr-1.5 align-middle normal-case" x-show="s.kind === 'action' && s.detail?.tool" x-text="s.detail?.tool"></span><span x-text="s.text"></span></div>
+                      </template>
+                      <div class="mt-0.5 truncate text-xs text-on-surface-variant" x-show="s.url && !['thought', 'observation'].includes(s.kind)" x-text="s.url"></div>
                     </div>
                     <a x-show="s.shot" :href="`/api/agent/runs/${agentRun.uid}/shots/${s.n}.jpg`" target="_blank" rel="noopener" class="shrink-0">
                       <img :src="s.shot ? `/api/agent/runs/${agentRun.uid}/shots/${s.n}.jpg` : ''" alt="Screenshot" loading="lazy" @error="$el.closest('a').hidden = true"

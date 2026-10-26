@@ -71,13 +71,15 @@ const TEMPLATES = [
 ];
 
 const AGENT_EXAMPLES = [
-  { label: "Mystery books", site: "books.toscrape.com",
-    goal: "Mystery books: title, price, rating and availability. Only books under £20, all pages." },
+  { label: "Mystery books", site: "",
+    goal: "Mystery books from books.toscrape.com: title, price, rating and availability. Only books under £20, all pages." },
   { label: "Quotes by tag", site: "quotes.toscrape.com",
     goal: "Quotes tagged 'inspirational': the quote text, author and tags." },
-  { label: "Remote jobs", site: "weworkremotely.com",
-    goal: "Remote programming jobs: job title, company, region and posted date. Newest first." },
+  { label: "Hockey teams", site: "",
+    goal: "Hockey teams whose name contains 'New': team name, year, wins and losses, all pages." },
 ];
+// The statuses of an agent run that is still working.
+const AGENT_ACTIVE = ["queued", "navigating", "thinking", "browsing", "collecting", "fixing"];
 
 const TYPE_LABELS = { money: "price", number: "number", percent: "%", rating: "rating", date: "date", url: "link", image: "image" };
 const OP_LABELS = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", ne: "≠", contains: "contains", not_contains: "doesn't contain" };

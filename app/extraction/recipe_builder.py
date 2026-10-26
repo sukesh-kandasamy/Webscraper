@@ -4,6 +4,7 @@ The model is only called once per new site. The saved recipe is reused for every
 """
 import json
 import re
+import threading
 import time
 from collections import defaultdict
 
@@ -482,6 +483,8 @@ def _ask_claude(messages: list[dict], schema: dict, system: str = SYSTEM, name: 
         resp = client.messages.create(**kwargs)
     if resp.stop_reason == "refusal":
         raise _Refused()
+    u = getattr(resp, "usage", None)
+    _usage.last = int((getattr(u, "input_tokens", 0) or 0) + (getattr(u, "output_tokens", 0) or 0))
     return next((b.text for b in resp.content if b.type == "text"), "")
 
 
@@ -501,7 +504,15 @@ def _ask_groq(messages: list[dict], schema: dict, system: str = SYSTEM, name: st
                          "json_schema": {"name": name, "strict": gpt_oss, "schema": schema}},
         **({"reasoning_effort": "medium"} if gpt_oss else {}),
     )
+    _usage.last = int(getattr(getattr(resp, "usage", None), "total_tokens", 0) or 0)
     return resp.choices[0].message.content or ""
+
+
+_usage = threading.local()        # tokens of the last AI call on this thread (set by the _ask_* functions)
+
+
+def last_tokens() -> int:
+    return int(getattr(_usage, "last", 0) or 0)
 
 
 class OpenAIError(Exception):
@@ -532,9 +543,11 @@ def _ask_openai(messages: list[dict], schema: dict, system: str = SYSTEM, name: 
         if r.status_code == 400 and "context_length" in r.text:
             r.status_code = 413          # same handling as "request too large"
         raise OpenAIError(f"Error code: {r.status_code} - {detail}", r.status_code, r)
-    choice = r.json()["choices"][0]
+    body = r.json()
+    choice = body["choices"][0]
     if choice["message"].get("refusal"):
         raise _Refused()
+    _usage.last = int((body.get("usage") or {}).get("total_tokens") or 0)
     return choice["message"].get("content") or ""
 
 
@@ -572,6 +585,23 @@ def ask_json(system: str, prompt: str, schema: dict, name: str) -> dict:
         raise RecipeBuildError("The AI model declined this request.")
     try:
         return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise RecipeBuildError(f"The AI model returned invalid JSON: {e}") from e
+
+
+def ask_structured(system: str, messages: list[dict], schema: dict, name: str,
+                   provider: str | None = None, model: str | None = None) -> tuple[dict, int]:
+    """A structured AI call with a whole conversation, on a chosen provider and model (the ReAct agent's
+    brain uses the agent's AI, not the scrape-building one). Returns (answer, tokens used).
+    Raises RecipeBuildError when the answer can't be used; provider errors pass through."""
+    ask = _ASK.get(provider or config.AI_PROVIDER, _ask_claude)
+    _usage.last = 0
+    try:
+        text = _with_retries(ask, messages, schema, system, name, model or "")
+    except _Refused:
+        raise RecipeBuildError("The AI model declined this request.")
+    try:
+        return json.loads(text), last_tokens()
     except json.JSONDecodeError as e:
         raise RecipeBuildError(f"The AI model returned invalid JSON: {e}") from e
 

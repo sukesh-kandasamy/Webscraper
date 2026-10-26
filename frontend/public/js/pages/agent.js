@@ -1,10 +1,14 @@
-// Agent mode: describe the goal, approve the plan, watch the agent work, open the results.
+// Agent mode: describe the goal (the AI suggests a site if you name none), approve the plan, watch the
+// agent think and act, open the results.
 function agentPage() {
   let shown = { id: null, secs: 0 };   // last time shown, so the clock never steps back when a poll lands
   const offsets = new WeakMap();       // each run object from the server -> this page's clock minus the server's
   return {
     agentGoal: "",
     agentSite: "",
+    showSiteBox: false,          // the optional site box in the composer
+    agentCandidates: null,       // the "Which site?" answer: {goal, candidates, dropped, question}
+    agentOtherSite: "",
     agentRun: null,              // the run on screen (with its steps)
     agentRuns: [],
     agentNewCol: "",
@@ -31,12 +35,13 @@ function agentPage() {
     agentProblem() {
       const a = this.status?.agent;
       if (!a) return "";
-      if (!a.installed) return "The agent's environment isn't installed. In the project folder run:  python -m venv .venv-agent  then  .venv-agent\\Scripts\\pip install -r agent_worker\\requirements.txt";
       if (!a.key_set) return `It needs an AI key for ${a.provider} in .env.`;
+      if (a.engine === "react") return "";       // thinks in the app; the browser worker is only for sites that need clicking
+      if (!a.installed) return "The agent's environment isn't installed. In the project folder run:  python -m venv .venv-agent  then  .venv-agent\\Scripts\\pip install -r agent_worker\\requirements.txt";
       if (!a.browser) return "It needs Microsoft Edge or Google Chrome installed.";
       return "";
     },
-    agentBusyCount() { return this.agentRuns.filter(r => ["queued", "navigating", "collecting", "fixing"].includes(r.status)).length; },
+    agentBusyCount() { return this.agentRuns.filter(r => AGENT_ACTIVE.includes(r.status)).length; },
     runTitle(r) { return r?.title || r?.plan?.summary || r?.goal || ""; },
     async renameAgentRun(r) {
       const title = await this.promptDialog("Rename this run", "Name (leave empty to use the plan's summary)", this.runTitle(r), "Rename");
@@ -47,7 +52,7 @@ function agentPage() {
       } catch (e) { this.showError(e); }
     },
     async deleteAgentRun(r) {
-      if (["queued", "navigating", "collecting", "fixing"].includes(r.status)) {
+      if (AGENT_ACTIVE.includes(r.status)) {
         this.toast("Stop the run before deleting it.", "error"); return;
       }
       if (!await this.confirmDialog("Delete this agent run?",
@@ -59,18 +64,29 @@ function agentPage() {
         await this.loadAgentRuns();
       } catch (e) { this.showError(e); }
     },
-    agentActive() { return ["queued", "navigating", "collecting", "fixing"].includes(this.agentRun?.status); },
+    agentActive() { return AGENT_ACTIVE.includes(this.agentRun?.status); },
+    // The plan's checklist (editable while it is a draft) or the live ticks of a run.
+    checklist() { return (this.agentRun?.status === "draft" ? this.agentRun?.plan?.checklist : this.agentRun?.checklist) || []; },
+    musts() { return this.checklist().filter(c => c.kind === "must"); },
+    appItems() { return this.checklist().filter(c => c.kind === "app"); },
+    addMust() {
+      const list = this.agentRun.plan.checklist;
+      list.splice(this.musts().length, 0, { id: `must_${this.musts().length + 1}`, kind: "must", text: "" });
+    },
+    removeMust(id) { this.agentRun.plan.checklist = this.agentRun.plan.checklist.filter(c => c.id !== id); },
     fixLabel(kind) {
       return { item_pages: "Item pages", more_pages: "More pages", pagination: "Next-page control",
                renavigate: "Found the way again" }[kind] || kind;
     },
     agentStatusLabel(s) {
-      return { draft: "Plan ready", queued: "Starting", navigating: "Finding the results", collecting: "Collecting",
+      return { draft: "Plan ready", queued: "Starting", thinking: "Thinking", browsing: "Using the browser",
+               question: "Waiting for your answer", navigating: "Finding the results", collecting: "Collecting",
                fixing: "Checking & fixing",
                done: "Finished", stopped: "Stopped", needs_you: "Needs you", limit: "Hit a limit", error: "Failed" }[s] || s;
     },
     agentChip(s) {
-      return { done: "chip-green", navigating: "chip-blue", collecting: "chip-blue", fixing: "chip-blue", queued: "chip-amber", draft: "chip-gray",
+      return { done: "chip-green", navigating: "chip-blue", thinking: "chip-blue", browsing: "chip-blue", collecting: "chip-blue",
+               fixing: "chip-blue", queued: "chip-amber", draft: "chip-gray", question: "chip-amber",
                needs_you: "chip-amber", limit: "chip-amber", stopped: "chip-gray", error: "chip-red" }[s] || "chip-gray";
     },
     agentSteps() { return this.agentRun?.steps_list || []; },
@@ -83,11 +99,13 @@ function agentPage() {
     },
     runDot(s) {
       return { done: "bg-success", draft: "bg-outline", queued: "bg-warning", navigating: "bg-primary animate-pulse",
+               thinking: "bg-primary animate-pulse", browsing: "bg-primary animate-pulse", question: "bg-warning",
                collecting: "bg-primary animate-pulse", fixing: "bg-primary animate-pulse", needs_you: "bg-warning",
                limit: "bg-warning", error: "bg-error", stopped: "bg-outline" }[s] || "bg-outline";
     },
     stepTone(kind) {
       return { action: "bg-primary-container text-on-primary-container", thought: "bg-surface-container-high text-on-surface-variant",
+               observation: "bg-surface-container text-on-surface-variant",
                info: "bg-success-container text-on-success-container", warn: "bg-warning-container text-on-warning-container" }[kind]
              || "bg-surface-container-high text-on-surface-variant";
     },
@@ -125,24 +143,28 @@ function agentPage() {
     },
     siteLooksOk() { return /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(:\d+)?(\/\S*)?$/i.test(this.agentSite.trim()); },
     agentMissing() {
-      const goal = this.agentGoal.trim(), site = this.agentSite.trim();
-      if (!goal && !site) return "Describe what to collect and add the website.";
-      if (!goal) return "Describe what to collect.";
-      if (!site) return "Add the website to search on.";
+      if (!this.agentGoal.trim()) return "Describe what to collect.";
+      if (this.agentSite.trim() && !this.siteLooksOk()) return "That doesn't look like a website address.";
       return "";
     },
-    async planAgent() {
-      if (!this.agentGoal.trim() || !this.agentSite.trim()) {
-        this.error = { title: "Say what to collect and on which site", hint: "Fill in both boxes, or click an example." }; return;
-      }
+    // Make the plan. Without a site (typed or named in the goal) the app answers with sites to choose from.
+    async planAgent(site) {
+      if (!this.agentGoal.trim()) { this.error = { title: "Say what to collect", hint: "Describe the data, or click an example." }; return; }
       this.error = null; this.busy = "agent-plan";
       try {
-        this.agentRun = await api("POST", "/api/agent/plan", { goal: this.agentGoal.trim(), site: this.agentSite.trim() });
+        const res = await api("POST", "/api/agent/plan", { goal: this.agentGoal.trim(), site: (site ?? this.agentSite).trim() });
+        if (res.needs_site) { this.agentCandidates = res; this.agentOtherSite = ""; return; }
+        this.agentCandidates = null;
+        this.agentRun = res;
         history.pushState({}, "", `/agent/runs/${this.agentRun.uid}`);
         this.agentLimits = { ...(this.status?.agent?.limits || this.agentLimits) };
         this.loadAgentRuns();
       } catch (e) { this.handleError(e); }
       finally { this.busy = ""; }
+    },
+    useExample(ex) {
+      this.agentGoal = ex.goal; this.agentSite = ex.site || ""; this.showSiteBox = !!ex.site;
+      this.$nextTick(() => document.getElementById("agent-goal").focus());
     },
     agentRemoveColumn(name) {
       const req = this.agentRun.plan.request;
@@ -169,6 +191,7 @@ function agentPage() {
       this.error = null; this.busy = "agent-start";
       try {
         r.plan.navigation = r.plan.navigation.map(s => s.trim()).filter(Boolean);
+        r.plan.checklist = (r.plan.checklist || []).filter(c => c.kind !== "must" || c.text.trim());
         await api("PUT", `/api/agent/runs/${r.id}/plan`, { plan: r.plan });
         this.agentRun = await api("POST", `/api/agent/runs/${r.id}/start`, this.agentLimits);
         this.loadAgentRuns();

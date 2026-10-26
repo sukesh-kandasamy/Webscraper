@@ -1,6 +1,10 @@
 # Plan: an agent that acts on what it sees (not on a fixed script)
 
-> **Status: phase A built.** Provider errors are named and stop the run at once (a refused Groq key: 1 AI call,
+> **Status: phase A built; phases B–C are taken up by the ReAct agent in [08-react-agent.md](08-react-agent.md)**
+> (checks after every action, site-address rules and a checklist plan are built there; widget skills,
+> re-planning and site memory are its phases 2–3).
+>
+> Phase A:  Provider errors are named and stop the run at once (a refused Groq key: 1 AI call,
 > 17 s, *"Groq refused the key. Check GROQ_API_KEY in .env…"*); a backup AI for the agent (Settings → AI models)
 > takes over on rate / daily limits, no credit or a refused key (live: refused Groq key → ChatGPT gpt-5-mini,
 > 32/32 books); a `done` that claims success tries the hand-over; less history and a shorter element list per

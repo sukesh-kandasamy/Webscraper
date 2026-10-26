@@ -17,7 +17,7 @@ from ..extraction import recipe_builder
 from ..fetching import blockdetect, fetcher
 from ..runs import jobs
 from ..security import audit, logsafe, sessions
-from . import guard, handoff, planner, runner, store
+from . import guard, handoff, planner, react, runner, store
 
 router = APIRouter(prefix="/api/agent")
 MAX_HTML = 2_000_000
@@ -28,7 +28,7 @@ MAX_SHOT = 400_000
 
 class PlanIn(BaseModel):
     goal: str = Field(min_length=3, max_length=planner.MAX_GOAL_CHARS)
-    site: str = Field(min_length=3, max_length=500)
+    site: str = Field(default="", max_length=500)        # empty: named in the goal, or the AI suggests sites
     pages: int | None = Field(default=None, ge=1, le=50)
 
 
@@ -60,6 +60,7 @@ def _run_or_404(ref: str | int) -> dict:
 def _view(run: dict, after: int = 0) -> dict:
     run = handoff.refresh(run)
     out = {**run, "steps_list": store.steps(run["id"], after)}
+    out.pop("scratchpad", None)            # the loop's working memory: large, and the timeline shows it already
     if run.get("job_id"):
         job = jobs.db.get_job(run["job_id"])
         if job:
@@ -77,20 +78,36 @@ def agent_status():
     return runner.status()
 
 
+def _ai_error(e: Exception) -> HTTPException:
+    if isinstance(e, planner.PlanError):
+        return HTTPException(400, str(e))
+    if isinstance(e, recipe_builder.RecipeBuildError):
+        return HTTPException(422, str(e))
+    return HTTPException(502, logsafe.redact(f"AI request failed: {type(e).__name__}: {e}")[:400])
+
+
 @router.post("/plan")
 def make_plan(body: PlanIn):
+    """A plan for the goal. Without a site (in the box or named in the goal) the AI suggests 1-3 sites and
+    no run is made yet: the answer is {needs_site: true, candidates, dropped, question}; post again with
+    the chosen site."""
     _enabled()
+    site = body.site.strip() or planner.site_in_goal(body.goal)
+    if not site:
+        try:
+            found = planner.suggest_sites(body.goal)
+        except Exception as e:  # noqa: BLE001
+            raise _ai_error(e)
+        audit.log("agent_sites_suggested", candidates=[c["site"] for c in found["candidates"]])
+        return {"needs_site": True, "goal": body.goal.strip(), **found}
     try:
-        plan = planner.make_plan(body.goal, body.site, body.pages)
-    except planner.PlanError as e:
-        raise HTTPException(400, str(e))
-    except recipe_builder.RecipeBuildError as e:
-        raise HTTPException(422, str(e))
-    except Exception as e:
-        raise HTTPException(502, logsafe.redact(f"AI request failed: {type(e).__name__}: {e}")[:400])
+        plan = planner.make_plan(body.goal, site, body.pages)
+    except Exception as e:  # noqa: BLE001
+        raise _ai_error(e)
     limits = LimitsIn().model_dump()
-    run_id = store.create(body.goal.strip(), guard.site_domain(plan["start_url"]), plan["start_url"], plan, limits)
-    audit.log("agent_planned", run_id=run_id, domain=guard.site_domain(plan["start_url"]))
+    run_id = store.create(body.goal.strip(), guard.site_domain(plan["start_url"]), plan["start_url"], plan, limits,
+                          engine=plan.get("engine", "react"))
+    audit.log("agent_planned", run_id=run_id, domain=guard.site_domain(plan["start_url"]), engine=plan.get("engine"))
     return _view(store.get(run_id))
 
 
@@ -104,7 +121,8 @@ def edit_plan(run_id: str, body: PlanEdit):
         plan = planner.clean_plan(body.plan, run["goal"], body.plan.get("start_url") or run["start_url"])
     except planner.PlanError as e:
         raise HTTPException(400, str(e))
-    store.update(run_id, plan=plan, start_url=plan["start_url"], site=guard.site_domain(plan["start_url"]))
+    store.update(run_id, plan=plan, start_url=plan["start_url"], site=guard.site_domain(plan["start_url"]),
+                 checklist=plan["checklist"], engine=plan.get("engine", "react"))
     return _view(store.get(run_id))
 
 
@@ -115,21 +133,25 @@ def start_run(run_id: str, request: Request, body: LimitsIn | None = None):
     run_id = run["id"]
     if run["status"] != "draft":
         raise HTTPException(409, "This run has already started.")
-    st = runner.status()
-    if not st["key_set"]:
+    if not config.agent_key():
         raise HTTPException(400, f"Agent mode needs an AI key for {config.AGENT_PROVIDER} in .env.")
     ok, why = guard.check_url(run["start_url"], run["site"])
     if not ok:
         raise HTTPException(403, f"The agent can't start there: {why}")
-    store.update(run_id, status="queued", limits=(body or LimitsIn()).model_dump(), message="Waiting for the agent")
-    try:
-        runner.ensure(str(request.base_url))
-    except RuntimeError as e:
-        store.update(run_id, status="draft", message="")
-        raise HTTPException(400, str(e))
-    audit.log("agent_started", run_id=run_id, domain=run["site"], provider=config.AGENT_PROVIDER)
-    store.add_step(run_id, "info", f"Started with {config.AGENT_PROVIDER} · {config.AGENT_MODEL}. "
-                                   "Opening a browser…")
+    engine = run.get("engine") or run["plan"].get("engine") or config.AGENT_ENGINE
+    store.update(run_id, status="queued", limits=(body or LimitsIn()).model_dump(), message="Waiting for the agent",
+                 engine=engine)
+    if engine == "react":
+        react.start(run_id, str(request.base_url))
+    else:
+        try:
+            runner.ensure(str(request.base_url))
+        except RuntimeError as e:
+            store.update(run_id, status="draft", message="")
+            raise HTTPException(400, str(e))
+        store.add_step(run_id, "info", f"Started with {config.AGENT_PROVIDER} · {config.AGENT_MODEL}. "
+                                       "Opening a browser…")
+    audit.log("agent_started", run_id=run_id, domain=run["site"], provider=config.AGENT_PROVIDER, engine=engine)
     return _view(store.get(run_id))
 
 
@@ -147,9 +169,10 @@ def get_run(run_id: str, after: int = 0):
 def stop_run(run_id: str):
     run = _run_or_404(run_id)
     run_id = run["id"]
-    if run["status"] in ("draft", "queued"):
-        store.update(run_id, status="stopped", message="Stopped before it started", finished_at=time.time())
-    elif run["status"] in ("navigating", "fixing"):
+    if run["status"] in ("draft", "queued", "question"):
+        store.update(run_id, status="stopped", message="Stopped before it started" if run["status"] != "question"
+                     else "Stopped by you.", finished_at=time.time())
+    elif run["status"] in ("navigating", "thinking", "browsing", "fixing"):
         store.update(run_id, stop_requested=1, message="Stopping…")
     elif run["status"] == "collecting" and run.get("job_id"):
         jobs.stop(run["job_id"])
@@ -209,6 +232,9 @@ def next_run():
     run = store.claim_next()
     if not run:
         return {}
+    if run.get("engine") == "react":                 # not the worker's: give it back (phase 2 adds browse tasks)
+        store.transition(run["id"], "navigating", "queued", message="Waiting for the agent")
+        return {}
     session = sessions.for_host(fetcher.host_of(run["start_url"]))
     use = fetcher.site_settings(fetcher.domain_of(run["start_url"])).get("use_session", True)
     return {"id": run["id"], "task": planner.task_text(run["plan"]), "start_url": run["start_url"],
@@ -244,7 +270,7 @@ def check(run_id: int, body: CheckIn):
 
 
 class StepIn(BaseModel):
-    kind: str = Field(pattern="^(action|thought|info|warn)$")
+    kind: str = Field(pattern="^(action|thought|observation|info|warn)$")
     text: str = Field(max_length=1000)
     url: str = ""
     detail: dict = Field(default_factory=dict)

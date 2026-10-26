@@ -86,25 +86,34 @@ only for status (finished, needs you, failed).
 
 For when you only know the goal. Open **Agent** in the sidebar (or *Let the agent do it* on Home): it opens
 its own full-screen workspace, with your past agent runs on the left and **Back to Universal Scraper** at the
-top. Describe
-what to collect and name the website, for example *"Hockey teams whose name contains 'New': team name,
-year, wins, losses. All pages."* on `scrapethissite.com/pages/forms/`.
+top. Describe what to collect in one prompt, for example *"Mystery books under £20: title, price, rating
+and availability. All pages."* Naming a site is optional.
 
-1. **Make a plan**: the AI writes the steps it will take on the site (search, categories, filters, sort),
-   the columns with their types, conditions, pages and item pages. Change anything, then **Start the agent**.
-2. The agent ([browser-use](https://github.com/browser-use/browser-use)) opens the site in Edge / Chrome,
-   declines cookie pop-ups, uses the site's own search box and filters, and stops on the results list.
-   You see every step with small screenshots, and can **Stop** at any time.
-3. The normal engine collects the results (all pages, item pages, typed values, conditions, quality
-   report), and the run is saved as a normal saved scrape with an *Agent* chip. **Run again** needs no AI.
+1. **Which site?** If the prompt names no website, the AI suggests 1–3 real sites that list this data (with
+   a reason each); pick one or type another. Nothing is opened before you choose.
+2. **The plan**: the columns with their types, the pages, and a checklist in two parts: *what must be true
+   on the site* (the category, place, dates or search term that decide which results exist) and the
+   conditions *the app applies afterwards* (price, rating, sort, limit). Change anything, then **Start the
+   agent**.
+3. The agent **thinks and acts in a loop** ([ReAct](https://arxiv.org/abs/2210.03629)): each step its AI
+   reads a compact summary of the page (what it lists, what it says, its search form, its links and next
+   page) and chooses one tool: open a page it has seen, find links, use a search form, check whether a page
+   is the results list, go to the next page, or hand the page over. You watch every thought, action and
+   observation live, with the checklist ticking off, and can **Stop** at any time.
+4. The normal engine collects the results (all pages, item pages, typed values, conditions, quality
+   report), the check-and-fix step mends what it can, and the run is saved as a normal saved scrape with an
+   *Agent* chip. **Run again** needs no AI.
 
-The agent stays on the site you named, follows robots.txt, and only searches, filters and reads. The app
-checks every page and action first and refuses buying, contacting, applying, posting, signing up,
-logging in and typing personal data. Human checks (CAPTCHAs) are never solved: the run stops as *Needs
-you*; **Open to solve** lets you solve it yourself, then **Try again**. Each run has limits for steps,
-minutes and AI calls (Settings → Agent mode shows the defaults).
+The agent stays on the chosen site, follows robots.txt, and only searches, filters and reads. It may open
+only addresses the site itself showed (links, search results, next pages): invented addresses are refused.
+The app checks every page and action and refuses buying, contacting, applying, posting, signing up, logging
+in and typing personal data. Human checks (CAPTCHAs) are never solved: the run stops as *Needs you*;
+**Open to solve** lets you solve it yourself, then **Try again**. Each run has limits for steps, minutes and
+AI calls. The agent's AI, and a backup for when it hits a limit, are chosen in Settings → AI models.
 
-Agent mode runs in its own environment, so its packages never mix with the app's:
+Sites whose search lives in JavaScript widgets (date pickers, autocomplete) still need the browser-driven
+engine for now (`SCRAPER_AGENT_ENGINE=browser`), which uses [browser-use](https://github.com/browser-use/browser-use)
+in its own environment, so its packages never mix with the app's:
 
 ```bash
 python -m venv .venv-agent
@@ -300,6 +309,8 @@ overrides the provider and model settings below. Keys always stay in
 | `SCRAPER_ALLOW_HOSTS` / `SCRAPER_BLOCKED_DOMAINS` | — | Network-guard exceptions / do-not-scrape list |
 | `SCRAPER_CACHE_TTL_HOURS` | 24 | Page cache |
 | `SCRAPER_AGENT` | 1 | `0` turns Agent mode off |
+| `SCRAPER_AGENT_ENGINE` | `react` | `react`: the think-and-act loop in the app; `browser`: the earlier browser-use-driven path |
+| `SCRAPER_AGENT_PROMPT_CHARS` | 3000 on Groq, else 7000 | Max characters of one page summary shown to the agent's AI |
 | `SCRAPER_AGENT_PROVIDER` / `SCRAPER_AGENT_MODEL` | `anthropic` + `claude-sonnet-5-5` if `ANTHROPIC_API_KEY` is set, else `openai` + `SCRAPER_OPENAI_MODEL` if `OPENAI_API_KEY` is set, else `groq` + gpt-oss-120b | The AI that drives the browser |
 | `SCRAPER_AGENT_FALLBACK_PROVIDER` / `SCRAPER_AGENT_FALLBACK_MODEL` | none | Backup AI for the agent: takes over when its own AI hits a rate or daily limit, runs out of credit or refuses the key (also in Settings → AI models) |
 | `SCRAPER_AGENT_MAX_STEPS` / `_MAX_MINUTES` / `_MAX_AI_CALLS` | 40 / 10 / 60 | Default limits per agent run |
@@ -315,6 +326,8 @@ overrides the provider and model settings below. Keys always stay in
 output, recipe auto-repair, scheduled re-runs with price history, a point-and-click field picker.
 - Complete data and the describe-what-you-need prompt: [05-data.md](docs/plans/05-data.md) (built).
 - Agent mode with browser-use: [06-agent.md](docs/plans/06-agent.md) (phases 1–3 built).
+- The ReAct agent (prompt → data): [08-react-agent.md](docs/plans/08-react-agent.md) (phase 1 built; next:
+  the browser as a tool and questions to you).
 
 ## Ground rules built in
 
