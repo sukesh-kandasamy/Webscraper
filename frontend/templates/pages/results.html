@@ -11,7 +11,8 @@
   </div>
 
   <div class="grid gap-6 lg:grid-cols-[17rem_1fr]" x-show="jobs.length">
-    <div class="card max-h-[72vh] overflow-auto p-1.5">
+    <!-- stays in place while you scroll the data; scrolls inside itself when there are many runs -->
+    <div class="card max-h-[50vh] self-start overflow-auto p-1.5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6.5rem)]">
       <div class="eyebrow px-2.5 pb-1 pt-2">Runs</div>
       <template x-for="j in jobs" :key="j.id">
         <button class="w-full rounded-lg px-2.5 py-2 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
