@@ -98,8 +98,12 @@ and availability. All pages."* Naming a site is optional.
 3. The agent **thinks and acts in a loop** ([ReAct](https://arxiv.org/abs/2210.03629)): each step its AI
    reads a compact summary of the page (what it lists, what it says, its search form, its links and next
    page) and chooses one tool: open a page it has seen, find links, use a search form, check whether a page
-   is the results list, go to the next page, or hand the page over. You watch every thought, action and
-   observation live, with the checklist ticking off, and can **Stop** at any time.
+   is the results list, go to the next page, hand the page over, or, when a page needs clicking or typing
+   (a search widget, date pickers, a filter panel), send **one sub-task to a real browser**
+   ([browser-use](https://github.com/browser-use/browser-use) in Edge / Chrome, every action still checked
+   by the app) and read the page it ends on. If the goal is unclear it **asks you one question** (at most
+   two per run) and waits for your answer. You watch every thought, action and observation live, with the
+   checklist ticking off, and can **Stop** at any time.
 4. The normal engine collects the results (all pages, item pages, typed values, conditions, quality
    report), the check-and-fix step mends what it can, and the run is saved as a normal saved scrape with an
    *Agent* chip. **Run again** needs no AI.
@@ -111,9 +115,9 @@ in and typing personal data. Human checks (CAPTCHAs) are never solved: the run s
 **Open to solve** lets you solve it yourself, then **Try again**. Each run has limits for steps, minutes and
 AI calls. The agent's AI, and a backup for when it hits a limit, are chosen in Settings → AI models.
 
-Sites whose search lives in JavaScript widgets (date pickers, autocomplete) still need the browser-driven
-engine for now (`SCRAPER_AGENT_ENGINE=browser`), which uses [browser-use](https://github.com/browser-use/browser-use)
-in its own environment, so its packages never mix with the app's:
+The browser sub-tasks need the browser worker, which keeps browser-use in its own environment so its
+packages never mix with the app's (the earlier, fully browser-driven engine is still there behind
+`SCRAPER_AGENT_ENGINE=browser`):
 
 ```bash
 python -m venv .venv-agent

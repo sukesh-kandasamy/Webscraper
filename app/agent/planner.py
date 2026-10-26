@@ -155,6 +155,10 @@ def start_url_for(site: str) -> str:
     return url if parts.path not in ("", "/") or parts.query else f"{parts.scheme}://{parts.hostname}/"
 
 
+def _bare(text: str) -> str:
+    return re.sub(r"[\s:]+", "", str(text or "").lower())
+
+
 def checklist_for(raw: dict, request: dict) -> list[dict]:
     """The plan's checklist: "must" items from the AI (or edited in the UI), "app" items regenerated from
     the request's filters, sort and limit so they can't drift from it."""
@@ -163,8 +167,12 @@ def checklist_for(raw: dict, request: dict) -> list[dict]:
     musts = ([c.get("text") for c in source if isinstance(c, dict) and c.get("kind") == "must"]
              if isinstance(source, list) else raw.get("must") or [])
     app_side = bool(request.get("filters") or (request.get("sort") or {}).get("column") or request.get("limit"))
+    app_items = request_parser.describe(request)
+    app_texts = {_bare(t) for t in app_items}
     for text in musts:
         text = " ".join(str(text or "").split())[:160]
+        if _bare(text) in app_texts:           # the app applies it already ("awards: >0" = "awards > 0")
+            continue
         # price, rating, sorting and "how many" are the app's job on the rows, never a must on the site
         if app_side and _APP_SIDE.search(text):
             continue
@@ -173,7 +181,7 @@ def checklist_for(raw: dict, request: dict) -> list[dict]:
             items.append({"id": f"must_{len(items) + 1}", "kind": "must", "text": text})
         if len(items) >= MAX_MUST:
             break
-    for i, label in enumerate(request_parser.describe(request), 1):
+    for i, label in enumerate(app_items, 1):
         items.append({"id": f"app_{i}", "kind": "app", "text": label})
     return items
 
@@ -213,6 +221,23 @@ def make_plan(goal: str, site: str, pages: int | None = None) -> dict:
     if pages:
         plan["pages"] = max(1, min(int(pages), 50))
     return plan
+
+
+def browse_task_text(plan: dict, task: str, url: str) -> str:
+    """What browser-use gets for one sub-task of the ReAct loop: do this one thing on the page, then hand
+    the page back (results_reached or done with success=true both end the sub-task on the current page)."""
+    site = guard.site_domain(plan["start_url"])
+    return f"""You are on {url} on {site}. Your sub-task: {task}
+
+Rules:
+- Stay on {site}. Never log in, sign up, contact anyone, buy, apply, post, or type personal information. Some \
+actions are refused by the app; if one is refused, choose another way.
+- Close or decline cookie / newsletter / app pop-ups (choose "reject" or "necessary only" when offered).
+- If the site shows a CAPTCHA or "verify you are human" page, stop and call done with success=false and \
+the text "HUMAN CHECK".
+- When the sub-task is done (the page shows what was asked for), call results_reached with a one-line \
+note of what you did; the app reads the page you are on. Do not collect data yourself.
+- If the sub-task can't be done within a few tries, call done with success=false and say what you see."""
 
 
 def task_text(plan: dict) -> str:

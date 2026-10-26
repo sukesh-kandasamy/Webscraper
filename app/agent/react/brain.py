@@ -72,7 +72,7 @@ def prompt(ctx) -> str:
 
 TOOL_ARGS = {"open_page": ("url", "params"), "find_links": ("url", "pattern"), "search": ("url", "form", "fields"),
              "check_results": ("url",), "next_page": ("url",), "collect": ("url", "pages", "note"),
-             "finish": ("outcome", "summary")}
+             "browse": ("task", "url"), "ask_user": ("question",), "finish": ("outcome", "summary")}
 
 
 def _parse(raw: dict) -> Step:
@@ -83,10 +83,15 @@ def _parse(raw: dict) -> Step:
     return Step(str(raw.get("thought") or "").strip()[:400], tool, args, done)
 
 
+def _no_answer(e: Exception) -> bool:
+    """A timeout or a dropped connection (httpx / SDK class names), as opposed to an error answer."""
+    return any(w in type(e).__name__ for w in ("Timeout", "Connect", "Network", "RemoteProtocol"))
+
+
 def decide(ctx) -> Step:
     """Ask the AI for the next step. Provider errors are named plainly; a short rate limit is waited out
     once; a used-up daily limit, no credit or a refused key switches to the backup AI or ends the run."""
-    for attempt in range(3):
+    for attempt in range(4):              # the 4th try is only reached after switching to the backup AI
         try:
             raw, tokens = recipe_builder.ask_structured(prompts.SYSTEM, [{"role": "user", "content": prompt(ctx)}],
                                                        prompts.step_schema(), "agent_step", ctx.provider, ctx.model)
@@ -104,7 +109,7 @@ def decide(ctx) -> Step:
         except recipe_builder.RecipeBuildError as e:
             store.bump(ctx.run_id, ai_calls=1)
             ctx.ai_calls += 1
-            if attempt == 2:
+            if attempt >= 2:
                 raise BrainError("error", f"The AI's answers could not be used: {e}")
             continue
         except Exception as e:  # noqa: BLE001 - provider SDK errors differ; classify them
@@ -112,6 +117,10 @@ def decide(ctx) -> Step:
             ctx.ai_calls += 1
             text, status = str(getattr(e, "message", "") or e), getattr(e, "status_code", None)
             p = llm_errors.classify(text, status, ctx.provider, ctx.model)
+            if not p and _no_answer(e):       # timed out or unreachable after the request's own retry
+                name = llm_errors.PROVIDERS.get(ctx.provider, ctx.provider)
+                p = {"kind": "server", "fatal": True, "wait_s": 0,
+                     "message": f"{name} did not answer in time ({type(e).__name__}), twice."}
             if not p:
                 raise BrainError("error", f"The AI request failed: {type(e).__name__}: {text[:200]}")
             if p["kind"] == "rate_limit" and not p["fatal"] and p["wait_s"] and attempt < 2:
@@ -127,7 +136,7 @@ def decide(ctx) -> Step:
                 prefix = "The backup AI failed too: " if ctx.using_backup else ""
                 raise BrainError("limit" if p["kind"] == "daily_limit" else "error",
                                  prefix + p["message"] + llm_errors.advice(bool(backup)))
-            if attempt == 2:
+            if attempt >= 2:
                 raise BrainError("error", p["message"])
             time.sleep(2)
     raise BrainError("error", "The AI did not answer.")

@@ -3,13 +3,20 @@ on the planned site, allowed by robots.txt and your never-scrape list; form fiel
 personal-data checks as the browser agent's typing. A refusal is an observation the AI reads, not a crash.
 """
 import json
+import time
 from dataclasses import dataclass, field
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from ...fetching import blockdetect, fetcher
-from ...security import audit
-from .. import guard, handoff, store
+from ...security import audit, sessions
+from .. import guard, handoff, planner, runner, store
 from . import summary
+
+browse_html: dict[int, str] = {}        # task id -> the page the browser ended on (this process only)
+BROWSE_MAX_STEPS = 15
+BROWSE_MAX_MINUTES = 6.0
+BROWSE_GRACE_S = 60                  # extra wait for the browser to start and stop
+MAX_QUESTIONS = 2
 
 
 @dataclass
@@ -87,8 +94,8 @@ def _refuse(ctx, tool: str, why: str) -> Observation:
 
 def _fetch(ctx, url: str) -> tuple:
     """(page, observation-or-None). Opens the address politely; a human check or a used-up budget ends the run."""
-    if url in ctx.pages:
-        return ctx.pages[url], None
+    if _norm(url) in ctx.pages:                  # keys have no #fragment: a browsed page answers "…/#2015" too
+        return ctx.pages[_norm(url)], None
     try:
         page = fetcher.fetch_smart(url)
     except fetcher.NeedsHuman as e:
@@ -107,9 +114,9 @@ def _fetch(ctx, url: str) -> tuple:
         return None, Observation(f"The site showed {blockdetect.describe(kind)}.", ok=False,
                                  end=("needs_you", f"The site showed {blockdetect.describe(kind)}. The agent never "
                                       "solves these. Use “Open to solve”, solve it yourself, then “Try again”."))
-    ctx.pages[url] = page
+    ctx.pages[_norm(url)] = page
     if page.final_url:
-        ctx.pages[page.final_url] = page
+        ctx.pages[_norm(page.final_url)] = page
     return page, None
 
 
@@ -258,6 +265,83 @@ def next_page(args: dict, ctx) -> Observation:
     return Observation(f'Next page: "{label}" → {target}', data={"url": target})
 
 
+def browse(args: dict, ctx) -> Observation:
+    """One sub-task for the browser worker (browser-use): the run waits as "browsing", then reads the page
+    the browser ended on. The worker's clicks and typing go through the same /check guard as before, and
+    its steps show on the timeline."""
+    task = " ".join(str(args.get("task") or "").split())[:400]
+    if not task:
+        return Observation("Say what the browser should do (task: one plain sentence).", ok=False)
+    ok, why, url = allow_url(args.get("url") or ctx.facts.get("last_urls", [ctx.start_url])[-1], ctx)
+    if not ok:
+        return _refuse(ctx, "browse", why)
+    st = runner.status()
+    if not (st["installed"] and st["browser"]):
+        return Observation("The browser worker isn't installed on this computer, so pages that need clicking can't "
+                           "be handled here. Use links, search forms and addresses, or finish.", ok=False)
+    left = ctx.left()
+    if left["steps"] < 2 or left["minutes"] < 1:
+        return Observation("Not enough steps or time left for the browser.", ok=False)
+    if not store.transition(ctx.run_id, "thinking", "browsing", message="Using the browser"):
+        return Observation("The run is no longer thinking.", ok=False)
+    limits = {"steps": min(BROWSE_MAX_STEPS, left["steps"]), "minutes": min(BROWSE_MAX_MINUTES, left["minutes"])}
+    run = store.get(ctx.run_id)
+    task_id = store.create_browse_task(ctx.run_id, planner.browse_task_text(ctx.plan, task, url), url, limits,
+                                       {"steps": run["steps"], "ai_calls": run["ai_calls"], "tokens": run["tokens"]})
+    store.add_step(ctx.run_id, "info", f"Browser sub-task: {task}", url=url)
+    try:
+        runner.ensure(ctx.app_url or runner.last_app_url)
+    except RuntimeError as e:
+        store.finish_browse_task(task_id, "failed", message=str(e))
+        store.transition(ctx.run_id, "browsing", "thinking", message="Thinking")
+        return Observation(f"The browser could not start: {e}", ok=False)
+    deadline = time.time() + limits["minutes"] * 60 + BROWSE_GRACE_S
+    while True:
+        t = store.get_browse_task(task_id)
+        if not t or t["status"] not in ("queued", "running"):
+            break
+        if time.time() > deadline:
+            if not t["stop_requested"]:
+                store.update_browse_task(task_id, stop_requested=1)   # the worker stops at its next step
+                deadline += BROWSE_GRACE_S * 0.75
+            else:
+                store.finish_browse_task(task_id, "stopped", message="The browser took too long.")
+        time.sleep(1)
+    t = store.get_browse_task(task_id) or {"status": "failed", "message": "The sub-task vanished."}
+    store.transition(ctx.run_id, "browsing", "thinking", message="Thinking")
+    run = store.get(ctx.run_id)
+    ctx.steps, ctx.ai_calls = int(run["steps"] or 0), int(run["ai_calls"] or 0)
+    if t["status"] == "done":
+        html = browse_html.pop(task_id, "")
+        final = t["result_url"] or url
+        session = sessions.for_host(fetcher.host_of(final))
+        page = fetcher.Page(final, final, 200, html, False, rendered=True,
+                            logged_in=bool(session and session.get("kind") == sessions.KIND_LOGIN))
+        ctx.pages[_norm(final)] = page
+        text, facts = summary.page_summary(page, ctx.goal, ctx.musts(), ctx.column_names(), ctx.budget)
+        _remember(ctx, page, facts)
+        return Observation(f"The browser did it ({t['note'] or 'sub-task done'}) and is on this page:\n{text}",
+                           data={"url": final, "items": facts["items"]})
+    if t["status"] == "needs_you":
+        return Observation(t["message"], ok=False, end=("needs_you", t["message"]))
+    return Observation(f"The browser could not do that: {t['message'] or t['status']}. Try another way or finish.", ok=False)
+
+
+def ask_user(args: dict, ctx) -> Observation:
+    """Pause the run with one question; the loop carries on when the person answers."""
+    question = " ".join(str(args.get("question") or "").split())[:300]
+    if not question:
+        return Observation("Say what to ask (question).", ok=False)
+    asked = int(ctx.facts.get("questions", 0))
+    if asked >= MAX_QUESTIONS:
+        return Observation("You already asked twice. Decide with what you know, or finish with the reason.", ok=False)
+    ctx.facts["questions"] = asked + 1
+    if not store.transition(ctx.run_id, "thinking", "question", question=question, answer="",
+                            message="Waiting for your answer"):
+        return Observation("The run is no longer thinking.", ok=False)
+    return Observation(f"Asked: {question}", terminal=True, data={"paused": True})
+
+
 def collect(args: dict, ctx) -> Observation:
     ok, why, url = allow_url(args.get("url") or ctx.facts.get("last_urls", [ctx.start_url])[-1], ctx)
     if not ok:
@@ -301,7 +385,7 @@ def finish(args: dict, ctx) -> Observation:
 
 
 TOOLS = {"open_page": open_page, "find_links": find_links, "search": search, "check_results": check_results,
-         "next_page": next_page, "collect": collect, "finish": finish}
+         "next_page": next_page, "browse": browse, "ask_user": ask_user, "collect": collect, "finish": finish}
 
 
 def call_key(tool: str, args: dict) -> str:
@@ -315,7 +399,7 @@ def run_tool(tool: str, args: dict, ctx) -> Observation:
         return Observation(f"Unknown tool \"{tool}\". Choose one of: {', '.join(TOOLS)}.", ok=False)
     key = call_key(tool, args)
     earlier = ctx.facts.setdefault("calls", {}).get(key)
-    if earlier and tool != "collect":
+    if earlier and tool not in ("collect", "ask_user"):
         prev = next((h for h in ctx.pad["history"] if h["n"] == earlier), None)
         return Observation(f"You already did exactly this at step {earlier}; the result is the same. Try another way "
                            f"(find_links, search, a different page).\n" + (prev["obs"] if prev else ""), ok=False)

@@ -1,6 +1,6 @@
 """What the agent's AI is told, and the exact shape of its answer."""
 
-TOOLS = ["open_page", "find_links", "search", "check_results", "next_page", "collect", "finish"]
+TOOLS = ["open_page", "find_links", "search", "check_results", "next_page", "browse", "ask_user", "collect", "finish"]
 
 SYSTEM = """You are a careful web-collecting agent inside a scraping app. The person wants a LIST of items \
 from one website. Your job is to reach the page that lists the matching items and then hand it to the app \
@@ -21,6 +21,14 @@ Tools (fill only the fields the tool uses; leave the others empty):
 - check_results(url): does this page list the wanted items? Item count, the list's selector, example items, \
   how many the page says exist, whether a next page exists.
 - next_page(url): the address of the next results page.
+- browse(task, url): a real browser does ONE thing on a seen page for you, when the page needs clicking or \
+  typing that plain fetching can't do: a search widget with autocomplete, date pickers, a filter panel, a \
+  "load more" button, a POST form. task = one plain sentence, e.g. "enter Goa in the destination box, pick \
+  the suggestion, set check-in 25 Nov 2026 and check-out 28 Nov 2026, then search". It costs up to 15 steps \
+  and comes back with the page it ended on. Try links, search forms and addresses first; browse when they \
+  can't do it.
+- ask_user(question): pause and ask the person one short question when the goal is unclear or a choice \
+  only they can make (which of two sections, which city). At most twice per run; the run waits.
 - collect(url, pages, note): hand this results page to the app. This ENDS your work. Use it as soon as the \
   page lists the right items and every "must" checklist item is true. pages: 0 keeps the plan's number. \
   note: one line on which conditions you applied, or why a must item can't be done on this site (then say \
@@ -52,6 +60,8 @@ def step_schema() -> dict:
         "fields": {"type": "array", "items": pair},
         "form": {"type": "integer"},
         "pages": {"type": "integer"},
+        "task": s,
+        "question": s,
         "note": s,
         "summary": s,
         "outcome": {"type": "string", "enum": ["ok", "failed"]},

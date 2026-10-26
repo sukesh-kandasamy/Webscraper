@@ -6,7 +6,13 @@
 > price, rating, availability" with no site → suggested Waterstones, Foyles, WHSmith → Waterstones → the
 > loop opened the home page, found the Crime category with `find_links`, explored the site's price links,
 > was refused once for an invented address, and collected 191 rows (gpt-5-mini, 13 steps, 15 AI calls,
-> 43k tokens); check-and-fix then turned item pages on for rating and availability. Phase 2 is next.
+> 43k tokens); check-and-fix then turned item pages on for rating and availability.
+> **Phase 2 built:** `browse(task, url)` sends one sub-task to the browser worker (browser-use) and reads
+> the page it ends on; `ask_user(question)` pauses the run (status `question`) until you answer in the
+> workspace, then the loop carries on from its scratchpad. Live: "Oscar-winning films of 2015 from
+> scrapethissite.com/pages/ajax-javascript/" → the plain page had no films, the loop sent `browse` ("select
+> year 2015"), the browser clicked 2015 in 3 steps, `check_results` read the rendered page (16 `tr.film`
+> rows) and `collect` saved 16 rows (gpt-5-mini, 7 steps, 8 AI calls, 42k tokens, 183 s). Phase 3 is next.
 
 ## Context
 
@@ -56,12 +62,26 @@ prompt ─▶ POST /api/agent/plan ─(no site)─▶ suggest_sites ─▶ "Whic
   items editable, app items shown as chips); live checklist ticks on the run; thought / action (tool chip) /
   observation (monospace, "More") in the timeline.
 
+## Phase 2: the browser as a tool, questions (built)
+
+- **`browse(task, url)`** (`react/tools.py`): the loop moves the run to `browsing`, queues a row in
+  `agent_browse_tasks` (task text from `planner.browse_task_text`, the run's limits capped at 15 steps and
+  6 minutes, the run's counters as a base) and starts the worker. `GET /worker/next` hands browse tasks out
+  before whole runs (`kind: "browse"`); the worker's clicks and typing go through `/check` and `/step` as
+  before, so they show on the timeline with screenshots and the run's counters carry on. `results_reached`
+  or a successful `done` posts `/arrived`: on a browsing run that finishes the task with the page's HTML
+  (kept in-process), and the tool answers the AI with that page's summary, caching it so `collect` on that
+  address uses the browser's page (the hand-over's route replay then works as before). A failed sub-task
+  (`/finish`) or a timeout (the tool marks the task `stop_requested`; `/step` tells the worker to stop) is an
+  observation, not the end of the run; a human check ends it as *Needs you*.
+- **`ask_user(question)`**: at most twice per run; the run becomes `question` (polling stops, the card shows
+  the question with an answer box and Stop). `POST /runs/{id}/answer` records the answer at once (status back
+  to `thinking`, "You answered: …" on the timeline, the answer appended to the last observation) and the loop
+  resumes on a thread from the saved scratchpad. A question survives an app restart; a run that was
+  thinking or browsing at a restart is marked as failed, as before.
+
 ## Next phases
 
-- **Phase 2 — the browser as a tool, questions.** `browse(task, url)` runs a sub-task on the browser worker
-  (`agent_browse_tasks`, `/worker/next` claims it first, `/arrived` ends it) and returns the page summary,
-  caching the HTML so `collect` uses the agent's page; `ask_user(question)` pauses the run (`question`) until
-  `POST /runs/{id}/answer`. Needed for sites whose search lives in JavaScript widgets (booking.com dates).
 - **Phase 3 — widget skills, re-plan, site memory.** `pick_suggestion`, `set_date`, `next_page` as guarded
   browser actions; one re-plan when stuck (≤ 2 per run); per-site memory in `sites.settings["agent_memory"]`.
 - **Phase 4 — bench and legacy removal.** `scripts/agent_bench.py`; `/rerecord` on the ReAct engine; drop the
@@ -76,3 +96,10 @@ prompt ─▶ POST /api/agent/plan ─(no site)─▶ suggest_sites ─▶ "Whic
   nav / menu / header containers.
 - The planner put "price ≤ £20" among the musts; must items that name price, rating, sort or a count are
   dropped when the request has such conditions.
+- The browser's page was cached under its address with `#2015`, and the tools looked it up without the
+  fragment, so `check_results` fetched the plain page again and saw no films; cached pages are keyed without
+  the fragment now.
+- One OpenAI request timed out twice (the request's own retry) and the run ended with a bare "ReadTimeout";
+  a timeout or dropped connection now switches to the backup AI, or ends with "… did not answer in time".
+- The planner repeated app items as musts ("awards: >0" beside the app's "awards > 0"); a must that matches
+  an app item, ignoring spaces and colons, is dropped.

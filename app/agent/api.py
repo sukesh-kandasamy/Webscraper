@@ -18,6 +18,7 @@ from ..fetching import blockdetect, fetcher
 from ..runs import jobs
 from ..security import audit, logsafe, sessions
 from . import guard, handoff, planner, react, runner, store
+from .react import tools as react_tools
 
 router = APIRouter(prefix="/api/agent")
 MAX_HTML = 2_000_000
@@ -179,6 +180,21 @@ def stop_run(run_id: str):
     return _view(store.get(run_id))
 
 
+class AnswerIn(BaseModel):
+    answer: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/runs/{run_id}/answer")
+def answer_run(run_id: str, body: AnswerIn, request: Request):
+    """Your answer to the agent's question; the loop carries on from where it paused."""
+    run = _run_or_404(run_id)
+    if run["status"] != "question":
+        raise HTTPException(409, "This run isn't waiting for an answer.")
+    react.resume(run["id"], " ".join(body.answer.split()), str(request.base_url))
+    audit.log("agent_answered", run_id=run["id"])
+    return _view(store.get(run["id"]))
+
+
 class TitleIn(BaseModel):
     title: str = Field(default="", max_length=200)
 
@@ -226,22 +242,33 @@ def worker_auth(x_agent_token: str = Header(default="")) -> None:
 worker = APIRouter(prefix="/api/agent/worker", dependencies=[Depends(worker_auth)])
 
 
+def _worker_job(run: dict, start_url: str) -> dict:
+    session = sessions.for_host(fetcher.host_of(start_url))
+    use = fetcher.site_settings(fetcher.domain_of(start_url)).get("use_session", True)
+    return {"id": run["id"], "start_url": start_url, "site": run["site"], "limits": run["limits"],
+            "allowed_domains": [run["site"], f"*.{run['site']}", fetcher.domain_of(start_url),
+                                f"*.{fetcher.domain_of(start_url)}"],
+            "storage_state": session["state"] if session and use else None}
+
+
 @worker.get("/next")
 def next_run():
+    """The worker's next job: a browse sub-task of a ReAct run first, else a whole run of the browser engine."""
     runner.seen()
+    task = store.claim_browse_task()
+    if task:
+        run = store.get(task["run_id"])
+        if run and run["status"] == "browsing":
+            return {**_worker_job(run, task["start_url"]), "kind": "browse", "task_id": task["id"], "task": task["task"],
+                    "limits": {**run["limits"], **task["limits"]}, "counters": task["counters_base"]}
+        store.finish_browse_task(task["id"], "failed", message="The run was no longer waiting for the browser.")
     run = store.claim_next()
     if not run:
         return {}
-    if run.get("engine") == "react":                 # not the worker's: give it back (phase 2 adds browse tasks)
+    if run.get("engine") == "react":                 # not the worker's: give it back
         store.transition(run["id"], "navigating", "queued", message="Waiting for the agent")
         return {}
-    session = sessions.for_host(fetcher.host_of(run["start_url"]))
-    use = fetcher.site_settings(fetcher.domain_of(run["start_url"])).get("use_session", True)
-    return {"id": run["id"], "task": planner.task_text(run["plan"]), "start_url": run["start_url"],
-            "site": run["site"], "limits": run["limits"],
-            "allowed_domains": [run["site"], f"*.{run['site']}", fetcher.domain_of(run["start_url"]),
-                                f"*.{fetcher.domain_of(run['start_url'])}"],
-            "storage_state": session["state"] if session and use else None}
+    return {**_worker_job(run, run["start_url"]), "kind": "run", "task": planner.task_text(run["plan"])}
 
 
 class CheckIn(BaseModel):
@@ -301,6 +328,10 @@ def add_step(run_id: int, body: StepIn):
     run = store.get(run_id)
     if run["stop_requested"]:
         return {"stop": True, "reason": "stopped"}
+    if run["status"] == "browsing":
+        task = store.running_browse_task(run_id)
+        if not task or task["stop_requested"]:
+            return {"stop": True, "reason": "stopped", "message": "The browser sub-task took too long."}
     limits = run["limits"]
     if run["ai_calls"] >= limits.get("ai_calls", config.AGENT_MAX_AI_CALLS):
         return {"stop": True, "reason": "limit", "message": f"Reached the limit of {limits.get('ai_calls')} AI calls."}
@@ -322,8 +353,10 @@ class ArrivedIn(BaseModel):
 
 @worker.post("/runs/{run_id}/arrived")
 def arrived(run_id: int, body: ArrivedIn):
+    """The browser is on the page it was sent for: a whole run hands it to the engine; a browse sub-task
+    gives it back to the ReAct loop."""
     run = _run_or_404(run_id)
-    if run["status"] != "navigating":
+    if run["status"] not in ("navigating", "browsing"):
         raise HTTPException(409, "This run is not navigating")
     ok, why = guard.check_url(body.url, run["site"])
     if not ok:
@@ -331,6 +364,13 @@ def arrived(run_id: int, body: ArrivedIn):
     kind = blockdetect.detect(body.html, 200, body.url)
     if kind:
         return {"ok": False, "reason": f"That page is a {blockdetect.describe(kind)}, not the results."}
+    if run["status"] == "browsing":
+        task = store.running_browse_task(run_id)
+        if not task:
+            return {"ok": False, "reason": "The browser sub-task has already ended."}
+        react_tools.browse_html[task["id"]] = body.html
+        store.finish_browse_task(task["id"], "done", result_url=body.url, note=logsafe.redact(body.note))
+        return {"ok": True}
     handoff.start(run_id, body.url, body.html, body.note)
     return {"ok": True}
 
@@ -346,12 +386,19 @@ class FinishIn(BaseModel):
 @worker.post("/runs/{run_id}/finish")
 def finish(run_id: int, body: FinishIn):
     run = _run_or_404(run_id)
-    if run["status"] != "navigating":
-        return {"ok": True}           # already handed over (collecting) or finished
     msg = logsafe.redact(body.message) or {"stopped": "Stopped by you.", "limit": "Reached a limit.",
                                            "needs_you": "The site asked for a human check.",
                                            "error": "The agent could not reach the results."}[body.status]
     fields = {k: v for k, v in (("steps", body.steps), ("ai_calls", body.ai_calls), ("tokens", body.tokens)) if v is not None}
+    if run["status"] == "browsing":   # a browse sub-task ended without reaching its page: the loop decides what next
+        task = store.running_browse_task(run_id)
+        if task:
+            store.finish_browse_task(task["id"], "failed" if body.status == "error" else body.status, message=msg)
+        if fields:
+            store.update(run_id, **fields)
+        return {"ok": True}
+    if run["status"] != "navigating":
+        return {"ok": True}           # already handed over (collecting) or finished
     store.update(run_id, status=body.status, message=msg, summary=msg, finished_at=time.time(), **fields)
     store.add_step(run_id, "warn" if body.status != "stopped" else "info", msg)
     if body.status == "needs_you":

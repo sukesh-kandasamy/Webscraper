@@ -8,6 +8,7 @@ function agentPage() {
     agentSite: "",
     showSiteBox: false,          // the optional site box in the composer
     agentCandidates: null,       // the "Which site?" answer: {goal, candidates, dropped, question}
+    agentAnswer: "",             // your answer to the agent's question
     agentOtherSite: "",
     agentRun: null,              // the run on screen (with its steps)
     agentRuns: [],
@@ -222,6 +223,18 @@ function agentPage() {
       } catch { /* server busy; try again */ }
       if (this.agentActive()) this.agentTimer = setTimeout(() => this.pollAgent(), 2000);
       else { this.loadAgentRuns(); this.loadStatus(); }
+    },
+    async answerAgent() {
+      const r = this.agentRun, answer = this.agentAnswer.trim();
+      if (!r || !answer) return;
+      this.busy = "agent-answer";
+      try {
+        this.agentRun = await api("POST", `/api/agent/runs/${r.uid}/answer`, { answer });
+        this.agentAnswer = "";
+        this.loadAgentRuns();
+        this.pollAgent();
+      } catch (e) { this.handleError(e); }
+      finally { this.busy = ""; }
     },
     async stopAgent() {
       try { this.agentRun = { ...this.agentRun, ...(await api("POST", `/api/agent/runs/${this.agentRun.id}/stop`)), steps_list: this.agentRun.steps_list }; }

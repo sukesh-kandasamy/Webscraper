@@ -15,8 +15,9 @@ OBS_HISTORY_CHARS = 1500        # kept in the scratchpad for the prompt (the lat
 
 
 class Context:
-    def __init__(self, run: dict):
+    def __init__(self, run: dict, app_url: str = ""):
         self.run_id = run["id"]
+        self.app_url = app_url
         self.goal, self.site, self.start_url = run["goal"], run["site"], run["start_url"]
         self.plan = run["plan"]
         self.request = self.plan.get("request", {})
@@ -52,7 +53,7 @@ class Context:
         run = store.get(self.run_id)
         if not run or run["stop_requested"]:
             return "stopped", "Stopped by you."
-        if run["status"] not in ("thinking",):
+        if run["status"] != "thinking":
             return "stopped", "The run was changed from outside."
         self.ai_calls = int(run["ai_calls"] or 0)
         left = self.left()
@@ -107,15 +108,36 @@ def _end(ctx: Context, status: str, message: str) -> None:
     audit.log("agent_finished", run_id=ctx.run_id, status=status, engine="react")
 
 
-def run(run_id: int) -> None:
+def take_answer(run_id: int, answer: str) -> bool:
+    """Record the person's answer and move the run from question back to thinking (done at once, in the
+    request, so the page sees the new status; the loop itself then continues on a thread)."""
+    if not store.transition(run_id, "question", "thinking", answer=answer, message="Thinking"):
+        return False
+    ctx = Context(store.get(run_id))
+    store.add_step(run_id, "info", f"You answered: {answer}")
+    text = f"The person answered: {answer}"
+    if ctx.pad["history"]:
+        ctx.pad["history"][-1]["obs"] = (ctx.pad["history"][-1]["obs"] + "\n" + text)[:OBS_HISTORY_CHARS]
+    store.add_step(run_id, "observation", text, detail={"ok": True, "full": text})
+    ctx.save()
+    return True
+
+
+def run(run_id: int, app_url: str = "", resumed: bool = False) -> None:
+    """The loop for a queued run, or (resumed) for one that just got its answer."""
     run_row = store.get(run_id)
     if not run_row:
         return
-    if not store.transition(run_id, "queued", "thinking", started_at=run_row.get("started_at") or time.time(),
-                            message="Thinking"):
-        return
-    ctx = Context(store.get(run_id))
-    store.add_step(run_id, "info", f"Started with {ctx.provider} · {ctx.model} (reason, act, observe).")
+    if resumed:
+        if run_row["status"] != "thinking":
+            return
+        ctx = Context(run_row, app_url)
+    else:
+        if not store.transition(run_id, "queued", "thinking", started_at=run_row.get("started_at") or time.time(),
+                                message="Thinking"):
+            return
+        ctx = Context(store.get(run_id), app_url)
+        store.add_step(run_id, "info", f"Started with {ctx.provider} · {ctx.model} (reason, act, observe).")
     while True:
         over = ctx.exceeded()
         if over:
@@ -150,12 +172,12 @@ def run(run_id: int) -> None:
             return
 
 
-def safe_run(run_id: int, app_url: str = "") -> None:
+def safe_run(run_id: int, app_url: str = "", resumed: bool = False) -> None:
     try:
-        run(run_id)
+        run(run_id, app_url, resumed)
     except Exception as e:  # noqa: BLE001 - anything else ends the run with a readable message
         run_row = store.get(run_id)
-        if run_row and run_row["status"] in ("thinking", "queued"):
+        if run_row and run_row["status"] in ("thinking", "browsing", "queued"):
             msg = logsafe.redact(f"The agent failed: {type(e).__name__}: {str(e)[:300]}")
             store.update(run_id, status="error", message=msg, summary=msg, finished_at=time.time())
             store.add_step(run_id, "warn", msg)

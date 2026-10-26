@@ -6,7 +6,8 @@ collect, finish). The app runs the tool, guarded like everything else (the plann
 no personal data, no invented addresses), and feeds the observation back. collect() hands the results
 page to the normal engine (handoff.py), after which collecting -> fixing -> done runs as before.
 
-    start(run_id, app_url)   run the loop for an approved run on a background thread
+    start(run_id, app_url)            run the loop for an approved run on a background thread
+    resume(run_id, answer, app_url)   carry on after the person answered the agent's question
 """
 import threading
 
@@ -21,6 +22,18 @@ def start(run_id: int, app_url: str = "") -> None:
     t = threading.Thread(target=loop.safe_run, args=(run_id, app_url), daemon=True, name=f"react-{run_id}")
     _threads[run_id] = t
     t.start()
+
+
+def resume(run_id: int, answer: str, app_url: str = "") -> bool:
+    """Take the answer now (the run is "thinking" again when this returns) and carry on in the background."""
+    from . import loop
+
+    if not loop.take_answer(run_id, answer):
+        return False
+    t = threading.Thread(target=loop.safe_run, args=(run_id, app_url, True), daemon=True, name=f"react-{run_id}")
+    _threads[run_id] = t
+    t.start()
+    return True
 
 
 def running(run_id: int) -> bool:

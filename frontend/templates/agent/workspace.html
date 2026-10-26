@@ -287,13 +287,25 @@
                 </div>
               </div>
               <div class="progress mt-4" x-show="agentActive()"><span class="!w-2/5 animate-indeterminate"></span></div>
+              <div class="mt-4 flex items-start gap-3 rounded-m3-md bg-warning-container p-4 text-on-warning-container" x-show="agentRun.status === 'question'" x-cloak>
+                <span class="mt-0.5 shrink-0" x-html="icon('help', 'h-5 w-5')"></span>
+                <div class="min-w-0 flex-1">
+                  <div class="title-s">The agent asks</div>
+                  <p class="mt-1 text-sm" x-text="agentRun.question"></p>
+                  <form class="mt-3 flex flex-wrap gap-2" @submit.prevent="answerAgent()">
+                    <input id="agent-answer" type="text" x-model="agentAnswer" class="input h-10 flex-1 basis-60" maxlength="500" placeholder="Your answer" aria-label="Your answer" autocomplete="off">
+                    <button class="btn btn-primary" type="submit" :disabled="!!busy || !agentAnswer.trim()">
+                      <span x-show="busy==='agent-answer'" class="spinner"></span> Answer</button>
+                  </form>
+                </div>
+              </div>
               <div class="mt-4 flex flex-wrap gap-2">
                 <button class="btn btn-primary" x-show="agentRun.job_id && !agentActive()" @click="openAgentResults()"><span x-html="icon('table_chart', 'h-5 w-5')"></span> Open results</button>
                 <button class="btn btn-tonal" x-show="agentRun.status === 'done' && agentRun.scrape_id" @click="runAgentScrapeAgain()" title="Uses the saved address or the recorded steps; no AI">
                   <span x-html="icon('refresh', 'h-5 w-5')"></span> Run again (no AI)</button>
                 <button class="btn btn-primary" x-show="agentRun.status === 'needs_you'" @click="solveForAgent()" :disabled="!status?.browser_available">Open to solve</button>
                 <button class="btn" x-show="['needs_you','limit','error','stopped'].includes(agentRun.status)" @click="retryAgent()"><span x-html="icon('restart_alt', 'h-5 w-5')"></span> Try again</button>
-                <button class="btn" x-show="agentActive()" @click="stopAgent()"><span x-html="icon('stop', 'h-5 w-5')"></span> Stop</button>
+                <button class="btn" x-show="agentActive() || agentRun.status === 'question'" @click="stopAgent()"><span x-html="icon('stop', 'h-5 w-5')"></span> Stop</button>
               </div>
               <ul class="mt-4 space-y-2" x-show="agentRun.fixes?.length" x-cloak>
                 <template x-for="(f, i) in agentRun.fixes || []" :key="i">

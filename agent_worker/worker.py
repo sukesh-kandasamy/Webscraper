@@ -155,9 +155,12 @@ class Run:
     def __init__(self, job: dict):
         self.id = job["id"]
         self.job = job
-        self.ai_calls = 0
-        self.tokens = 0
-        self.steps = 0
+        self.kind = job.get("kind", "run")           # "run": a whole run; "browse": one sub-task of the ReAct loop
+        base = job.get("counters") or {}             # a sub-task continues the run's counters
+        self.base_steps = int(base.get("steps") or 0)
+        self.ai_calls = int(base.get("ai_calls") or 0)
+        self.tokens = int(base.get("tokens") or 0)
+        self.steps = self.base_steps
         self.arrived = False
         self.has_backup = False
         self.using_backup = False
@@ -266,7 +269,7 @@ async def execute(job: dict) -> None:
     vision = os.environ.get("AGENT_VISION") == "1"
 
     async def on_step(state, output, n):
-        run.steps = n
+        run.steps = run.base_steps + n
         goal = (getattr(output, "next_goal", "") or getattr(output, "memory", "") or "").strip()
         bs = run.browser_session
         shot = await thumbnail(bs) if bs else ""
@@ -316,9 +319,12 @@ async def execute(job: dict) -> None:
         except Exception:
             pass
     if run.arrived:
-        log(f"run {run.id}: handed over after {run.steps} steps, {run.ai_calls} AI calls")
+        what = "browser sub-task done" if run.kind == "browse" else "handed over"
+        log(f"run {run.id}: {what} after {run.steps - run.base_steps} steps, {run.ai_calls} AI calls")
         post(f"/api/agent/worker/runs/{run.id}/step", kind="info",
-             text=f"The agent finished in {run.steps} steps, {run.ai_calls} AI calls, {round(time.time() - started)}s.",
+             text=(f"The browser finished its sub-task in {run.steps - run.base_steps} steps, {round(time.time() - started)}s."
+                   if run.kind == "browse" else
+                   f"The agent finished in {run.steps} steps, {run.ai_calls} AI calls, {round(time.time() - started)}s."),
              **run.counters())
         return
     if "HUMAN CHECK" in final.upper() and not run.stop_reason:

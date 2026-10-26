@@ -48,6 +48,21 @@ CREATE TABLE IF NOT EXISTS agent_steps (
     at      REAL NOT NULL,
     PRIMARY KEY (run_id, n)
 );
+CREATE TABLE IF NOT EXISTS agent_browse_tasks (   -- one browser sub-task of a ReAct run (the browse tool)
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL DEFAULT 'queued',  -- queued | running | done | failed | needs_you | limit | stopped
+    task        TEXT NOT NULL,
+    start_url   TEXT NOT NULL,
+    limits      TEXT NOT NULL DEFAULT '{}',
+    counters_base TEXT NOT NULL DEFAULT '{}',    -- the run's steps / ai_calls / tokens when the task began
+    result_url  TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT '',
+    message     TEXT NOT NULL DEFAULT '',
+    stop_requested INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL,
+    finished_at REAL
+);
 """
 
 ACTIVE = ("queued", "navigating", "thinking", "browsing", "collecting", "fixing")
@@ -192,6 +207,63 @@ def add_step(run_id: int, kind: str, text: str, url: str = "", detail: dict | No
                   (run_id, n, kind, text[:500], url[:1000], json.dumps(detail or {}, ensure_ascii=False),
                    int(shot), time.time()))
     return n
+
+
+# ---- browse sub-tasks (phase 2: the browser as one tool of the ReAct loop) ----------------
+
+def _task(row) -> dict | None:
+    if not row:
+        return None
+    d = dict(row)
+    d["limits"] = json.loads(d["limits"] or "{}")
+    d["counters_base"] = json.loads(d["counters_base"] or "{}")
+    d["stop_requested"] = bool(d["stop_requested"])
+    return d
+
+
+def create_browse_task(run_id: int, task: str, start_url: str, limits: dict, counters_base: dict) -> int:
+    with db.tx() as c:
+        cur = c.execute("INSERT INTO agent_browse_tasks(run_id, task, start_url, limits, counters_base, created_at) "
+                        "VALUES(?,?,?,?,?,?)", (run_id, task, start_url, json.dumps(limits), json.dumps(counters_base), time.time()))
+        return cur.lastrowid
+
+
+def claim_browse_task() -> dict | None:
+    """The oldest queued browse task, marked running (the worker takes these before whole runs)."""
+    with db.tx() as c:
+        row = c.execute("SELECT * FROM agent_browse_tasks WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
+        if not row:
+            return None
+        c.execute("UPDATE agent_browse_tasks SET status='running' WHERE id=?", (row["id"],))
+        return _task(c.execute("SELECT * FROM agent_browse_tasks WHERE id=?", (row["id"],)).fetchone())
+
+
+def get_browse_task(task_id: int) -> dict | None:
+    with db.tx() as c:
+        return _task(c.execute("SELECT * FROM agent_browse_tasks WHERE id=?", (task_id,)).fetchone())
+
+
+def running_browse_task(run_id: int) -> dict | None:
+    with db.tx() as c:
+        return _task(c.execute("SELECT * FROM agent_browse_tasks WHERE run_id=? AND status IN ('queued', 'running') "
+                               "ORDER BY id DESC LIMIT 1", (run_id,)).fetchone())
+
+
+def update_browse_task(task_id: int, **fields) -> None:
+    if not fields:
+        return
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with db.tx() as c:
+        c.execute(f"UPDATE agent_browse_tasks SET {cols} WHERE id=?", (*fields.values(), task_id))
+
+
+def finish_browse_task(task_id: int, status: str, result_url: str = "", note: str = "", message: str = "") -> bool:
+    """End a task once (the first finisher wins: the worker's result or the tool's timeout)."""
+    with db.tx() as c:
+        cur = c.execute("UPDATE agent_browse_tasks SET status=?, result_url=?, note=?, message=?, finished_at=? "
+                        "WHERE id=? AND status IN ('queued', 'running')",
+                        (status, result_url[:1000], note[:500], message[:1000], time.time(), task_id))
+        return cur.rowcount == 1
 
 
 def steps(run_id: int, after: int = 0) -> list[dict]:
