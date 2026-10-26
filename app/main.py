@@ -1030,10 +1030,53 @@ def _visible_records(job: dict, show_personal: bool) -> list[dict]:
     return privacy.mask_rows(records, keep)
 
 
+def _row_view(job: dict, item: dict, show_personal: bool) -> dict:
+    """A row as the Results table shows it, with its record id and the columns you edited."""
+    keep = tuple(job["personal"].get("fields", [])) if show_personal else ()
+    return {**privacy.mask_rows([item["row"]], keep)[0], "_id": item["id"], "_edited": item["edited"]}
+
+
 @app.get("/api/jobs/{job_id}/records")
-def job_records(job_id: str, show_personal: bool = False):
+def job_records(job_id: str, show_personal: bool = False, ids: bool = False):
     job = _job_or_404(job_id)
+    if ids:                                  # the Results table: rows it can edit
+        return [_row_view(job, item, show_personal) for item in db.get_records_with_ids(job["id"])]
     return _visible_records(job, show_personal)
+
+
+class CellIn(BaseModel):
+    column: str = Field(min_length=1, max_length=200)
+    value: str | int | float | None = None
+    show_personal: bool = False
+
+
+@app.patch("/api/jobs/{job_id}/records/{record_id}")
+def edit_record(job_id: str, record_id: int, body: CellIn):
+    """Change one value of a collected row (e.g. a book's name). The new value gets the column's type
+    (₹12,400 stays a number) and is used everywhere: the table, Changes, and downloads."""
+    job = _job_or_404(job_id)
+    if job["status"] in ("queued", "running"):
+        raise HTTPException(409, "This run is still collecting. Edit its rows when it has finished.")
+    item = next((r for r in db.get_records_with_ids(job["id"]) if r["id"] == record_id), None)
+    if item is None:
+        raise HTTPException(404, "Row not found")
+    row, column = item["row"], body.column
+    if column not in row:
+        raise HTTPException(400, f"This row has no column “{column}”.")
+    keep = job["personal"].get("fields", []) if body.show_personal else []
+    old = row[column]
+    if column not in keep and isinstance(old, str) and privacy.mask_text(old) != old:
+        raise HTTPException(409, "Part of this value is hidden because it looks like personal data (a phone "
+                                 "number or email). Turn on Show personal data to edit it.")
+    value = body.value
+    if isinstance(value, str):
+        value = value.strip()[:10_000]
+        value = normalize.convert(value, (job.get("columns") or {}).get(column, "text"))
+    row[column] = value
+    edited = item["edited"] if column in item["edited"] else [*item["edited"], column]
+    db.update_record(job["id"], record_id, row, edited)
+    audit.log("record_edited", job_id=job["id"], job=job["uid"], column=column)
+    return _row_view(job, {"id": record_id, "row": row, "edited": edited}, body.show_personal)
 
 
 @app.get("/api/jobs/{job_id}/export")

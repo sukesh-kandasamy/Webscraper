@@ -70,6 +70,8 @@ only for status (finished, needs you, failed).
    site states a total ("1,000 results"), you see it here.
 5. **Results.** Every run, with plain-language progress. Three tabs:
    - **Data**: search, sort, choose columns, download **Excel** (real number and date cells) or **CSV**.
+     Fix any value in place: hover a cell and click ✎ (or double-click it), type, press Enter (Esc cancels).
+     The new value keeps the column's type, is marked with a dot, and is used in downloads and Changes.
    - **Quality**: rows saved, pages read and failed, duplicates removed, items that didn't match your
      request, **coverage** (collected vs. the site's stated total) and how complete each column is,
      with plain warnings. Failed pages are retried once automatically; **Retry failed pages** tries

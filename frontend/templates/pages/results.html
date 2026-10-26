@@ -297,12 +297,35 @@
                     </template>
                   </tr></thead>
                   <tbody>
-                    <template x-for="(r, i) in pagedRows()" :key="i">
+                    <template x-for="(r, i) in pagedRows()" :key="r._id ?? i">
                       <tr><template x-for="c in visibleColumns()" :key="c">
-                        <td>
-                          <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
-                          <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link inline-flex items-center gap-1" :href="r[c]" target="_blank" rel="noopener noreferrer">Open <span x-html="icon('external', 'h-3 w-3')"></span></a></template>
-                          <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :class="typeof r[c] === 'number' && 'tabular-nums'" :title="r[c]" x-text="cellText(r[c])"></span></template>
+                        <td class="group/cell" @dblclick="startEdit(r, c)">
+                          <template x-if="isEditing(r, c)">
+                            <div class="flex min-w-[15rem] items-start gap-1">
+                              <textarea id="cell-edit" x-model="cellEdit.value" rows="2" maxlength="10000" :disabled="cellEdit.saving"
+                                        class="input min-h-0 resize-y px-2 py-1.5 text-sm" :aria-label="'New value for ' + pretty(c)"
+                                        @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); saveEdit() }" @keydown.escape.prevent="cancelEdit()"></textarea>
+                              <div class="flex flex-col gap-1">
+                                <button class="btn btn-icon h-7 w-7" title="Save (Enter)" aria-label="Save" @click="saveEdit()" :disabled="cellEdit.saving">
+                                  <span x-html="icon(cellEdit.saving ? 'sync' : 'check', 'h-4 w-4')"></span></button>
+                                <button class="btn btn-icon h-7 w-7" title="Cancel (Esc)" aria-label="Cancel" @click="cancelEdit()">
+                                  <span x-html="icon('close', 'h-4 w-4')"></span></button>
+                              </div>
+                            </div>
+                          </template>
+                          <template x-if="!isEditing(r, c)">
+                            <div class="flex items-start gap-1.5">
+                              <div class="min-w-0">
+                                <template x-if="isImage(r[c])"><img :src="r[c]" class="h-10 w-10 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700" alt="" loading="lazy" referrerpolicy="no-referrer"></template>
+                                <template x-if="isUrl(r[c]) && !isImage(r[c])"><a class="link inline-flex items-center gap-1" :href="r[c]" target="_blank" rel="noopener noreferrer">Open <span x-html="icon('external', 'h-3 w-3')"></span></a></template>
+                                <template x-if="!isUrl(r[c])"><span class="line-clamp-3" :class="typeof r[c] === 'number' && 'tabular-nums'" :title="r[c]" x-text="cellText(r[c])"></span></template>
+                              </div>
+                              <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-on-surface-variant" x-show="isEdited(r, c)" title="Edited by you"></span>
+                              <button class="btn btn-icon -my-1 ml-auto h-7 w-7 shrink-0 lg:opacity-0 lg:focus:opacity-100 lg:group-hover/cell:opacity-100"
+                                      x-show="canEdit()" :aria-label="'Edit ' + pretty(c)" title="Edit (or double-click)" @click="startEdit(r, c)">
+                                <span x-html="icon('edit', 'h-4 w-4')"></span></button>
+                            </div>
+                          </template>
                         </td>
                       </template></tr>
                     </template>

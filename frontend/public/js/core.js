@@ -242,7 +242,8 @@ function shell() {
     },
     columns(rows) {
       const cols = [];
-      for (const r of rows || []) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
+      // keys starting with "_" are the app's own (row id, edited columns), not data columns
+      for (const r of rows || []) for (const k of Object.keys(r)) if (!k.startsWith("_") && !cols.includes(k)) cols.push(k);
       return cols;
     },
     pretty(col) { return col.replace(/_/g, " "); },

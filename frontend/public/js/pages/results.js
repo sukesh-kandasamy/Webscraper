@@ -17,6 +17,7 @@ function resultsPage() {
     page: 1,
     pageSize: 50,
     notFound: false,
+    cellEdit: null,              // {id, col, value, saving}: the cell being edited
 
     async start() {
       this.$watch("search", () => { this.page = 1; });
@@ -61,8 +62,37 @@ function resultsPage() {
     },
     async loadRecords() {
       try {
-        this.records = await api("GET", `/api/jobs/${this.selectedJob.id}/records?show_personal=${this.showPersonal}`);
+        this.records = await api("GET", `/api/jobs/${this.selectedJob.id}/records?show_personal=${this.showPersonal}&ids=1`);
+        this.cellEdit = null;
       } catch (e) { this.showError(e); }
+    },
+    // Editing a value in the table: ✎ or double-click, Enter saves, Esc cancels.
+    canEdit() { return !!this.selectedJob && !["queued", "running"].includes(this.selectedJob.status); },
+    isEditing(r, c) { return this.cellEdit?.id === r._id && this.cellEdit?.col === c; },
+    isEdited(r, c) { return (r._edited || []).includes(c); },
+    startEdit(r, c) {
+      if (!this.canEdit() || r._id === undefined) return;
+      const v = r[c];
+      this.cellEdit = { id: r._id, col: c, value: v === null || v === undefined ? "" : String(v), before: v, saving: false };
+      this.$nextTick(() => { const el = document.getElementById("cell-edit"); if (el) { el.focus(); el.select(); } });
+    },
+    cancelEdit() { this.cellEdit = null; },
+    async saveEdit() {
+      const e = this.cellEdit;
+      if (!e || e.saving) return;
+      if (e.value === (e.before === null || e.before === undefined ? "" : String(e.before))) { this.cellEdit = null; return; }
+      e.saving = true;
+      try {
+        const row = await api("PATCH", `/api/jobs/${this.selectedJob.id}/records/${e.id}`,
+          { column: e.col, value: e.value, show_personal: this.showPersonal });
+        const i = this.records.findIndex(r => r._id === e.id);
+        if (i >= 0) this.records.splice(i, 1, row);
+        this.cellEdit = null;
+        this.toast(`Saved “${this.pretty(e.col)}”.`);
+      } catch (err) {
+        e.saving = false;
+        this.toast(err.message || "Couldn't save the change.", "error");
+      }
     },
     async repairScrape(job) {
       this.busy = "repair";
@@ -187,7 +217,7 @@ function resultsPage() {
     sortBy(c) { if (this.sortKey === c) this.sortAsc = !this.sortAsc; else { this.sortKey = c; this.sortAsc = true; } },
     filtered() {
       const q = this.search.toLowerCase();
-      let rows = q ? this.records.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q)))
+      let rows = q ? this.records.filter(r => Object.entries(r).some(([k, v]) => !k.startsWith("_") && String(v).toLowerCase().includes(q)))
                    : this.records.slice();
       if (this.sortKey) {
         const k = this.sortKey, dir = this.sortAsc ? 1 : -1;

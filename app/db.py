@@ -112,6 +112,8 @@ MIGRATIONS = [
     ("jobs", "quality", "ALTER TABLE jobs ADD COLUMN quality TEXT NOT NULL DEFAULT '{}'"),
     # the Job ID people see (JOB-7K3QX9); the number stays internal
     ("jobs", "public_id", "ALTER TABLE jobs ADD COLUMN public_id TEXT"),
+    # columns of a collected row that you changed by hand in Results (JSON list)
+    ("records", "edited", "ALTER TABLE records ADD COLUMN edited TEXT NOT NULL DEFAULT '[]'"),
     # which mode made a saved scrape (guided | agent) and, for agent scrapes, the recorded route
     ("scrapes", "mode", "ALTER TABLE scrapes ADD COLUMN mode TEXT NOT NULL DEFAULT 'guided'"),
     ("scrapes", "route", "ALTER TABLE scrapes ADD COLUMN route TEXT NOT NULL DEFAULT '[]'"),
@@ -443,6 +445,32 @@ def job_pages(job_id: int) -> dict[str, int]:
     with tx() as c:
         rows = c.execute("SELECT url, rows FROM job_pages WHERE job_id=?", (job_id,)).fetchall()
     return {r["url"]: r["rows"] for r in rows}
+
+
+def _decode_row(data: str) -> dict:
+    if data.startswith("enc:"):
+        from .security import vault
+        return vault.decrypt_json(data[4:])
+    return json.loads(data)
+
+
+def get_records_with_ids(job_id: int) -> list[dict]:
+    """Every row of a job with its record id and the columns you edited: [{id, row, edited}]."""
+    with tx() as c:
+        rows = c.execute("SELECT id, data, edited FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
+    return [{"id": r["id"], "row": _decode_row(r["data"]), "edited": json.loads(r["edited"] or "[]")} for r in rows]
+
+
+def update_record(job_id: int, record_id: int, row: dict, edited: list[str]) -> bool:
+    """Save a row you edited (encrypted again when the job used a login)."""
+    from .security import vault
+
+    with tx() as c:
+        enc = _job_encrypted(c, job_id)
+        data = ("enc:" + vault.encrypt_json(row)) if enc else json.dumps(row, ensure_ascii=False)
+        cur = c.execute("UPDATE records SET data=?, edited=? WHERE id=? AND job_id=?",
+                        (data, json.dumps(edited), record_id, job_id))
+        return cur.rowcount == 1
 
 
 def get_records(job_id: int) -> list[dict]:

@@ -262,6 +262,7 @@ def test_compare_runs_and_typed_excel(client, fake_site):
 def test_understand_endpoint_without_ai(client, monkeypatch):
     monkeypatch.setattr(config, "GROQ_API_KEY", "")
     monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "")           # no key at all: no real AI call from a test
     r = client.post("/api/understand", json={"prompt": "title, company and salary"}).json()
     assert [c["name"] for c in r["columns"]] == ["title", "company", "salary", "url"]
 
