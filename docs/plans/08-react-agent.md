@@ -12,7 +12,12 @@
 > workspace, then the loop carries on from its scratchpad. Live: "Oscar-winning films of 2015 from
 > scrapethissite.com/pages/ajax-javascript/" → the plain page had no films, the loop sent `browse` ("select
 > year 2015"), the browser clicked 2015 in 3 steps, `check_results` read the rendered page (16 `tr.film`
-> rows) and `collect` saved 16 rows (gpt-5-mini, 7 steps, 8 AI calls, 42k tokens, 183 s). Phase 3 is next.
+> rows) and `collect` saved 16 rows (gpt-5-mini, 7 steps, 8 AI calls, 42k tokens, 183 s).
+> **Phase 3 built:** widget skills in the browser worker (`pick_suggestion`, `set_date`, `next_page`), a
+> re-plan when the loop is stuck (at most 2 per run) and site memory. Live, "Oscar-winning films of 2014"
+> on the same page twice: run 1 wasted a browse on a search box the page doesn't have, re-planned at 12 of
+> 15 steps and collected 16 rows (14 steps, 16 AI calls, 107k tokens); run 2 started from the memory of
+> run 1 and collected the same 16 rows in 5 steps, 7 AI calls, 33k tokens. Phase 4 is next.
 
 ## Context
 
@@ -80,10 +85,34 @@ prompt ─▶ POST /api/agent/plan ─(no site)─▶ suggest_sites ─▶ "Whic
   resumes on a thread from the saved scratchpad. A question survives an app restart; a run that was
   thinking or browsing at a restart is marked as failed, as before.
 
+## Phase 3: widget skills, re-plan, site memory (built)
+
+- **Widget skills** (`agent_worker/skills.py`, registered as browser-use actions in `GuardedTools`):
+  `pick_suggestion(index, text)` types through browser-use's own input action, waits for the dropdown
+  (`[role=option]`, listbox / autocomplete / typeahead lists), and clicks the best match by text (exact,
+  starts with, contains; otherwise it names the options it saw). `set_date(index, YYYY-MM-DD)` types into
+  native date inputs, otherwise opens the picker, clicks the month arrow up to 14 times and clicks the day
+  found by `data-date`-style attributes or an aria-label / title with day, month and year. `next_page()`
+  clicks `a[rel=next]` or a visible Next / › / » control. Every click and typed value goes through
+  `/check` first and is recorded as a plain `input` / `click` step with its target (attributes, text,
+  xpath), so the hand-over's route replay repeats it without the AI. Checked in a real Edge against a
+  local page with an autocomplete box, a calendar, a native date field and JS paging.
+- **Re-plan** (`brain.stuck` / `brain.replan`, called at the top of each loop turn): stuck = the last 3
+  actions all failed, were refused or were repeats, or 60% of the step limit is used with no re-plan yet.
+  One AI call (`REPLAN_SYSTEM`, schema `{diagnosis, route[]}`) on the agent's AI; the new route replaces the
+  plan's in the prompt ("YOUR NEW ROUTE (re-planned at step N: …)") and shows on the timeline as a numbered
+  list. At most 2 per run; a failed call still counts, so it isn't retried at once.
+- **Site memory** (`react/memory.py`, in `sites.settings["agent_memory"]`, newest 3 per site, the same goal
+  replaces its entry): written by `supervisor.finish` when a ReAct run ends done: the goal, the successful
+  steps (`open_page`, `search`, `browse`, `next_page`, `collect` with their arguments, redacted), the results
+  address (no fragment), the list selector and whether the browser was needed. A new run on the site gets it
+  in the prompt ("WHAT WORKED ON THIS SITE BEFORE … check the page") and the remembered results address
+  counts as seen, so it can be opened directly (guarded as usual). `GET / DELETE /api/agent/memory?site=`;
+  the draft plan card shows the memory with **Forget**.
+- Brain AI calls now time out after 75 s (`ask_structured(timeout=)`), so a hung request is retried sooner.
+
 ## Next phases
 
-- **Phase 3 — widget skills, re-plan, site memory.** `pick_suggestion`, `set_date`, `next_page` as guarded
-  browser actions; one re-plan when stuck (≤ 2 per run); per-site memory in `sites.settings["agent_memory"]`.
 - **Phase 4 — bench and legacy removal.** `scripts/agent_bench.py`; `/rerecord` on the ReAct engine; drop the
   browser engine switch.
 
@@ -103,3 +132,7 @@ prompt ─▶ POST /api/agent/plan ─(no site)─▶ suggest_sites ─▶ "Whic
   a timeout or dropped connection now switches to the backup AI, or ends with "… did not answer in time".
 - The planner repeated app items as musts ("awards: >0" beside the app's "awards > 0"); a must that matches
   an app item, ignoring spaces and colons, is dropped.
+- Phase 3 run 1: the planner made "awards contains Oscar" a must on a page that only lists Oscar winners,
+  and the agent spent a 9-step browse looking for a search box to apply it; the re-plan at 60% of the steps
+  got it to collect. The planner prompt now says not to restate what the site already is.
+- An OpenAI request hung for 180 s before its retry answered; brain calls wait 75 s now.

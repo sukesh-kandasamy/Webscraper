@@ -102,7 +102,7 @@ def test_groq_only_sends_gpt_oss_options_to_gpt_oss(monkeypatch):
     sent = []
 
     class Groq:
-        def __init__(self, api_key): pass
+        def __init__(self, api_key, **kw): pass
 
         @property
         def chat(self): return self

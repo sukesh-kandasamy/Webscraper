@@ -236,6 +236,15 @@ function agentPage() {
       } catch (e) { this.handleError(e); }
       finally { this.busy = ""; }
     },
+    async forgetMemory() {
+      const r = this.agentRun;
+      if (!r) return;
+      try {
+        await api("DELETE", `/api/agent/memory?site=${encodeURIComponent(r.site)}`);
+        this.agentRun = { ...r, memory: [] };
+        this.toast("The agent forgot this site's route.");
+      } catch (e) { this.handleError(e); }
+    },
     async stopAgent() {
       try { this.agentRun = { ...this.agentRun, ...(await api("POST", `/api/agent/runs/${this.agentRun.id}/stop`)), steps_list: this.agentRun.steps_list }; }
       catch (e) { this.showError(e); }

@@ -24,9 +24,10 @@ Tools (fill only the fields the tool uses; leave the others empty):
 - browse(task, url): a real browser does ONE thing on a seen page for you, when the page needs clicking or \
   typing that plain fetching can't do: a search widget with autocomplete, date pickers, a filter panel, a \
   "load more" button, a POST form. task = one plain sentence, e.g. "enter Goa in the destination box, pick \
-  the suggestion, set check-in 25 Nov 2026 and check-out 28 Nov 2026, then search". It costs up to 15 steps \
-  and comes back with the page it ended on. Try links, search forms and addresses first; browse when they \
-  can't do it.
+  the suggestion, set check-in 25 Nov 2026 and check-out 28 Nov 2026, then search". The browser has skills \
+  for autocomplete suggestions, date pickers and next-page buttons, so name the values plainly (dates as \
+  YYYY-MM-DD). It costs up to 15 steps and comes back with the page it ended on. Try links, search forms \
+  and addresses first; browse when they can't do it.
 - ask_user(question): pause and ask the person one short question when the goal is unclear or a choice \
   only they can make (which of two sections, which city). At most twice per run; the run waits.
 - collect(url, pages, note): hand this results page to the app. This ENDS your work. Use it as soon as the \
@@ -41,7 +42,23 @@ Rules:
 - Do not collect a page that shows 0 items, a menu, or the wrong kind of items.
 - Conditions marked (app) are applied by the app after collecting: do not try to apply them on the site.
 - If an action is refused, choose another way. If a page is a human check, say so and finish.
-- Be economical: the step and AI-call limits are shown; collect when the page is right."""
+- Be economical: the step and AI-call limits are shown; collect when the page is right.
+- WHAT WORKED ON THIS SITE BEFORE, when shown, is from earlier runs: try it first, but check the page."""
+
+REPLAN_SYSTEM = """You are the planner of a web-collecting agent that looks stuck. You get the goal, the \
+checklist, the route it was following and what it did. Find why it isn't working (refused addresses, a \
+form that needs the browser, the wrong section, repeating itself) and write a NEW short route that tries \
+something different with its tools: open_page, find_links, search, check_results, next_page, browse, \
+ask_user, collect, finish. Steps are plain sentences, e.g. "find_links 'category' on the home page", \
+"browse: type Goa in the destination box and pick the suggestion". Never suggest leaving the site, logging \
+in, buying, contacting or typing personal data. If the site truly can't give the data, the route can be \
+one step: finish with the reason."""
+
+
+def replan_schema() -> dict:
+    s = {"type": "string"}
+    props = {"diagnosis": s, "route": {"type": "array", "items": s}}
+    return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
 
 
 def step_schema() -> dict:

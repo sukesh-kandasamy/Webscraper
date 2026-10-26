@@ -173,7 +173,7 @@ def test_brain_timeout_switches_to_the_backup_or_ends_plainly(site, monkeypatch)
            "fields": [], "form": 0, "pages": 0, "task": "", "question": "", "note": "", "summary": "", "outcome": "ok"}, 50)
     calls = []
 
-    def ask(system, messages, schema, name, provider=None, model=None):
+    def ask(system, messages, schema, name, provider=None, model=None, timeout=None):
         calls.append(model)
         if model != "backup-model":
             raise ReadTimeout("The read operation timed out")

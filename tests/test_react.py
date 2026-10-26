@@ -307,7 +307,7 @@ def test_brain_parses_steps_and_switches_to_the_backup(site, monkeypatch):
           "fields": [], "form": 0, "pages": 0, "note": "", "summary": "", "outcome": "ok"}, 1234),
     ])
 
-    def fake_ask(system, messages, schema, name, provider=None, model=None):
+    def fake_ask(system, messages, schema, name, provider=None, model=None, timeout=None):
         a = next(answers)
         if isinstance(a, Exception):
             raise a

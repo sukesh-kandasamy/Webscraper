@@ -101,9 +101,15 @@ and availability. All pages."* Naming a site is optional.
    is the results list, go to the next page, hand the page over, or, when a page needs clicking or typing
    (a search widget, date pickers, a filter panel), send **one sub-task to a real browser**
    ([browser-use](https://github.com/browser-use/browser-use) in Edge / Chrome, every action still checked
-   by the app) and read the page it ends on. If the goal is unclear it **asks you one question** (at most
-   two per run) and waits for your answer. You watch every thought, action and observation live, with the
-   checklist ticking off, and can **Stop** at any time.
+   by the app) and read the page it ends on. The browser has fixed **skills** for the widgets AI agents
+   fumble: pick an autocomplete suggestion, set a date (native fields or the calendar), click the page's
+   own Next. If the goal is unclear it **asks you one question** (at most two per run) and waits for your
+   answer. When it is **stuck** (its last actions failed, were refused or repeated, or most of its steps
+   are used) it stops, says why and writes a new route, at most twice per run. You watch every thought,
+   action and observation live, with the checklist ticking off, and can **Stop** at any time.
+   **Site memory:** after a run succeeds, what worked (the steps, the results page, the list) is kept with
+   the site; the next run there gets it as a hint and may open that results page directly. The plan card
+   says when the agent remembers a site, with **Forget**.
 4. The normal engine collects the results (all pages, item pages, typed values, conditions, quality
    report), the check-and-fix step mends what it can, and the run is saved as a normal saved scrape with an
    *Agent* chip. **Run again** needs no AI.
@@ -286,7 +292,7 @@ Web-Scraping/
 | `app/extraction/` | `extractor.py` (applies a recipe to HTML or embedded JSON; pagination) · `recipe_builder.py` (finds the listing, asks the AI for a recipe, tests it; item-page recipes) · `request_parser.py` ("Describe what you need" → columns, conditions, sort, limit) · `normalize.py` (money, numbers, ratings, dates) · `structured.py` (JSON-LD and embedded app data) · `details.py` (item pages) |
 | `app/runs/` | `jobs.py` (background runs: typing, de-duplication, conditions, item pages, retries) · `quality.py` (quality report and health check) · `export.py` (CSV / Excel) |
 | `app/agent/` | `planner.py` (goal → plan) · `guard.py` (what the agent may do) · `api.py` (UI + worker API) · `handoff.py` (results page → engine) · `routes.py` (record and replay steps without AI) · `supervisor.py` (check and fix) · `runner.py` (starts the worker) · `store.py` (runs and steps) |
-| `agent_worker/` | `worker.py` (browser-use, talks to the app's local API with a one-time token) · `requirements.txt` / `.lock` |
+| `agent_worker/` | `worker.py` (browser-use, talks to the app's local API with a one-time token) · `skills.py` (pick a suggestion, set a date, next page; each click and value checked by the app) · `requirements.txt` / `.lock` |
 | `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `build_ui_assets.mjs` (Material 3 colours, Roboto, Material Symbols from Google's packages) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) |
 
 ## Settings (`.env`)

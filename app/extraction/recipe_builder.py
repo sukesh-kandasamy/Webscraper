@@ -465,7 +465,7 @@ def _with_retries(call, *args):
 
 def _ask_claude(messages: list[dict], schema: dict, system: str = SYSTEM, name: str = "recipe",
                 model: str = "") -> str:
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, timeout=_timeout(600))
     kwargs = dict(
         model=model or config.CLAUDE_MODEL,
         max_tokens=16000,
@@ -495,7 +495,7 @@ def _ask_groq(messages: list[dict], schema: dict, system: str = SYSTEM, name: st
     model = model or config.GROQ_MODEL
     # Reasoning effort and strict schemas are gpt-oss features on Groq; other models get a plain schema.
     gpt_oss = "gpt-oss" in model
-    client = Groq(api_key=config.GROQ_API_KEY)
+    client = Groq(api_key=config.GROQ_API_KEY, timeout=_timeout(60))
     resp = client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": system}, *messages],
@@ -515,6 +515,11 @@ def last_tokens() -> int:
     return int(getattr(_usage, "last", 0) or 0)
 
 
+def _timeout(default: float) -> float:
+    """Seconds to wait for one AI answer: the caller's choice for this thread (ask_structured), else default."""
+    return getattr(_usage, "timeout", None) or default
+
+
 class OpenAIError(Exception):
     """An error answer from the OpenAI API (status_code / response feed the retry logic)."""
 
@@ -528,7 +533,7 @@ def _ask_openai(messages: list[dict], schema: dict, system: str = SYSTEM, name: 
     """OpenAI Chat Completions with strict structured output (plain HTTPS: no extra package)."""
     import httpx
 
-    r = httpx.post(f"{config.OPENAI_BASE_URL}/chat/completions", timeout=180,
+    r = httpx.post(f"{config.OPENAI_BASE_URL}/chat/completions", timeout=_timeout(180),
                    headers={"Authorization": f"Bearer {config.OPENAI_API_KEY}"},
                    json={"model": model or config.OPENAI_MODEL,
                          "messages": [{"role": "system", "content": system}, *messages],
@@ -590,16 +595,19 @@ def ask_json(system: str, prompt: str, schema: dict, name: str) -> dict:
 
 
 def ask_structured(system: str, messages: list[dict], schema: dict, name: str,
-                   provider: str | None = None, model: str | None = None) -> tuple[dict, int]:
+                   provider: str | None = None, model: str | None = None,
+                   timeout: float | None = None) -> tuple[dict, int]:
     """A structured AI call with a whole conversation, on a chosen provider and model (the ReAct agent's
     brain uses the agent's AI, not the scrape-building one). Returns (answer, tokens used).
     Raises RecipeBuildError when the answer can't be used; provider errors pass through."""
     ask = _ASK.get(provider or config.AI_PROVIDER, _ask_claude)
-    _usage.last = 0
+    _usage.last, _usage.timeout = 0, timeout
     try:
         text = _with_retries(ask, messages, schema, system, name, model or "")
     except _Refused:
         raise RecipeBuildError("The AI model declined this request.")
+    finally:
+        _usage.timeout = None
     try:
         return json.loads(text), last_tokens()
     except json.JSONDecodeError as e:

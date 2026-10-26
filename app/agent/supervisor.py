@@ -238,3 +238,9 @@ def finish(run: dict) -> None:
         summary = f"Collecting ended as '{job['status']}': {job['message']}"
     store.update(run["id"], status=status, summary=summary, message=summary, finished_at=time.time())
     _log(run["id"], "info" if status == "done" else "warn", summary)
+    if status == "done" and run.get("engine") == "react":
+        try:
+            from .react import memory
+            memory.remember(store.get(run["id"]))
+        except Exception as e:  # noqa: BLE001 - memory is a hint; never fail a finished run over it
+            _log(run["id"], "warn", f"Could not remember this site's route: {type(e).__name__}")

@@ -189,6 +189,13 @@
                   </template>
                 </div>
               </div>
+              <div x-show="agentRun.memory?.length" class="flex items-start gap-3 rounded-m3-sm bg-surface-container px-4 py-3 text-sm text-on-surface-variant">
+                <span x-html="icon('history', 'h-5 w-5')"></span>
+                <span class="flex-1">The agent remembers what worked on this site in
+                  <span x-text="agentRun.memory?.length"></span> earlier run<span x-show="agentRun.memory?.length > 1">s</span>
+                  (<span x-text="(agentRun.memory || []).map(m => m.goal).join('; ')"></span>) and starts from that.</span>
+                <button class="btn-ghost h-8 px-2 text-xs" @click="forgetMemory()">Forget</button>
+              </div>
               <div>
                 <label class="label">Start page</label>
                 <input type="url" x-model="agentRun.plan.start_url" class="input font-mono text-xs">
@@ -346,7 +353,10 @@
                       </template>
                       <template x-if="s.kind !== 'observation'">
                         <div class="break-words text-sm [overflow-wrap:anywhere]" :class="s.kind === 'thought' ? 'italic text-on-surface-variant' : 'text-on-surface'">
-                          <span class="type-badge mr-1.5 align-middle normal-case" x-show="s.kind === 'action' && s.detail?.tool" x-text="s.detail?.tool"></span><span x-text="s.text"></span></div>
+                          <span class="type-badge mr-1.5 align-middle normal-case" x-show="s.kind === 'action' && s.detail?.tool" x-text="s.detail?.tool"></span><span x-text="s.text"></span>
+                          <ol class="mt-1.5 list-decimal space-y-0.5 pl-5 text-[13px] text-on-surface-variant" x-show="s.detail?.replan?.route?.length">
+                            <template x-for="(r, i) in (s.detail?.replan?.route || [])" :key="i"><li x-text="r"></li></template>
+                          </ol></div>
                       </template>
                       <div class="mt-0.5 truncate text-xs text-on-surface-variant" x-show="s.url && !['thought', 'observation'].includes(s.kind)" x-text="s.url"></div>
                     </div>

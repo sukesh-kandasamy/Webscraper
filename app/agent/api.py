@@ -18,6 +18,7 @@ from ..fetching import blockdetect, fetcher
 from ..runs import jobs
 from ..security import audit, logsafe, sessions
 from . import guard, handoff, planner, react, runner, store
+from .react import memory as react_memory
 from .react import tools as react_tools
 
 router = APIRouter(prefix="/api/agent")
@@ -62,6 +63,9 @@ def _view(run: dict, after: int = 0) -> dict:
     run = handoff.refresh(run)
     out = {**run, "steps_list": store.steps(run["id"], after)}
     out.pop("scratchpad", None)            # the loop's working memory: large, and the timeline shows it already
+    if run["status"] == "draft":
+        out["memory"] = [{k: e.get(k) for k in ("goal", "at", "steps", "needs_browser")}
+                         for e in react_memory.recall(run["start_url"])]
     if run.get("job_id"):
         job = jobs.db.get_job(run["job_id"])
         if job:
@@ -206,6 +210,24 @@ def rename_run(run_id: str, body: TitleIn):
     title = " ".join(body.title.split())
     store.update(run["id"], title=title)
     return {"title": title}
+
+
+@router.get("/memory")
+def site_memory(site: str):
+    """What worked on a site in earlier runs: the hint the agent gets when it starts there."""
+    if not guard.site_domain(site):
+        raise HTTPException(400, "Give a site.")
+    return {"site": guard.site_domain(site), "entries": react_memory.recall(site)}
+
+
+@router.delete("/memory")
+def forget_site_memory(site: str):
+    """Forget what worked on a site; the next run there starts without the hint."""
+    if not guard.site_domain(site):
+        raise HTTPException(400, "Give a site.")
+    react_memory.forget(site)
+    audit.log("agent_memory_forgotten", domain=guard.site_domain(site))
+    return {"ok": True}
 
 
 @router.delete("/runs/{run_id}")

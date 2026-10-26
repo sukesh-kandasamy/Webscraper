@@ -34,6 +34,9 @@ from browser_use import Agent, BrowserProfile, Tools                      # noqa
 from browser_use.agent.views import ActionResult                          # noqa: E402
 
 import llm_errors                                                         # noqa: E402
+import skills                                                             # noqa: E402
+
+SKILLS = ("pick_suggestion", "set_date", "next_page")
 
 client = httpx.Client(base_url=APP, headers=HEADERS, timeout=60)
 
@@ -128,7 +131,10 @@ async def describe(browser_session, index) -> dict:
 
 def sentence(name: str, params: dict, el: dict) -> str:
     attrs = el.get("attributes") or {}
-    label = el.get("text") or attrs.get("aria-label") or attrs.get("value") or attrs.get("placeholder") or \
+    text = el.get("text") or ""
+    if text and not any(ch.isalnum() for ch in text):      # "›", ">" arrows: their label says more
+        text = attrs.get("aria-label") or attrs.get("title") or text
+    label = text or attrs.get("aria-label") or attrs.get("value") or attrs.get("placeholder") or \
         attrs.get("title") or attrs.get("name") or el.get("tag", "element")
     label = label[:60]
     return {
@@ -180,10 +186,49 @@ class GuardedTools(Tools):
         super().__init__(exclude_actions=EXCLUDED)
         self.run = run
 
+        self.widgets = skills.Skills(self, self._check, self._record)
+
         @self.action("Call this when the current page shows the LIST of results the person wants (after "
                      "applying the filters you could). note: one line about the filters applied.")
         async def results_reached(note: str, browser_session) -> ActionResult:
             return await self._arrive(note, browser_session)
+
+        @self.action("Type text into a search / destination box (index) and click the matching suggestion in "
+                     "the list that drops down. Use this for autocomplete boxes instead of input + click.")
+        async def pick_suggestion(index: int, text: str, browser_session) -> ActionResult:
+            return self._result(*await self.widgets.pick_suggestion(index, text, browser_session, describe))
+
+        @self.action("Set a date field or date-picker opener (index) to date (YYYY-MM-DD): types into native "
+                     "date inputs, otherwise opens the calendar, moves to the month and clicks the day.")
+        async def set_date(index: int, date: str, browser_session) -> ActionResult:
+            return self._result(*await self.widgets.set_date(index, date, browser_session, describe))
+
+        @self.action("Go to the next page of results by clicking the page's own Next control.")
+        async def next_page(browser_session) -> ActionResult:
+            return self._result(*await self.widgets.next_page(browser_session))
+
+    @staticmethod
+    def _result(message: str, error: str) -> ActionResult:
+        if error:
+            return ActionResult(error=error)
+        return ActionResult(extracted_content=message, long_term_memory=message)
+
+    def _check(self, action: str, el: dict, text: str) -> str:
+        """The app's answer for one click or typed value inside a skill: "" when allowed, else the reason."""
+        res = post(f"/api/agent/worker/runs/{self.run.id}/check", action=action, element=el, text=text, url="")
+        if res.get("ok", False):
+            return ""
+        return f"Refused by the app: {res.get('reason') or 'not allowed'}. Choose another way."
+
+    async def _record(self, browser_session, action: str, el: dict, params: dict, error: str) -> None:
+        url = ""
+        try:
+            url = await browser_session.get_current_page_url()
+        except Exception:
+            pass
+        post(f"/api/agent/worker/runs/{self.run.id}/step", kind="action", text=sentence(action, params, el), url=url,
+             detail={"action": action, "params": params, "target": el, "error": (error or "")[:300]},
+             **self.run.counters())
 
     async def _arrive(self, note: str, browser_session) -> ActionResult:
         page = await browser_session.get_current_page()
@@ -215,7 +260,7 @@ class GuardedTools(Tools):
                     return ActionResult(error=f"Refused by the app: {res.get('reason') or 'not allowed'}. "
                                               "Choose another way (only search, filter, sort and read).")
             result = await super().act(action, browser_session, *args, **kwargs)
-            if name not in ("done", "results_reached"):
+            if name not in ("done", "results_reached", *SKILLS):      # skills record their own clicks and typing
                 url = ""
                 try:
                     url = await browser_session.get_current_page_url()

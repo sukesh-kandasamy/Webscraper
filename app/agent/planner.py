@@ -53,7 +53,9 @@ Return:
 - must: the conditions that change WHICH results the site shows and so must be true on the results page \
   before collecting: the search term, place, dates, category, type of listing. Short, one per line, e.g. \
   "destination: Goa", "check-in 25 Nov 2026, check-out 28 Nov 2026", "category: Mystery". Not prices, \
-  ratings, sorting or how many: the app applies those to the rows afterwards. 0-8 items.
+  ratings, sorting or how many: the app applies those to the rows afterwards. Never restate what the site \
+  or page already is (on an "Oscar winning films" page, "oscar winner: true" is not a condition; neither is \
+  "awards contains Oscar"). 0-8 items.
 - question: "" normally; one short question only if the goal is too unclear to start."""
 
 SUGGEST_SYSTEM = """A person describes data they want collected from the web but names no website. Name 1-3 \

@@ -6,10 +6,13 @@ from dataclasses import dataclass, field
 from ... import config
 from ...extraction import recipe_builder
 from .. import llm_errors, store
-from . import prompts
+from . import memory, prompts
 
 RECENT_FULL = {"groq": 4}             # steps shown in full in the prompt (others as one-line digests)
 HISTORY_OBS_CHARS = 600
+MAX_REPLANS = 2
+AI_TIMEOUT_S = 75                     # one step is a short answer; a hung request is retried sooner
+STUCK_FAILS = 3                       # this many failed / refused / repeated actions in a row = stuck
 
 
 class BrainError(Exception):
@@ -37,12 +40,22 @@ def contract(ctx) -> str:
             checks.append(f"  [{'x' if c.get('done') else ' '}] {c['id']}: {c['text']}")
         else:
             checks.append(f"  (app) {c['text']}  — the app applies this to the rows after collecting; NOT your job on the site")
-    route = "\n".join(f"  {i}. {s}" for i, s in enumerate(ctx.plan.get("navigation", []), 1))
-    return (f"GOAL: {ctx.goal}\nSITE: {ctx.site}   START PAGE: {ctx.start_url}\n"
-            f"CHECKLIST:\n" + ("\n".join(checks) or "  (none)") +
-            f"\nCOLUMNS WANTED: {cols or 'the important details of each item'}\n"
-            f"PAGES TO COLLECT: {ctx.plan.get('pages', 3)} · item pages: {ctx.plan.get('item_pages', 'auto')}\n"
-            f"SUGGESTED ROUTE (a hint, not a script):\n{route or '  (none)'}")
+    replans = [r for r in ctx.pad.get("replans") or [] if r.get("route")]
+    if replans:
+        r = replans[-1]
+        head, steps = f"YOUR NEW ROUTE (re-planned at step {r['at']}: {r['diagnosis'][:200]}):", r["route"]
+    else:
+        head, steps = "SUGGESTED ROUTE (a hint, not a script):", ctx.plan.get("navigation", [])
+    route = "\n".join(f"  {i}. {s}" for i, s in enumerate(steps, 1))
+    out = (f"GOAL: {ctx.goal}\nSITE: {ctx.site}   START PAGE: {ctx.start_url}\n"
+           f"CHECKLIST:\n" + ("\n".join(checks) or "  (none)") +
+           f"\nCOLUMNS WANTED: {cols or 'the important details of each item'}\n"
+           f"PAGES TO COLLECT: {ctx.plan.get('pages', 3)} · item pages: {ctx.plan.get('item_pages', 'auto')}\n"
+           f"{head}\n{route or '  (none)'}")
+    if getattr(ctx, "memory", None):
+        out += ("\nWHAT WORKED ON THIS SITE BEFORE (earlier runs; a strong hint, but check the page, sites change; "
+                "its results page may be opened directly):\n" + memory.prompt_lines(ctx.memory))
+    return out
 
 
 def history_text(ctx) -> str:
@@ -70,6 +83,50 @@ def prompt(ctx) -> str:
             + "\n\n" + history_text(ctx) + "\n\nWhat do you do next? Answer with the JSON.")
 
 
+def stuck(ctx) -> str:
+    """Why the agent looks stuck, or "" when it doesn't: its last actions all failed, were refused or
+    repeated, or it used most of its steps without collecting. At most MAX_REPLANS re-plans per run."""
+    replans = ctx.pad.get("replans") or []
+    if len(replans) >= MAX_REPLANS:
+        return ""
+    since = replans[-1]["at"] if replans else 0
+    recent = [h for h in ctx.pad["history"] if h["n"] > since]
+    last = recent[-STUCK_FAILS:]
+    if len(last) == STUCK_FAILS and not any(h.get("ok") for h in last):
+        if sum(h["obs"].startswith("You already did") for h in last) >= 2:
+            return f"the last {STUCK_FAILS} actions repeated earlier ones"
+        if sum(h["obs"].startswith("Refused") for h in last) >= 2:
+            return f"the last {STUCK_FAILS} actions were refused"
+        return f"the last {STUCK_FAILS} actions failed or found nothing"
+    limit = int(ctx.limits.get("steps", config.AGENT_MAX_STEPS))
+    if not replans and limit >= 8 and ctx.steps >= int(limit * 0.6):
+        return f"{ctx.steps} of {limit} steps are used and nothing is collected yet"
+    return ""
+
+
+def replan(ctx, why: str) -> dict:
+    """One AI call: why isn't it working, and a new short route. Saved in the scratchpad; the prompt shows
+    it in place of the plan's route. A failed call still counts, so it isn't retried at once."""
+    left = ctx.left()
+    text = (contract(ctx) + f"\n\nLIMITS LEFT: {left['steps']} steps, {left['ai_calls']} AI calls\n\n" +
+            history_text(ctx) + f"\n\nYOU LOOK STUCK: {why}. Say in one line why the current approach isn't "
+            "working, then write a NEW short route (at most 5 steps, with the tools you have) that tries "
+            "something different. Answer with the JSON.")
+    entry = {"at": ctx.steps, "why": why, "diagnosis": "", "route": []}
+    try:
+        raw, tokens = recipe_builder.ask_structured(prompts.REPLAN_SYSTEM, [{"role": "user", "content": text}],
+                                                   prompts.replan_schema(), "agent_replan", ctx.provider, ctx.model,
+                                                   timeout=AI_TIMEOUT_S)
+        store.bump(ctx.run_id, ai_calls=1, tokens=tokens)
+        entry["diagnosis"] = str(raw.get("diagnosis") or "").strip()[:300]
+        entry["route"] = [str(s).strip()[:200] for s in raw.get("route") or [] if str(s).strip()][:5]
+    except Exception:  # noqa: BLE001 - provider problems surface on the next decide(), which handles them
+        store.bump(ctx.run_id, ai_calls=1)
+    ctx.ai_calls += 1
+    ctx.pad.setdefault("replans", []).append(entry)
+    return entry
+
+
 TOOL_ARGS = {"open_page": ("url", "params"), "find_links": ("url", "pattern"), "search": ("url", "form", "fields"),
              "check_results": ("url",), "next_page": ("url",), "collect": ("url", "pages", "note"),
              "browse": ("task", "url"), "ask_user": ("question",), "finish": ("outcome", "summary")}
@@ -94,7 +151,8 @@ def decide(ctx) -> Step:
     for attempt in range(4):              # the 4th try is only reached after switching to the backup AI
         try:
             raw, tokens = recipe_builder.ask_structured(prompts.SYSTEM, [{"role": "user", "content": prompt(ctx)}],
-                                                       prompts.step_schema(), "agent_step", ctx.provider, ctx.model)
+                                                       prompts.step_schema(), "agent_step", ctx.provider, ctx.model,
+                                                       timeout=AI_TIMEOUT_S)
             store.bump(ctx.run_id, ai_calls=1, tokens=tokens)
             ctx.ai_calls += 1
             return _parse(raw)

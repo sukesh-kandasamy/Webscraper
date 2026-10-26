@@ -6,8 +6,8 @@ import time
 from ... import config
 from ...fetching import fetcher
 from ...security import audit, logsafe
-from .. import store
-from . import brain, tools
+from .. import guard, store
+from . import brain, memory, tools
 
 OBS_STEP_CHARS = 500            # shown in the timeline; the full text sits in the step's detail
 OBS_DETAIL_CHARS = 4000
@@ -36,6 +36,13 @@ class Context:
         self.step_no = self.steps
         self.budget = config.agent_prompt_budget()
         self.provider, self.model, self.using_backup = config.AGENT_PROVIDER, config.AGENT_MODEL, False
+        self.memory = memory.recall(self.start_url)
+        self.pad.setdefault("replans", [])
+        seen = self.facts.setdefault("seen_urls", [])
+        for e in self.memory:                # a results page the site showed in an earlier run may be opened again
+            u = e.get("results_url", "")
+            if u and u not in seen and guard.on_site(u, self.site):
+                seen.append(u)
 
     def musts(self) -> list[str]:
         return [c["text"] for c in self.checklist if c["kind"] == "must"]
@@ -86,7 +93,7 @@ class Context:
 
 def _arg_text(tool: str, args: dict) -> str:
     bits = []
-    for k in ("url", "pattern", "form", "pages", "outcome"):
+    for k in ("url", "pattern", "form", "pages", "outcome", "task", "question"):
         if args.get(k) not in (None, "", 0):
             bits.append(f"{k}={args[k]}" if k != "url" else str(args[k]))
     for k in ("params", "fields"):
@@ -138,10 +145,26 @@ def run(run_id: int, app_url: str = "", resumed: bool = False) -> None:
             return
         ctx = Context(store.get(run_id), app_url)
         store.add_step(run_id, "info", f"Started with {ctx.provider} · {ctx.model} (reason, act, observe).")
+        if ctx.memory:
+            n = len(ctx.memory)
+            store.add_step(run_id, "info", f"Remembers what worked on this site in {n} earlier run{'s' if n > 1 else ''}; "
+                                           "the agent gets it as a hint.", detail={"memory": ctx.memory})
     while True:
         over = ctx.exceeded()
         if over:
             return _end(ctx, *over)
+        why = brain.stuck(ctx)
+        if why:
+            store.update(run_id, message="Re-planning")
+            r = brain.replan(ctx, why)
+            ctx.save()
+            if r["route"]:
+                store.add_step(run_id, "info", f"Re-planned because {why}: {r['diagnosis'] or 'a different approach'}",
+                               detail={"replan": r})
+            else:
+                store.add_step(run_id, "warn", f"Looked stuck ({why}) but couldn't make a new route; carrying on.")
+            store.update(run_id, message="Thinking")
+            continue                          # the limits are checked again: the re-plan used an AI call
         try:
             step = brain.decide(ctx)
         except brain.BrainError as e:
