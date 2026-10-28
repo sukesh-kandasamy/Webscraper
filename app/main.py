@@ -375,6 +375,11 @@ def page_settings(request: Request):
     return _page(request, "pages/settings.html", "settings", "Settings")
 
 
+@app.get("/docs/production-risks", include_in_schema=False)
+def page_docs_risks(request: Request):
+    return _page(request, "pages/docs_risks.html", "docs", "Production risks")
+
+
 @app.get("/agent", include_in_schema=False)
 @app.get("/agent/runs/{run_ref}", include_in_schema=False)
 def page_agent(request: Request, run_ref: str = ""):
