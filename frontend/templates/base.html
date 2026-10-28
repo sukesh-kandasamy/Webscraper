@@ -1,5 +1,6 @@
 <!doctype html>
 {% from "partials/logo.html" import logo %}
+{% from "partials/mode_switch.html" import mode_switch, mode_curtain %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -35,6 +36,8 @@
       <span class="text-[17px] font-semibold leading-6 tracking-[-0.01em] text-on-surface">Universal Scraper</span>
     </a>
 
+    <div class="px-1 pb-3" x-show="agentEnabled()" x-cloak>{{ mode_switch("manual") }}</div>
+
     <div class="px-1 pb-4 pt-1">
       <a class="fab w-full justify-start" href="/scrapes/new">
         <span x-html="icon('add', 'h-5 w-5')"></span> New scrape
@@ -52,14 +55,6 @@
         <span class="chip chip-blue" x-show="!status?.needs_you?.length && status?.active_jobs" x-cloak><span class="dot animate-pulse"></span><span x-text="status?.active_jobs"></span></span>
         {% endif %}
       </a>
-      {% if key == "home" %}
-      <a class="nav-item" href="/agent" x-show="agentEnabled()" x-cloak>
-        <span x-html="icon('smart_toy', 'nav-icon')"></span>
-        <span class="flex-1">Agent</span>
-        <span class="chip chip-blue" x-show="status?.active_agent_runs" x-cloak><span class="dot animate-pulse"></span><span x-text="status?.active_agent_runs"></span></span>
-        <span class="chip chip-blue" x-show="!status?.active_agent_runs">New</span>
-      </a>
-      {% endif %}
       {% endfor %}
     </nav>
 
@@ -93,6 +88,7 @@
 </div>
 {% endblock %}
 
+{{ mode_curtain(request.cookies.get("mode_curtain", "")) }}
 {% include "partials/snackbar.html" %}
 {% include "partials/dialog.html" %}
 {% include "partials/browser_window.html" %}

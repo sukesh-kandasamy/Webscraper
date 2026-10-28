@@ -1,0 +1,31 @@
+{# Manual / Agent: the two ways to use the app. Switching plays the mode curtain (core.js goMode). #}
+{% macro mode_switch(current, cls="") -%}
+<div class="mode-switch {{ cls }}" data-mode="{{ current }}" aria-label="Mode">
+  <span class="mode-switch-thumb" aria-hidden="true"></span>
+  <a href="/" @click="goMode($event, 'manual')" {% if current == "manual" %}aria-current="page"{% endif %} title="Manual mode: set up and run scrapes yourself">
+    <span x-html="icon('tune', 'h-[18px] w-[18px]')"></span><span>Manual</span></a>
+  <a href="/agent" @click="goMode($event, 'agent')" {% if current == "agent" %}aria-current="page"{% endif %} title="Agent mode: describe the data, the agent collects it">
+    <span x-html="icon('smart_toy', 'h-[18px] w-[18px]')"></span><span>Agent</span>
+    <span class="mode-switch-dot" x-show="status?.active_agent_runs" x-cloak aria-hidden="true"></span></a>
+</div>
+{%- endmacro %}
+
+{# The full-screen curtain shown while the mode changes. The server draws it closed over the arriving page when
+   the mode_curtain cookie says a switch is under way, so nothing flashes; core.js then lifts it. #}
+{% macro mode_curtain(arriving="") -%}
+{% from "partials/logo.html" import logo %}
+<div id="mode-curtain" class="mode-curtain{% if arriving in ('agent', 'manual') %} to-{{ arriving }} is-open is-arriving{% endif %}" aria-hidden="true">
+  <div class="mode-curtain-content">
+    <div class="mode-curtain-badge">{{ logo("h-14 w-14") }}</div>
+    <div class="mode-curtain-text" data-for="agent">
+      <div class="mode-curtain-title">Agent mode</div>
+      <div class="mode-curtain-sub">Describe the data. The agent finds it.</div>
+    </div>
+    <div class="mode-curtain-text" data-for="manual">
+      <div class="mode-curtain-title">Manual mode</div>
+      <div class="mode-curtain-sub">Set up, check and run your scrapes yourself.</div>
+    </div>
+    <div class="mode-curtain-dots"><span></span><span></span><span></span></div>
+  </div>
+</div>
+{%- endmacro %}

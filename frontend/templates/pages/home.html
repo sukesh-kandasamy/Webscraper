@@ -47,7 +47,7 @@
 
   <!-- agent mode -->
   <button class="card group flex w-full items-center gap-4 p-5 text-left hover:border-outline"
-          x-show="agentEnabled()" x-cloak @click="go('agent')">
+          x-show="agentEnabled()" x-cloak @click="goMode($event, 'agent')">
     <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-on-primary" x-html="icon('sparkles', 'h-5 w-5')"></span>
     <span class="min-w-0 flex-1">
       <span class="flex items-center gap-2 font-semibold text-slate-900 dark:text-white">Let the agent do it <span class="chip chip-blue">New</span></span>

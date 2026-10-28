@@ -192,6 +192,27 @@ function shell() {
     themeLabel() { return { system: "System theme", light: "Light theme", dark: "Dark theme" }[this.theme]; },
     agentEnabled() { return !!this.status?.agent?.enabled && this.agentShown; },
 
+    // Manual ⇄ Agent: the curtain grows as a circle from where you clicked, the other mode loads under it,
+    // and the server draws the same curtain over the arriving page (cookie) so it can fade away there.
+    goMode(e, mode) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button > 0) return;          // new tab / window: a plain link
+      e.preventDefault();
+      const href = mode === "agent" ? "/agent" : "/";
+      const here = this.data.active === "agent" ? "agent" : "manual";
+      if (mode === here) return;
+      e.currentTarget.closest(".mode-switch")?.setAttribute("data-mode", mode);   // the thumb slides across
+      document.cookie = `mode_curtain=${mode}; path=/; max-age=30; samesite=strict`;
+      const curtain = document.getElementById("mode-curtain");
+      if (!curtain || window.matchMedia("(prefers-reduced-motion: reduce)").matches) { location.href = href; return; }
+      const box = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX || box.left + box.width / 2, y = e.clientY || box.top + box.height / 2;   // keyboard: from the button
+      curtain.style.setProperty("--x", `${x}px`);
+      curtain.style.setProperty("--y", `${y}px`);
+      curtain.className = `mode-curtain to-${mode}`;
+      requestAnimationFrame(() => requestAnimationFrame(() => curtain.classList.add("is-open")));
+      setTimeout(() => { location.href = href; }, 700);
+    },
+
     // Styled dialogs instead of the browser's confirm() / prompt().
     ask(opts) {
       return new Promise(resolve => {
@@ -416,3 +437,30 @@ function page(own) {
   };
   return out;
 }
+
+// Arriving after a mode switch: the server drew the curtain closed over this page; lift it once the page is up.
+function resetModeCurtain(c) {
+  c.style.transition = "none";                     // put it away without playing the closing animation
+  c.className = "mode-curtain";
+  void c.offsetWidth;
+  c.removeAttribute("style");
+}
+function liftModeCurtain() {
+  const c = document.getElementById("mode-curtain");
+  if (!c || !c.classList.contains("is-open")) return;
+  document.cookie = "mode_curtain=; path=/; max-age=0; samesite=strict";
+  setTimeout(() => {
+    c.classList.add("is-leaving");
+    setTimeout(() => resetModeCurtain(c), 500);
+  }, 450);
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", liftModeCurtain);
+else liftModeCurtain();
+// Back / forward from the browser's page cache: no curtain left closed, the switch back on this page's mode.
+window.addEventListener("pageshow", e => {
+  if (!e.persisted) return;
+  const c = document.getElementById("mode-curtain");
+  if (c) resetModeCurtain(c);
+  document.querySelectorAll(".mode-switch").forEach(s =>
+    s.setAttribute("data-mode", document.body.dataset.active === "agent" ? "agent" : "manual"));
+});

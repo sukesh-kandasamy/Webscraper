@@ -175,4 +175,47 @@
   .skeleton::after { content: ""; @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/40 to-transparent dark:via-white/5; }
   .kbd         { @apply rounded border border-outline-variant bg-surface-container px-1.5 py-0.5 font-mono text-[11px] text-on-surface-variant; }
   .divider     { @apply border-outline-variant; }
+
+  /* ---- Manual / Agent mode switch: a pill whose thumb slides to the chosen mode */
+  .mode-switch { @apply relative grid grid-cols-2 rounded-full bg-surface-container-high p-1 text-sm font-medium; }
+  .mode-switch > a { @apply relative z-10 flex h-9 items-center justify-center gap-1.5 rounded-full px-3 text-on-surface-variant transition-colors duration-300 hover:text-on-surface; }
+  .mode-switch > a[aria-current="page"] { @apply text-on-primary hover:text-on-primary; }
+  .mode-switch-thumb { @apply absolute bottom-1 left-1 top-1 w-[calc(50%-4px)] rounded-full bg-primary shadow-e1 transition-transform duration-500 ease-emphasized; }
+  .mode-switch[data-mode="agent"] .mode-switch-thumb { transform: translateX(100%); }
+  .mode-switch[data-mode="agent"] > a[href="/agent"], .mode-switch[data-mode="manual"] > a[href="/"] { @apply text-on-primary; }
+  .mode-switch[data-mode="agent"] > a[href="/"], .mode-switch[data-mode="manual"] > a[href="/agent"] { @apply text-on-surface-variant; }
+  .mode-switch-dot { @apply absolute right-2 top-1.5 h-2 w-2 animate-pulse rounded-full bg-success; }
+
+  /* ---- the mode curtain: grows as a circle from the click, then fades away over the other mode */
+  .mode-curtain { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; pointer-events: none;
+                  visibility: hidden; clip-path: circle(0 at var(--x, 50%) var(--y, 50%));
+                  transition: clip-path .62s cubic-bezier(.3, 0, .1, 1), opacity .45s ease, visibility 0s .62s; }
+  .mode-curtain.is-open { visibility: visible; clip-path: circle(150vmax at var(--x, 50%) var(--y, 50%));
+                          transition: clip-path .62s cubic-bezier(.3, 0, .1, 1), opacity .45s ease; pointer-events: auto; }
+  .mode-curtain.is-leaving { opacity: 0; }
+  .mode-curtain.to-agent { @apply bg-primary text-on-primary; }
+  .mode-curtain.to-manual { @apply bg-surface text-on-surface; }
+  .mode-curtain-text { display: none; }
+  .mode-curtain.to-agent .mode-curtain-text[data-for="agent"],
+  .mode-curtain.to-manual .mode-curtain-text[data-for="manual"] { display: block; }
+  .mode-curtain-content { @apply flex flex-col items-center gap-4 text-center; opacity: 0; transform: translateY(12px) scale(.96);
+                          transition: opacity .35s ease .18s, transform .5s cubic-bezier(.2, 0, 0, 1) .18s; }
+  .mode-curtain.is-open .mode-curtain-content { opacity: 1; transform: none; }
+  .mode-curtain.is-arriving .mode-curtain-content { transition: none; }
+  .mode-curtain.is-leaving .mode-curtain-content { opacity: 0; transform: translateY(-10px) scale(1.03); transition: opacity .3s ease, transform .45s ease; }
+  .mode-curtain-badge { @apply grid h-24 w-24 place-items-center rounded-[28px] ring-1; animation: mode-badge 1.6s ease-in-out infinite; }
+  .mode-curtain.to-agent .mode-curtain-badge { @apply bg-on-primary/10 ring-on-primary/20; }
+  .mode-curtain.to-manual .mode-curtain-badge { @apply bg-surface-container-high ring-outline-variant; }
+  .mode-curtain-title { @apply text-[28px] font-semibold leading-9 tracking-[-0.01em]; }
+  .mode-curtain-sub { @apply mt-1 text-sm opacity-75; }
+  .mode-curtain-dots { @apply mt-2 flex gap-1.5; }
+  .mode-curtain-dots > span { @apply h-1.5 w-1.5 rounded-full bg-current opacity-40; animation: mode-dot 1s ease-in-out infinite; }
+  .mode-curtain-dots > span:nth-child(2) { animation-delay: .15s; }
+  .mode-curtain-dots > span:nth-child(3) { animation-delay: .3s; }
+  @keyframes mode-badge { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+  @keyframes mode-dot { 0%, 100% { opacity: .25; transform: translateY(0); } 50% { opacity: .9; transform: translateY(-3px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .mode-curtain, .mode-curtain.is-open, .mode-curtain-content, .mode-switch-thumb { transition: none !important; }
+    .mode-curtain-badge, .mode-curtain-dots > span { animation: none; }
+  }
 }

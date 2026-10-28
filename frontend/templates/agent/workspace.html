@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/mode_switch.html" import mode_switch %}
 {% block page %}agentPage{% endblock %}
 {% block scripts %}<script defer src="/static/js/pages/agent.js"></script>{% endblock %}
 {% block body %}
@@ -7,14 +8,13 @@
 
   <!-- top app bar -->
   <header class="flex h-16 shrink-0 items-center gap-2 px-2 sm:px-4">
-    <a class="btn btn-icon" href="/" title="Back to Universal Scraper" aria-label="Back to Universal Scraper"><span x-html="icon('arrow_back', 'h-6 w-6')"></span></a>
     <button class="btn btn-icon lg:hidden" @click="historyOpen = !historyOpen" aria-label="Agent runs"><span x-html="icon('history', 'h-6 w-6')"></span></button>
     <span class="grid h-9 w-9 place-items-center rounded-full bg-primary-container text-on-primary-container" x-html="icon('smart_toy-fill', 'h-5 w-5')"></span>
     <div class="min-w-0 leading-tight">
       <div class="title-l font-semibold text-on-surface">Agent</div>
     </div>
     <div class="ml-auto flex items-center gap-1">
-      <a class="btn-ghost hidden h-10 px-4 text-sm sm:inline-flex" href="/"><span x-html="icon('home', 'h-5 w-5')"></span> Back to Universal Scraper</a>
+      {{ mode_switch("agent", "mr-1 w-[210px]") }}
       <button class="btn btn-icon" @click="cycleTheme()" :title="themeLabel()" :aria-label="themeLabel()"><span x-html="icon(themeIcon(), 'h-6 w-6')"></span></button>
     </div>
   </header>
