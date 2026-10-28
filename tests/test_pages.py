@@ -91,3 +91,20 @@ def test_design_assets_are_served_locally(client):
     assert "MATERIAL_ICONS" in client.get("/static/js/icons.js").text
     css = client.get("/static/css/app.css").text
     assert "Roboto" in css and "--md-primary" in css and "fonts.googleapis" not in css
+
+
+def test_docs_and_settings_are_shared_by_both_modes(client):
+    """Docs (with Production risks as its first document) and Settings open in the mode you were last in."""
+    docs = client.get("/docs").text
+    assert "Production Readiness: Legal, Data and Operational Risks Review" in docs and 'href="/docs/production-risks"' in docs
+    assert 'aria-label="Main"' in docs and 'data-mode="manual"' in docs             # never visited Agent mode yet
+    risks = client.get("/docs/production-risks").text
+    assert 'aria-label="Breadcrumb"' in risks and 'href="/docs"' in risks
+    client.get("/agent")                                                               # now in Agent mode
+    for path in ("/docs", "/docs/production-risks", "/settings"):
+        page = client.get(path).text
+        assert 'data-mode="agent"' in page and 'aria-label="Agent mode sections"' in page, path
+        assert 'href="/docs"' in page and 'href="/settings"' in page                   # both reachable from Agent mode
+    client.get("/")                                                                    # back to Manual mode
+    page = client.get("/settings").text
+    assert 'data-mode="manual"' in page and 'aria-label="Docs and settings"' in page

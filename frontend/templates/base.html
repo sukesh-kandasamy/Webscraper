@@ -2,6 +2,7 @@
 {% from "partials/logo.html" import logo %}
 {% from "partials/mode_switch.html" import mode_switch, mode_curtain %}
 {% from "partials/agent_header.html" import agent_header %}
+{% set SHARED_NAV = [("docs", "/docs", "description", "Docs"), ("settings", "/settings", "settings", "Settings")] %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -30,8 +31,6 @@
   ("home", "/", "home", "Home"),
   ("scrapes", "/scrapes", "folder", "Saved scrapes"),
   ("results", "/results", "table_chart", "Results"),
-  ("settings", "/settings", "settings", "Settings"),
-  ("docs", "/docs/production-risks", "warning", "Production risks"),
 ] %}
 <div class="flex min-h-screen">
 
@@ -61,6 +60,16 @@
         <span class="chip chip-amber" x-show="status?.needs_you?.length" x-cloak x-text="status?.needs_you?.length + ' need you'"></span>
         <span class="chip chip-blue" x-show="!status?.needs_you?.length && status?.active_jobs" x-cloak><span class="dot animate-pulse"></span><span x-text="status?.active_jobs"></span></span>
         {% endif %}
+      </a>
+      {% endfor %}
+    </nav>
+
+    <!-- pages both modes share -->
+    <nav class="mb-4 space-y-1 border-t border-outline-variant pt-3" aria-label="Docs and settings">
+      {% for key, href, icon_name, label in SHARED_NAV %}
+      <a class="nav-item {% if active == key %}nav-active{% endif %}" href="{{ href }}" {% if active == key %}aria-current="page"{% endif %}>
+        <span x-html="icon('{{ icon_name }}{% if active == key and icon_name == 'settings' %}-fill{% endif %}', 'nav-icon')"></span>
+        <span class="flex-1">{{ label }}</span>
       </a>
       {% endfor %}
     </nav>

@@ -329,11 +329,18 @@ def _remember_render(domain: str, page: fetcher.Page) -> str:
 templates = Jinja2Templates(directory=config.TEMPLATES_DIR)
 
 
-def _page(request: Request, page_file: str, active: str, title: str, mode: str = "manual", **data):
+def _page(request: Request, page_file: str, active: str, title: str, mode: str = "manual", shared: bool = False,
+          **data):
     """Render one page of the UI. Page data goes into data-* attributes on <body> (no inline scripts).
-    mode: "manual" or "agent". Each mode has its own layout and shows only its own scrapes and results."""
-    return templates.TemplateResponse(request, page_file, {"active": active, "title": title, "mode": mode,
-                                                           "data": {**data, "mode": mode}})
+    mode: "manual" or "agent". Each mode has its own layout and shows only its own scrapes and results.
+    shared: a page both modes use (Docs, Settings); it opens in the mode you were last in."""
+    if shared:
+        mode = request.cookies.get("ui_mode") if request.cookies.get("ui_mode") in ("manual", "agent") else "manual"
+    resp = templates.TemplateResponse(request, page_file, {"active": active, "title": title, "mode": mode,
+                                                           "shared": shared, "data": {**data, "mode": mode}})
+    if not shared:                    # remember the mode, so a shared page keeps its layout
+        resp.set_cookie("ui_mode", mode, max_age=365 * 24 * 3600, httponly=True, samesite="strict")
+    return resp
 
 
 @app.get("/", include_in_schema=False)
@@ -397,12 +404,25 @@ def page_agent_results(request: Request, job_ref: str = "", tab: str = "data"):
 
 @app.get("/settings", include_in_schema=False)
 def page_settings(request: Request):
-    return _page(request, "pages/settings.html", "settings", "Settings")
+    return _page(request, "pages/settings.html", "settings", "Settings", shared=True)
+
+
+DOCS = [  # the Docs section: (slug, title, summary, label)
+    ("production-risks", "Production Readiness: Legal, Data and Operational Risks Review",
+     "What could go wrong if this proof of concept goes to production: website terms, AI providers, personal data, "
+     "security, operations and data quality, with the open-source license review and a checklist.", "Review · 28 Oct 2026"),
+]
+templates.env.globals["DOCS"] = DOCS
+
+
+@app.get("/docs", include_in_schema=False)
+def page_docs(request: Request):
+    return _page(request, "pages/docs_index.html", "docs", "Docs", shared=True)
 
 
 @app.get("/docs/production-risks", include_in_schema=False)
 def page_docs_risks(request: Request):
-    return _page(request, "pages/docs_risks.html", "docs", "Production risks")
+    return _page(request, "pages/docs_risks.html", "docs", "Production risks", shared=True)
 
 
 @app.get("/agent", include_in_schema=False)

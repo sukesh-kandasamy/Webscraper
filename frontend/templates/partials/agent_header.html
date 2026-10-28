@@ -18,9 +18,14 @@
     </a>
     {% endfor %}
   </nav>
-  <div class="ml-auto flex items-center gap-1">
-    {{ mode_switch("agent", "mr-1", compact=true) }}
-    <button class="btn btn-icon" @click="cycleTheme()" :title="themeLabel()" :aria-label="themeLabel()"><span x-html="icon(themeIcon(), 'h-6 w-6')"></span></button>
+  <div class="ml-auto flex items-center gap-0.5 sm:gap-1">
+    {# pages both modes share #}
+    {% for key, href, icon_name, label in [("docs", "/docs", "description", "Docs"), ("settings", "/settings", "settings", "Settings")] %}
+    <a class="btn btn-icon {% if active == key %}bg-secondary-container text-on-secondary-container{% endif %}" href="{{ href }}"
+       title="{{ label }}" aria-label="{{ label }}" {% if active == key %}aria-current="page"{% endif %}><span x-html="icon('{{ icon_name }}', 'h-[22px] w-[22px]')"></span></a>
+    {% endfor %}
+    {{ mode_switch("agent", "mx-1", compact=true) }}
+    <button class="btn btn-icon hidden sm:inline-flex" @click="cycleTheme()" :title="themeLabel()" :aria-label="themeLabel()"><span x-html="icon(themeIcon(), 'h-6 w-6')"></span></button>
   </div>
 </header>
 {%- endmacro %}
