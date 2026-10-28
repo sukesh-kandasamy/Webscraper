@@ -117,7 +117,15 @@ MIGRATIONS = [
     # which mode made a saved scrape (guided | agent) and, for agent scrapes, the recorded route
     ("scrapes", "mode", "ALTER TABLE scrapes ADD COLUMN mode TEXT NOT NULL DEFAULT 'guided'"),
     ("scrapes", "route", "ALTER TABLE scrapes ADD COLUMN route TEXT NOT NULL DEFAULT '[]'"),
+    # which mode a run belongs to (manual | agent): each mode shows only its own results
+    ("jobs", "mode", "ALTER TABLE jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'manual'"),
 ]
+MODES = ("manual", "agent")
+
+
+def mode_of(mode: str | None) -> str | None:
+    """A valid mode, or None for "all"."""
+    return mode if mode in MODES else None
 
 
 def init() -> None:
@@ -127,6 +135,8 @@ def init() -> None:
             cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
             if column not in cols:
                 c.execute(ddl)
+                if (table, column) == ("jobs", "mode"):
+                    _tag_agent_jobs(c)
         for (job_id,) in c.execute("SELECT id FROM jobs WHERE public_id IS NULL OR public_id=''").fetchall():
             c.execute("UPDATE jobs SET public_id=? WHERE id=?", (_new_job_uid(c), job_id))
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS jobs_public_id ON jobs(public_id)")
@@ -241,14 +251,24 @@ def _new_job_uid(c: sqlite3.Connection) -> str:
     return new_uid(c, "jobs", "JOB-")
 
 
+def _tag_agent_jobs(c) -> None:
+    """Runs made before jobs had a mode: those of agent scrapes or agent runs belong to Agent mode."""
+    c.execute("UPDATE jobs SET mode='agent' WHERE scrape_id IN (SELECT id FROM scrapes WHERE mode='agent')")
+    if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_runs'").fetchone():
+        c.execute("UPDATE jobs SET mode='agent' WHERE id IN (SELECT job_id FROM agent_runs WHERE job_id IS NOT NULL)")
+
+
 def create_job(urls: list[str], recipe: dict, max_pages: int, logged_in: bool = False,
                personal: dict | None = None, scrape_id: int | None = None) -> int:
     with tx() as c:
+        # A run of an agent-made scrape (first collection, fixes, "Run again") belongs to Agent mode.
+        scrape = c.execute("SELECT mode FROM scrapes WHERE id=?", (scrape_id,)).fetchone() if scrape_id else None
+        mode = "agent" if (scrape and scrape["mode"] == "agent") or recipe.get("agent") else "manual"
         cur = c.execute(
             "INSERT INTO jobs(urls, recipe, max_pages, status, created_at, logged_in, encrypted, personal, "
-            "scrape_id, public_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "scrape_id, public_id, mode) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (json.dumps(urls), json.dumps(recipe), max_pages, "queued", time.time(),
-             int(logged_in), int(logged_in), json.dumps(personal or {}), scrape_id, _new_job_uid(c)),
+             int(logged_in), int(logged_in), json.dumps(personal or {}), scrape_id, _new_job_uid(c), mode),
         )
         return cur.lastrowid
 
@@ -288,13 +308,18 @@ def pending_jobs() -> list[int]:
     return [r["id"] for r in rows]
 
 
-def list_jobs(limit: int = 50, scrape_id: int | None = None) -> list[dict]:
+def list_jobs(limit: int = 50, scrape_id: int | None = None, mode: str | None = None) -> list[dict]:
     sql = ("SELECT jobs.*, scrapes.name AS scrape_name FROM jobs "
            "LEFT JOIN scrapes ON scrapes.id = jobs.scrape_id")
-    args: tuple = ()
+    where, args = [], []
     if scrape_id is not None:
-        sql += " WHERE jobs.scrape_id = ?"
-        args = (scrape_id,)
+        where.append("jobs.scrape_id = ?")
+        args.append(scrape_id)
+    if mode_of(mode):
+        where.append("jobs.mode = ?")
+        args.append(mode)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     with tx() as c:
         rows = c.execute(sql + " ORDER BY jobs.id DESC LIMIT ?", (*args, limit)).fetchall()
     return [_job_dict(r) for r in rows]
@@ -347,15 +372,20 @@ def delete_scrape(scrape_id: int) -> None:
         c.execute("DELETE FROM scrapes WHERE id=?", (scrape_id,))
 
 
-def count_scrapes() -> int:
+def _scrape_mode_sql(mode: str | None) -> str:
+    """Saved scrapes of one mode: the agent's are mode 'agent', everything else is Manual's."""
+    return {"agent": " WHERE mode='agent'", "manual": " WHERE mode<>'agent'"}.get(mode_of(mode) or "", "")
+
+
+def count_scrapes(mode: str | None = None) -> int:
     with tx() as c:
-        return c.execute("SELECT COUNT(*) FROM scrapes").fetchone()[0]
+        return c.execute("SELECT COUNT(*) FROM scrapes" + _scrape_mode_sql(mode)).fetchone()[0]
 
 
-def list_scrapes() -> list[dict]:
+def list_scrapes(mode: str | None = None) -> list[dict]:
     """Saved scrapes, newest activity first, each with a summary of its latest run."""
     with tx() as c:
-        rows = c.execute("SELECT * FROM scrapes").fetchall()
+        rows = c.execute("SELECT * FROM scrapes" + _scrape_mode_sql(mode)).fetchall()
         out = []
         for r in rows:
             d = _scrape_dict(r)

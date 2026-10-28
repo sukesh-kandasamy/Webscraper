@@ -4,7 +4,7 @@
 {% block content %}
 <section class="space-y-6 animate-fade-up">
   <div class="flex flex-wrap items-end justify-between gap-4">
-    <div><h1 class="page-title">Saved scrapes</h1><p class="muted mt-1">Set up once, run again whenever you need fresh data.</p></div>
+    <div><h1 class="page-title">Saved scrapes</h1><p class="muted mt-1">{% if mode == "agent" %}What the agent set up: run it again without AI, or let the agent re-record it.{% else %}Set up once, run again whenever you need fresh data.{% endif %}</p></div>
     <div class="relative w-full sm:w-72" x-show="scrapes.length">
       <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" x-html="icon('search', 'h-4 w-4')"></span>
       <input type="search" x-model="scrapeQuery" class="input pl-9" placeholder="Search saved scrapes" aria-label="Search saved scrapes">
@@ -13,8 +13,13 @@
   <div class="card px-6 py-14 text-center" x-show="!scrapes.length">
     <span class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10" x-html="icon('folder', 'h-6 w-6')"></span>
     <p class="font-medium text-slate-900 dark:text-white">No saved scrapes yet</p>
+    {% if mode == "agent" %}
+    <p class="muted mt-1">Every agent run that collects data saves its scrape here.</p>
+    <a class="btn btn-primary mt-5" href="/agent"><span x-html="icon('add', 'h-4 w-4')"></span> New agent run</a>
+    {% else %}
     <p class="muted mt-1">Create one and it appears here, ready to run again.</p>
     <button class="btn btn-primary mt-5" @click="startWizard()"><span x-html="icon('plus', 'h-4 w-4')"></span> New scrape</button>
+    {% endif %}
   </div>
   <p class="muted" x-show="scrapes.length && !filteredScrapes().length" x-cloak>No saved scrape matches “<span x-text="scrapeQuery"></span>”.</p>
   <div class="grid gap-4 md:grid-cols-2">
@@ -31,7 +36,7 @@
           <div class="relative" x-data="{ open: false }">
             <button class="btn-ghost p-1.5" @click="open = !open" @click.outside="open = false" aria-label="More actions"><span x-html="icon('dots', 'h-4 w-4')"></span></button>
             <div class="menu" x-show="open" x-cloak x-transition.opacity>
-              <button class="menu-item" @click="open=false; editScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Edit columns</button>
+              {% if mode != "agent" %}<button class="menu-item" @click="open=false; editScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Edit columns</button>{% endif %}
               <button class="menu-item" @click="open=false; renameScrape(s)"><span x-html="icon('pencil', 'h-4 w-4 text-slate-400')"></span> Rename</button>
               <button class="menu-item" @click="open=false; duplicateScrape(s)"><span x-html="icon('copy', 'h-4 w-4 text-slate-400')"></span> Duplicate</button>
               <button class="menu-item" x-show="s.can_rerecord" @click="open=false; rerecordScrape(s.id)"><span x-html="icon('sparkles', 'h-4 w-4 text-slate-400')"></span> Re-record with the agent</button>

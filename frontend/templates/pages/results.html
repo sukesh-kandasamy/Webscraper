@@ -3,7 +3,7 @@
 {% block scripts %}<script defer src="/static/js/pages/results.js"></script>{% endblock %}
 {% block content %}
 <section class="space-y-6 animate-fade-up">
-  <div><h1 class="page-title">Results</h1><p class="muted mt-1">Every run and the data it collected.</p></div>
+  <div><h1 class="page-title">Results</h1><p class="muted mt-1">{% if mode == "agent" %}Every agent run's collected data, and the runs again of the agent's saved scrapes.{% else %}Every run and the data it collected.{% endif %}</p></div>
   <div class="card px-6 py-14 text-center" x-show="!jobs.length">
     <span class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10" x-html="icon('table', 'h-6 w-6')"></span>
     <p class="font-medium text-slate-900 dark:text-white">No results yet</p>

@@ -1,11 +1,11 @@
 {# Manual / Agent: the two ways to use the app. Switching plays the mode curtain (core.js goMode). #}
-{% macro mode_switch(current, cls="") -%}
+{% macro mode_switch(current, cls="", compact=false) -%}
 <div class="mode-switch {{ cls }}" data-mode="{{ current }}" aria-label="Mode">
   <span class="mode-switch-thumb" aria-hidden="true"></span>
   <a href="/" @click="goMode($event, 'manual')" {% if current == "manual" %}aria-current="page"{% endif %} title="Manual mode: set up and run scrapes yourself">
-    <span x-html="icon('tune', 'h-[18px] w-[18px]')"></span><span>Manual</span></a>
+    <span x-html="icon('tune', 'h-[18px] w-[18px]')"></span><span {% if compact %}class="hidden sm:inline"{% endif %}>Manual</span></a>
   <a href="/agent" @click="goMode($event, 'agent')" {% if current == "agent" %}aria-current="page"{% endif %} title="Agent mode: describe the data, the agent collects it">
-    <span x-html="icon('smart_toy', 'h-[18px] w-[18px]')"></span><span>Agent</span>
+    <span x-html="icon('smart_toy', 'h-[18px] w-[18px]')"></span><span {% if compact %}class="hidden sm:inline"{% endif %}>Agent</span>
     <span class="mode-switch-dot" x-show="status?.active_agent_runs" x-cloak aria-hidden="true"></span></a>
 </div>
 {%- endmacro %}

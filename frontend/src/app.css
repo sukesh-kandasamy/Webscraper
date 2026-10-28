@@ -185,6 +185,9 @@
   .mode-switch[data-mode="agent"] > a[href="/agent"], .mode-switch[data-mode="manual"] > a[href="/"] { @apply text-on-primary; }
   .mode-switch[data-mode="agent"] > a[href="/"], .mode-switch[data-mode="manual"] > a[href="/agent"] { @apply text-on-surface-variant; }
   .mode-switch-dot { @apply absolute right-2 top-1.5 h-2 w-2 animate-pulse rounded-full bg-success; }
+  /* Agent mode's sections in its top bar */
+  .agent-tab { @apply inline-flex h-9 items-center gap-1.5 rounded-full px-2.5 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface sm:px-3; }
+  .agent-tab-on { @apply bg-secondary-container text-on-secondary-container hover:bg-secondary-container hover:text-on-secondary-container; }
 
   /* ---- the mode curtain: grows as a circle from the click, then fades away over the other mode */
   .mode-curtain { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; pointer-events: none;

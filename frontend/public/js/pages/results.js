@@ -24,9 +24,9 @@ function resultsPage() {
       window.addEventListener("popstate", () => this.openFromAddress());
       await this.openFromAddress(this.data.tab);
     },
-    // /results/JOB-7K3QX9?tab=quality opens that run on that tab.
+    // /results/JOB-7K3QX9?tab=quality (or /agent/results/… in Agent mode) opens that run on that tab.
     async openFromAddress(tab) {
-      const m = location.pathname.match(/^\/results\/([A-Za-z0-9-]+)/);
+      const m = location.pathname.match(/^(?:\/agent)?\/results\/([A-Za-z0-9-]+)/);
       if (!m) { this.selectedJob = null; this.records = []; return; }
       const ref = m[1].toUpperCase();
       let j = this.jobs.find(x => x.uid === ref);
@@ -39,7 +39,7 @@ function resultsPage() {
     // Opening another run stays on this page and updates the address (back / forward work).
     async openJob(j) {
       if (!j) return;
-      history.pushState({}, "", `/results/${j.uid}`);
+      history.pushState({}, "", this.modePath(`/results/${j.uid}`));
       await this.select(j, "data");
     },
     async select(j, tab = "data") {
@@ -127,7 +127,7 @@ function resultsPage() {
       if (!await this.confirmDialog("Delete this run?", `This removes the run and its ${this.fmt(j.rows)} rows. This can't be undone.`)) return;
       try {
         await api("DELETE", `/api/jobs/${j.id}`);
-        if (this.selectedJob?.id === j.id) { this.selectedJob = null; this.records = []; history.pushState({}, "", "/results"); }
+        if (this.selectedJob?.id === j.id) { this.selectedJob = null; this.records = []; history.pushState({}, "", this.modePath("/results")); }
         await this.loadJobs();
       } catch (e) { this.showError(e); }
     },
@@ -180,7 +180,7 @@ function resultsPage() {
     },
     openResultTab(id) {
       this.resultTab = id;
-      if (this.selectedJob) history.replaceState({}, "", `/results/${this.selectedJob.uid}` + (id === "data" ? "" : `?tab=${id}`));
+      if (this.selectedJob) history.replaceState({}, "", this.modePath(`/results/${this.selectedJob.uid}`) + (id === "data" ? "" : `?tab=${id}`));
       if (id === "changes" && !this.compare) this.loadCompare();
     },
     qualityTiles() {

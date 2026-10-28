@@ -167,7 +167,7 @@ function shell() {
 
     // Status (counters for the navigation) every few seconds, faster while something runs.
     async loadStatus() {
-      try { this.status = await api("GET", "/api/status"); } catch (e) { if (!this.status) this.showError(e); }
+      try { this.status = await api("GET", `/api/status?mode=${this.pageMode()}`); } catch (e) { if (!this.status) this.showError(e); }
       const busy = this.status && (this.status.active_jobs || this.status.active_agent_runs);
       clearTimeout(this.statusTimer);
       this.statusTimer = setTimeout(async () => {
@@ -177,7 +177,7 @@ function shell() {
     },
 
     async loadJobs() {
-      try { this.jobs = await api("GET", "/api/jobs?limit=100"); } catch { /* server may be restarting */ }
+      try { this.jobs = await api("GET", `/api/jobs?limit=100&mode=${this.pageMode()}`); } catch { /* server may be restarting */ }
       clearTimeout(this.pollTimer);
       const keepPolling = this.usesJobs || this.needsYouJobs().length;
       this.pollTimer = keepPolling ? setTimeout(() => this.loadJobs(), this.activeJobs().length ? 2000 : 8000) : null;
@@ -186,7 +186,12 @@ function shell() {
 
     // ---------------------------------------------------------------- helpers
     icon(name, cls) { return iconSvg(name, cls); },
-    go(view) { goTo(PATHS[view] || "/"); },
+    go(view) { goTo(this.modePath(PATHS[view] || "/")); },
+    // Manual and Agent mode keep their data apart: each lists only its own scrapes and results.
+    pageMode() { return this.data.mode === "agent" ? "agent" : "manual"; },
+    modePath(path) {
+      return this.pageMode() === "agent" && /^\/(results|scrapes)(\/|$)/.test(path) && !path.startsWith("/scrapes/") ? "/agent" + path : path;
+    },
     cycleTheme() { this.theme = { system: "light", light: "dark", dark: "system" }[this.theme] || "system"; },
     themeIcon() { return { system: "monitor", light: "sun", dark: "moon" }[this.theme]; },
     themeLabel() { return { system: "System theme", light: "Light theme", dark: "Dark theme" }[this.theme]; },
@@ -198,8 +203,7 @@ function shell() {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button > 0) return;          // new tab / window: a plain link
       e.preventDefault();
       const href = mode === "agent" ? "/agent" : "/";
-      const here = this.data.active === "agent" ? "agent" : "manual";
-      if (mode === here) return;
+      if (mode === this.pageMode()) { location.href = href; return; }
       e.currentTarget.closest(".mode-switch")?.setAttribute("data-mode", mode);   // the thumb slides across
       document.cookie = `mode_curtain=${mode}; path=/; max-age=30; samesite=strict`;
       const curtain = document.getElementById("mode-curtain");
@@ -331,14 +335,14 @@ function shell() {
       goTo("/scrapes/new" + (q.toString() ? "?" + q : ""));
     },
     trySample() { this.startWizard(TEMPLATES[0], "https://books.toscrape.com/"); },
-    openJob(j) { if (j) goTo(`/results/${j.uid || j.id}`); },
-    openLatestRun(s) { if (s.last_run) goTo(`/results/${s.last_run.uid || s.last_run.id}`); },
+    openJob(j) { if (j) goTo(this.modePath(`/results/${j.uid || j.id}`)); },
+    openLatestRun(s) { if (s.last_run) goTo(this.modePath(`/results/${s.last_run.uid || s.last_run.id}`)); },
     editScrape(s) { goTo(`/scrapes/${s.id}/edit`); },
     async runScrape(s) {
       this.error = null;
       try {
         const { job_id, job_uid } = await api("POST", `/api/scrapes/${s.id}/run`, {});
-        goTo(`/results/${job_uid || job_id}`, `Running “${s.name}” again.`);
+        goTo(this.modePath(`/results/${job_uid || job_id}`), `Running “${s.name}” again.`);
       } catch (e) { this.handleError(e); }
     },
     async runAgainFromJob(j) {
@@ -346,7 +350,7 @@ function shell() {
       this.error = null;
       try {
         const { job_id, job_uid } = await api("POST", `/api/scrapes/${j.scrape_id}/run`, {});
-        goTo(`/results/${job_uid || job_id}`, `Running “${this.jobTitle(j)}” again.`);
+        goTo(this.modePath(`/results/${job_uid || job_id}`), `Running “${this.jobTitle(j)}” again.`);
       } catch (e) { this.handleError(e); }
     },
     async rerecordScrape(scrapeId) {
@@ -462,5 +466,5 @@ window.addEventListener("pageshow", e => {
   const c = document.getElementById("mode-curtain");
   if (c) resetModeCurtain(c);
   document.querySelectorAll(".mode-switch").forEach(s =>
-    s.setAttribute("data-mode", document.body.dataset.active === "agent" ? "agent" : "manual"));
+    s.setAttribute("data-mode", document.body.dataset.mode === "agent" ? "agent" : "manual"));
 });

@@ -75,10 +75,13 @@ def test_static_assets_and_status_counters(client):
 
 def test_agent_workspace_has_its_own_layout(client):
     page = client.get("/agent").text
-    assert 'aria-label="Main"' not in page and "Back to Universal Scraper" in page
-    assert 'aria-label="Agent runs"' in page
+    assert 'aria-label="Main"' not in page and 'aria-label="Agent mode sections"' in page
+    assert 'aria-label="Agent runs"' in page and "Manual mode" in page          # the mode switch
     home = client.get("/").text
     assert 'aria-label="Main"' in home and 'href="/agent"' in home
+    for path in ("/agent/results", "/agent/scrapes"):                            # Agent mode's own data pages
+        page = client.get(path).text
+        assert 'aria-label="Agent mode sections"' in page and 'aria-label="Main"' not in page and 'data-mode="agent"' in page
 
 
 def test_design_assets_are_served_locally(client):

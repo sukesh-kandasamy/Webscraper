@@ -329,9 +329,11 @@ def _remember_render(domain: str, page: fetcher.Page) -> str:
 templates = Jinja2Templates(directory=config.TEMPLATES_DIR)
 
 
-def _page(request: Request, page_file: str, active: str, title: str, **data):
-    """Render one page of the UI. Page data goes into data-* attributes on <body> (no inline scripts)."""
-    return templates.TemplateResponse(request, page_file, {"active": active, "title": title, "data": data})
+def _page(request: Request, page_file: str, active: str, title: str, mode: str = "manual", **data):
+    """Render one page of the UI. Page data goes into data-* attributes on <body> (no inline scripts).
+    mode: "manual" or "agent". Each mode has its own layout and shows only its own scrapes and results."""
+    return templates.TemplateResponse(request, page_file, {"active": active, "title": title, "mode": mode,
+                                                           "data": {**data, "mode": mode}})
 
 
 @app.get("/", include_in_schema=False)
@@ -342,6 +344,11 @@ def page_home(request: Request):
 @app.get("/scrapes", include_in_schema=False)
 def page_scrapes(request: Request):
     return _page(request, "pages/scrapes.html", "scrapes", "Saved scrapes")
+
+
+@app.get("/agent/scrapes", include_in_schema=False)
+def page_agent_scrapes(request: Request):
+    return _page(request, "pages/scrapes.html", "scrapes", "Agent · Saved scrapes", mode="agent")
 
 
 @app.get("/scrapes/new", include_in_schema=False)
@@ -357,17 +364,35 @@ def page_edit_scrape(request: Request, scrape_id: int):
 RESULT_TABS = ("data", "quality", "changes", "info")
 
 
-@app.get("/results", include_in_schema=False)
-@app.get("/results/{job_ref}", include_in_schema=False)
-def page_results(request: Request, job_ref: str = "", tab: str = "data"):
+def _results_page(request: Request, job_ref: str, tab: str, mode: str):
     tab = tab if tab in RESULT_TABS else "data"
+    base = "/agent/results" if mode == "agent" else "/results"
     if job_ref.isdigit():                                 # old links used the internal number
         job = db.get_job(int(job_ref))
         if job and job["uid"]:
-            return RedirectResponse(f"/results/{job['uid']}" + (f"?tab={tab}" if tab != "data" else ""), 302)
+            return RedirectResponse(f"{base}/{job['uid']}" + (f"?tab={tab}" if tab != "data" else ""), 302)
     elif job_ref and not db.JOB_UID.match(job_ref.upper()):
         raise HTTPException(404, "Not a Job ID")
-    return _page(request, "pages/results.html", "results", "Results", job_uid=job_ref.upper(), tab=tab)
+    if job_ref:
+        # A result opened in the other mode's address moves to its own mode.
+        job = db.get_job_by_uid(job_ref.upper())
+        if job and job.get("mode", "manual") != mode:
+            other = "/agent/results" if job.get("mode") == "agent" else "/results"
+            return RedirectResponse(f"{other}/{job['uid']}" + (f"?tab={tab}" if tab != "data" else ""), 302)
+    return _page(request, "pages/results.html", "results", "Agent · Results" if mode == "agent" else "Results",
+                 mode=mode, job_uid=job_ref.upper(), tab=tab)
+
+
+@app.get("/results", include_in_schema=False)
+@app.get("/results/{job_ref}", include_in_schema=False)
+def page_results(request: Request, job_ref: str = "", tab: str = "data"):
+    return _results_page(request, job_ref, tab, "manual")
+
+
+@app.get("/agent/results", include_in_schema=False)
+@app.get("/agent/results/{job_ref}", include_in_schema=False)
+def page_agent_results(request: Request, job_ref: str = "", tab: str = "data"):
+    return _results_page(request, job_ref, tab, "agent")
 
 
 @app.get("/settings", include_in_schema=False)
@@ -389,12 +414,14 @@ def page_agent(request: Request, run_ref: str = ""):
             return RedirectResponse(f"/agent/runs/{run['uid']}", 302)
     elif run_ref and not db.RUN_UID.match(run_ref.upper()):
         raise HTTPException(404, "Not a Run ID")
-    return _page(request, "agent/workspace.html", "agent", "Agent", run_uid=run_ref.upper())
+    return _page(request, "agent/workspace.html", "agent", "Agent", mode="agent", run_uid=run_ref.upper())
 
 
 @app.get("/api/status")
-def status():
-    recent = db.list_jobs(100)
+def status(mode: str = ""):
+    """The app's state for the page's mode: its own running and needs-you results and saved scrapes."""
+    mode = db.mode_of(mode)
+    recent = db.list_jobs(100, mode=mode)
     return {"ai_enabled": config.ai_enabled(), "model": config.ai_model(), "provider": config.AI_PROVIDER,
             "default_fields": config.DEFAULT_FIELDS, "respect_robots": config.RESPECT_ROBOTS,
             "delay": [config.MIN_DELAY, config.MAX_DELAY], "max_pages": config.MAX_PAGES_PER_URL,
@@ -404,7 +431,7 @@ def status():
             "retention": {"cache_hours": config.CACHE_TTL_HOURS, "job_days": config.JOB_RETENTION_DAYS},
             "needs_you": [j["id"] for j in recent if j["status"] == "needs_you"],
             "active_jobs": sum(1 for j in recent if j["status"] in ("queued", "running")),
-            "saved_scrapes": db.count_scrapes(),
+            "saved_scrapes": db.count_scrapes(mode),
             "active_agent_runs": sum(1 for r in agent_store.list_runs(50) if r["status"] in agent_store.ACTIVE),
             "agent": agent_runner.status()}
 
@@ -807,10 +834,11 @@ def create_job(body: JobIn):
 
 
 @app.get("/api/jobs")
-def list_jobs(scrape_id: int | None = None, limit: int = 50):
+def list_jobs(scrape_id: int | None = None, limit: int = 50, mode: str = ""):
+    """Runs, newest first; mode "manual" or "agent" lists only that mode's."""
     return [{**{k: v for k, v in j.items() if k != "recipe"}, "progress": friendly_progress(j),
              "columns": [f["name"] for f in j["recipe"].get("fields", [])]}
-            for j in db.list_jobs(min(max(limit, 1), 200), scrape_id)]
+            for j in db.list_jobs(min(max(limit, 1), 200), scrape_id, mode)]
 
 
 # ---- routes: saved scrapes -----------------------------------------------------------
@@ -823,9 +851,10 @@ def _scrape_or_404(scrape_id: int) -> dict:
 
 
 @app.get("/api/scrapes")
-def list_scrapes():
+def list_scrapes(mode: str = ""):
+    """Saved scrapes; mode "manual" or "agent" lists only that mode's."""
     out = []
-    for s in db.list_scrapes():
+    for s in db.list_scrapes(mode):
         out.append({**{k: v for k, v in s.items() if k != "recipe"},
                     "columns": [f["name"] for f in s["recipe"].get("fields", [])]
                     + [f["name"] for f in (s["recipe"].get("detail") or {}).get("fields", [])],

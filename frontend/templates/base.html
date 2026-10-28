@@ -1,6 +1,7 @@
 <!doctype html>
 {% from "partials/logo.html" import logo %}
 {% from "partials/mode_switch.html" import mode_switch, mode_curtain %}
+{% from "partials/agent_header.html" import agent_header %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -19,6 +20,12 @@
 <body x-data="page({% block page %}{% endblock %}())" data-active="{{ active }}"
       {% for key, value in data.items() %} data-{{ key | replace('_', '-') }}="{{ value }}"{% endfor %}>
 {% block body %}
+{% if mode == "agent" %}
+<!-- ===================================================== Agent mode: its own top bar, its own data -->
+<div class="flex min-h-screen flex-col bg-surface">
+  {{ agent_header(active) }}
+  <div class="flex min-w-0 flex-1 flex-col">
+{% else %}
 {% set nav = [
   ("home", "/", "home", "Home"),
   ("scrapes", "/scrapes", "folder", "Saved scrapes"),
@@ -79,6 +86,7 @@
         </div>
       </div>
     </header>
+{% endif %}
 
     <main class="mx-auto w-full max-w-6xl flex-1 space-y-6 px-4 pb-12 pt-2 sm:px-6">
 {% include "partials/alerts.html" %}

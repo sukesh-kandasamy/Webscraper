@@ -5,7 +5,7 @@ function scrapesPage() {
     scrapeQuery: "",
 
     async start() { await this.loadScrapes(); },
-    async loadScrapes() { try { this.scrapes = await api("GET", "/api/scrapes"); } catch (e) { this.showError(e); } },
+    async loadScrapes() { try { this.scrapes = await api("GET", `/api/scrapes?mode=${this.pageMode()}`); } catch (e) { this.showError(e); } },
 
     filteredScrapes() {
       const q = this.scrapeQuery.trim().toLowerCase();

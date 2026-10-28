@@ -6,7 +6,7 @@ function homePage() {
     urlMain: "",
 
     async start() { await this.loadScrapes(); },
-    async loadScrapes() { try { this.scrapes = await api("GET", "/api/scrapes"); } catch { /* shown elsewhere */ } },
+    async loadScrapes() { try { this.scrapes = await api("GET", `/api/scrapes?mode=${this.pageMode()}`); } catch { /* shown elsewhere */ } },
 
     stats() {
       const now = Date.now() / 1000, day = 86400;
