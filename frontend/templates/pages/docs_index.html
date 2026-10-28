@@ -8,17 +8,20 @@
     <p class="muted mt-1">Reviews and guides about the app. The same in Manual and Agent mode.</p>
   </div>
   <div class="grid gap-4 md:grid-cols-2">
-    {% for slug, title, summary, label in DOCS %}
-    <a class="card group flex flex-col gap-3 p-5 hover:border-outline" href="/docs/{{ slug }}">
+    {% for slug, title, summary, label, pdf in DOCS %}
+    <div class="card flex flex-col gap-3 p-5">
       <div class="flex items-center gap-3">
         <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-secondary-container text-on-secondary-container"
               x-html="icon('description', 'h-5 w-5')"></span>
         <span class="type-badge">{{ label }}</span>
-        <span class="ml-auto text-on-surface-variant transition-transform group-hover:translate-x-0.5" x-html="icon('chevron_right', 'h-5 w-5')"></span>
       </div>
-      <h2 class="text-base font-semibold leading-6 text-on-surface">{{ title }}</h2>
+      <h2 class="text-base font-semibold leading-6 text-on-surface"><a class="hover:underline" href="/docs/{{ slug }}">{{ title }}</a></h2>
       <p class="text-sm leading-6 text-on-surface-variant">{{ summary }}</p>
-    </a>
+      <div class="mt-auto flex flex-wrap gap-2 pt-1">
+        <a class="btn btn-tonal h-9 px-4 text-sm" href="/docs/{{ slug }}"><span x-html="icon('open_in_new', 'h-4 w-4')"></span> Read</a>
+        {% if pdf %}<a class="btn h-9 px-4 text-sm" href="{{ pdf }}" download><span x-html="icon('download', 'h-4 w-4')"></span> PDF</a>{% endif %}
+      </div>
+    </div>
     {% endfor %}
   </div>
 </section>

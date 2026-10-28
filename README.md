@@ -300,7 +300,7 @@ Web-Scraping/
 | `app/runs/` | `jobs.py` (background runs: typing, de-duplication, conditions, item pages, retries) · `quality.py` (quality report and health check) · `export.py` (CSV / Excel) |
 | `app/agent/` | `planner.py` (goal → plan) · `guard.py` (what the agent may do) · `api.py` (UI + worker API) · `handoff.py` (results page → engine) · `routes.py` (record and replay steps without AI) · `supervisor.py` (check and fix) · `runner.py` (starts the worker) · `store.py` (runs and steps) |
 | `agent_worker/` | `worker.py` (browser-use, talks to the app's local API with a one-time token) · `skills.py` (pick a suggestion, set a date, next page; each click and value checked by the app) · `requirements.txt` / `.lock` |
-| `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `build_ui_assets.mjs` (Material 3 colours, Roboto, Material Symbols from Google's packages) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) · `agent_bench.py` (Agent mode on fixed prompts, per model) |
+| `scripts/` | `check.py` (security report) · `build_css.py` (Tailwind build, only to change the UI) · `build_ui_assets.mjs` (Material 3 colours, Roboto, Material Symbols from Google's packages) · `secret_scan.py` (also the pre-commit hook in `.githooks/`) · `agent_bench.py` (Agent mode on fixed prompts, per model) · `build_docs_pdf.py` (the Production risks review as a PDF, from `app/docs_content.py`) |
 
 ## Settings (`.env`)
 

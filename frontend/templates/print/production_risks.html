@@ -1,0 +1,144 @@
+<!doctype html>
+{# The Production risks review as a printable A4 document (scripts/build_docs_pdf.py turns it into the PDF).
+   Same content as the in-app page: app/docs_content.py. #}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ TITLE }}</title>
+<style>
+  @font-face { font-family: "Roboto"; font-weight: 100 900; src: url("{{ font_url }}") format("woff2"); }
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  :root { --ink: #1a1a1a; --muted: #5b5b5b; --line: #dcdcdc; --soft: #f4f4f4;
+          --red: #b3261e; --red-bg: #fbe9e7; --amber: #8a5a00; --amber-bg: #fdf1d8; --green: #1e6b35; --green-bg: #e3f3e6; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font-family: "Roboto", "Segoe UI", Arial, sans-serif; color: var(--ink); font-size: 10.2pt; line-height: 1.5; }
+  h1, h2, h3 { margin: 0; line-height: 1.25; }
+  p { margin: 0; }
+  .eyebrow { font-size: 8pt; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+  /* cover header */
+  .cover { border-bottom: 2px solid var(--ink); padding-bottom: 12pt; margin-bottom: 14pt; }
+  .cover h1 { font-size: 21pt; font-weight: 700; letter-spacing: -.01em; margin: 6pt 0 8pt; }
+  .meta { display: flex; gap: 14pt; font-size: 8.5pt; color: var(--muted); margin-bottom: 8pt; }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .intro { font-size: 10.5pt; color: #333; max-width: 165mm; }
+
+  /* verdict */
+  .verdict { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8pt; margin: 4pt 0 16pt; }
+  .vbox { border: 1px solid var(--line); border-radius: 8pt; padding: 9pt 10pt; break-inside: avoid; }
+  .vbox h3 { font-size: 10pt; font-weight: 600; margin: 5pt 0 3pt; }
+  .vbox p { font-size: 9pt; color: #3d3d3d; }
+  .state { display: inline-block; white-space: nowrap; font-size: 7.5pt; font-weight: 700; border-radius: 99pt; padding: 1pt 7pt; letter-spacing: .03em; }
+  .state.ok { color: var(--green); background: var(--green-bg); }
+  .state.warn { color: var(--amber); background: var(--amber-bg); }
+
+  h2.section { font-size: 13.5pt; font-weight: 700; margin: 18pt 0 8pt; padding-bottom: 4pt; border-bottom: 1px solid var(--line); }
+
+  /* tables */
+  table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 8pt; text-transform: uppercase; letter-spacing: .04em;
+       padding: 5pt 6pt; border-bottom: 1.5px solid var(--ink); }
+  td { padding: 5pt 6pt; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr { break-inside: avoid; }
+  .num { width: 18pt; color: var(--muted); font-weight: 600; }
+  .sev { display: inline-block; font-size: 7.5pt; font-weight: 700; border-radius: 99pt; padding: 1pt 7pt; white-space: nowrap; }
+  .sev.high { color: var(--red); background: var(--red-bg); }
+  .sev.medium { color: var(--amber); background: var(--amber-bg); }
+  .area { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+
+  /* one risk */
+  .risk { border: 1px solid var(--line); border-radius: 8pt; margin-bottom: 9pt; break-inside: avoid; overflow: hidden; }
+  .risk-head { display: flex; align-items: center; gap: 8pt; padding: 7pt 10pt; background: var(--soft); border-bottom: 1px solid var(--line); }
+  .risk-head .n { width: 18pt; height: 18pt; border-radius: 50%; background: var(--ink); color: #fff; font-size: 8.5pt; font-weight: 700;
+                  display: grid; place-items: center; flex-shrink: 0; }
+  .risk-head h3 { font-size: 11pt; font-weight: 600; flex: 1; }
+  .risk-body { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10pt; padding: 8pt 10pt 9pt; }
+  .risk-body .label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; margin-bottom: 3pt; }
+  .risk-body p, .risk-body li { font-size: 8.8pt; line-height: 1.45; color: #2b2b2b; }
+  .risk-body ul { margin: 0; padding-left: 12pt; }
+  .risk-body li { margin-bottom: 2pt; }
+
+  .note { background: var(--soft); border-radius: 6pt; padding: 8pt 10pt; font-size: 9pt; margin-top: 8pt; break-inside: avoid; }
+  .checklist { list-style: none; margin: 0; padding: 0; }
+  .checklist li { display: flex; gap: 8pt; padding: 5pt 0; border-bottom: 1px solid var(--line); font-size: 9.5pt; break-inside: avoid; }
+  .checklist .box { width: 11pt; height: 11pt; border: 1.3px solid var(--ink); border-radius: 2pt; flex-shrink: 0; margin-top: 2pt; }
+  .sources { margin-top: 14pt; font-size: 8pt; color: var(--muted); }
+  .page-break { break-before: page; }
+</style>
+</head>
+<body>
+  <header class="cover">
+    <div class="eyebrow">Universal Scraper · Docs · Production readiness</div>
+    <h1>{{ TITLE }}</h1>
+    <div class="meta"><span>Reviewed <b>{{ REVIEWED }}</b></span><span>Scope <b>the proof of concept as it is today</b></span>
+      <span><b>Not legal advice</b></span></div>
+    <p class="intro">{{ INTRO }}</p>
+  </header>
+
+  <div class="eyebrow">Verdict</div>
+  <section class="verdict">
+    {% for state, heading, text in VERDICT %}
+    <div class="vbox">
+      <span class="state {{ state }}">{{ "No blockers" if state == "ok" else "Needs work" }}</span>
+      <h3>{{ heading }}</h3>
+      <p>{{ text }}</p>
+    </div>
+    {% endfor %}
+  </section>
+
+  <div class="eyebrow">The risks at a glance</div>
+  <table style="margin-top:4pt">
+    <thead><tr><th>#</th><th>Risk</th><th>Area</th><th>Severity</th><th>First action</th></tr></thead>
+    <tbody>
+      {% for r in RISKS %}
+      <tr>
+        <td class="num">{{ loop.index }}</td>
+        <td><b>{{ r.title }}</b></td>
+        <td><span class="area">{{ r.area }}</span></td>
+        <td><span class="sev {{ 'high' if r.level.startswith('High') else 'medium' }}">{{ r.level }}</span></td>
+        <td>{{ r.todo[0] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="section page-break">The risks in detail, most serious first</h2>
+  {% for r in RISKS %}
+  <section class="risk">
+    <div class="risk-head">
+      <span class="n">{{ loop.index }}</span>
+      <h3>{{ r.title }}</h3>
+      <span class="area">{{ r.area }}</span>
+      <span class="sev {{ 'high' if r.level.startswith('High') else 'medium' }}">{{ r.level }}</span>
+    </div>
+    <div class="risk-body">
+      <div><div class="label">What can happen</div><p>{{ r.happens }}</p></div>
+      <div><div class="label">Why it applies here</div><p>{{ r.here }}</p></div>
+      <div><div class="label">What to do</div><ul>{% for t in r.todo %}<li>{{ t }}</li>{% endfor %}</ul></div>
+    </div>
+  </section>
+  {% endfor %}
+
+  <h2 class="section page-break">8. Open-source licenses <span class="state ok" style="vertical-align: middle">No blockers</span></h2>
+  <p style="font-size:9.5pt; margin-bottom:8pt">{{ LICENSES_INTRO }}</p>
+  <table>
+    <thead><tr><th>Part</th><th>Packages</th><th>License</th></tr></thead>
+    <tbody>
+      {% for part, pkgs, lic in LICENSES %}
+      <tr><td>{{ part }}</td><td style="color:#444">{{ pkgs }}</td><td>{{ lic }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="note"><b>Paperwork to finish:</b> {{ LICENSES_TODO }}</div>
+
+  <h2 class="section">9. Before going to production</h2>
+  <ul class="checklist">
+    {% for head, text in CHECKLIST %}
+    <li><span class="box"></span><span><b>{{ head }}:</b> {{ text }}</span></li>
+    {% endfor %}
+  </ul>
+
+  <p class="sources">{{ SOURCES }}</p>
+</body>
+</html>

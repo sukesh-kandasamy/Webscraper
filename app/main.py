@@ -19,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ai_settings, config, db
+from . import ai_settings, config, db, docs_content
 from .agent import api as agent_api, routes as agent_routes, runner as agent_runner, store as agent_store
 from .extraction import details, extractor, normalize, recipe_builder, request_parser
 from .fetching import browser, fetcher, robots
@@ -407,12 +407,17 @@ def page_settings(request: Request):
     return _page(request, "pages/settings.html", "settings", "Settings", shared=True)
 
 
-DOCS = [  # the Docs section: (slug, title, summary, label)
+DOCS = [  # the Docs section: (slug, title, summary, label, pdf) — the PDF is built by scripts/build_docs_pdf.py
     ("production-risks", "Production Readiness: Legal, Data and Operational Risks Review",
      "What could go wrong if this proof of concept goes to production: website terms, AI providers, personal data, "
-     "security, operations and data quality, with the open-source license review and a checklist.", "Review · 28 Oct 2026"),
+     "security, operations and data quality, with the open-source license review and a checklist.", "Review · 28 Oct 2026",
+     "/static/docs/production-risks.pdf"),
 ]
 templates.env.globals["DOCS"] = DOCS
+templates.env.globals.update(DOC_TITLE=docs_content.TITLE, INTRO=docs_content.INTRO, VERDICT=docs_content.VERDICT,
+                             RISKS=docs_content.RISKS, LICENSES=docs_content.LICENSES,
+                             LICENSES_INTRO=docs_content.LICENSES_INTRO, LICENSES_TODO=docs_content.LICENSES_TODO,
+                             CHECKLIST=docs_content.CHECKLIST, SOURCES=docs_content.SOURCES)
 
 
 @app.get("/docs", include_in_schema=False)
