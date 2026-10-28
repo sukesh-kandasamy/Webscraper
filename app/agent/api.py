@@ -188,6 +188,23 @@ def answer_run(run_id: str, body: AnswerIn, request: Request):
     return _view(store.get(run["id"]))
 
 
+@router.post("/runs/{run_id}/continue")
+def continue_run(run_id: str, request: Request):
+    """Carry on a run that failed, hit a limit, was stopped or needed you, from where it stopped: its
+    collection job resumes from its last page, or the agent's loop carries on with what it already found."""
+    _enabled()
+    run = _run_or_404(run_id)
+    if run["status"] not in react.CONTINUABLE:
+        raise HTTPException(409, "Only a run that failed, hit a limit, was stopped or needs you can continue.")
+    if not run.get("job_id") and not config.agent_key():
+        raise HTTPException(400, f"Agent mode needs an AI key for {config.AGENT_PROVIDER} in .env.")
+    how = react.continue_run(run["id"], str(request.base_url))
+    if not how:
+        raise HTTPException(409, "This run can't continue.")
+    audit.log("agent_continued", run_id=run["id"], how=how)
+    return _view(store.get(run["id"]))
+
+
 class TitleIn(BaseModel):
     title: str = Field(default="", max_length=200)
 

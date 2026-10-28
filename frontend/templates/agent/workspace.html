@@ -301,7 +301,11 @@
                 <button class="btn btn-tonal" x-show="agentRun.status === 'done' && agentRun.scrape_id" @click="runAgentScrapeAgain()" title="Uses the saved address or the recorded steps; no AI">
                   <span x-html="icon('refresh', 'h-5 w-5')"></span> Run again (no AI)</button>
                 <button class="btn btn-primary" x-show="agentRun.status === 'needs_you'" @click="solveForAgent()" :disabled="!status?.browser_available">Open to solve</button>
-                <button class="btn" x-show="['needs_you','limit','error','stopped'].includes(agentRun.status)" @click="retryAgent()"><span x-html="icon('restart_alt', 'h-5 w-5')"></span> Try again</button>
+                <button class="btn" :class="agentRun.status === 'needs_you' ? 'btn-tonal' : 'btn-primary'" x-show="canContinue()" @click="continueAgent()"
+                        :disabled="busy === 'agent-continue'" title="Carry on from where it stopped, keeping what it already found">
+                  <span x-show="busy !== 'agent-continue'" x-html="icon('play_arrow', 'h-5 w-5')"></span><span x-show="busy === 'agent-continue'" class="spinner"></span> Continue</button>
+                <button class="btn" x-show="canContinue()" @click="retryAgent()" title="Plan a new run for the same goal, from the start">
+                  <span x-html="icon('restart_alt', 'h-5 w-5')"></span> Start over</button>
                 <button class="btn" x-show="agentActive() || agentRun.status === 'question'" @click="stopAgent()"><span x-html="icon('stop', 'h-5 w-5')"></span> Stop</button>
               </div>
               <ul class="mt-4 space-y-2" x-show="agentRun.fixes?.length" x-cloak>

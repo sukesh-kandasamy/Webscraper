@@ -163,3 +163,54 @@ def test_a_timed_out_brain_call_is_tried_once_more(site, monkeypatch):
     ctx = ctx_for(make_run())
     assert brain.decide(ctx).tool == "open_page" and not ctx.using_backup
     assert store.get(ctx.run_id)["ai_calls"] == 2
+
+
+# ---- Continue: a stopped run carries on where it stopped, it doesn't start over -------------------
+
+def test_a_stopped_run_continues_where_it_stopped(client, monkeypatch):
+    from app.agent import react
+    run_id = make_run(limits={"steps": 2, "minutes": 5, "ai_calls": 30})
+    monkeypatch.setattr(brain, "decide", script(
+        brain.Step("Open the start page.", "open_page", {"url": HOME}),
+        brain.Step("Find Mystery.", "find_links", {"url": HOME, "pattern": "mystery"}),
+        brain.Step("Open it.", "open_page", {"url": CAT}, ["must_1"]),         # only reached after Continue
+        brain.Step("Collect.", "collect", {"url": CAT, "pages": 2}),
+    ))
+    loop.safe_run(run_id)
+    v = wait_done(run_id)
+    assert v["status"] == "limit"
+    runs_before = len(store.list_runs(100))
+    monkeypatch.setattr(react, "start", lambda rid, app_url="": loop.safe_run(rid, app_url))   # the loop, inline
+    r = client.post(f"/api/agent/runs/{v['uid']}/continue")
+    assert r.status_code == 200, r.text
+    v = wait_done(run_id)
+    assert v["status"] == "done", v["message"]
+    hist = store.get(run_id)["scratchpad"]["history"]
+    assert [h["tool"] for h in hist] == ["open_page", "find_links", "open_page", "collect"]   # kept, then carried on
+    assert v["steps"] == 4 and store.get(run_id)["limits"]["base"]["steps"] == 2
+    assert any(s["text"].startswith("Continuing from step 2") for s in v["steps_list"])
+    assert "asked to continue" in store.get(run_id)["scratchpad"]["digest"]
+    assert len(store.list_runs(100)) == runs_before                                    # the same run, not a new one
+
+
+def test_continue_resumes_the_collection_job_and_refuses_finished_runs(client, monkeypatch):
+    from app import db
+    from app.runs import jobs
+    from tests.test_react import RECIPE
+    run_id = make_run()
+    job_id = db.create_job([CAT], dict(RECIPE), 2)
+    db.update_job(job_id, status="error", message="The connection dropped on page 2")
+    store.update(run_id, status="error", job_id=job_id, message="Collecting ended as 'error'", finished_at=time.time())
+    resumed = []
+
+    def resume(j):
+        resumed.append(j)
+        db.update_job(j, status="queued")
+        return True
+    monkeypatch.setattr(jobs, "resume", resume)
+    r = client.post(f"/api/agent/runs/{store.get(run_id)['uid']}/continue").json()
+    assert r["status"] == "collecting" and resumed == [job_id] and r["job_id"] == job_id
+    assert any(s["text"].startswith("Continuing the collection") for s in r["steps_list"])
+    done = make_run()
+    store.update(done, status="done")
+    assert client.post(f"/api/agent/runs/{store.get(done)['uid']}/continue").status_code == 409

@@ -51,7 +51,8 @@
               <div class="flex flex-wrap gap-2">
                 <button class="btn btn-primary btn-sm" x-show="selectedJob.status==='needs_you'" @click="startJobSolve(selectedJob)">Open to solve</button>
                 <button class="btn btn-sm" x-show="['queued','running','needs_you'].includes(selectedJob.status)" @click="stopJob(selectedJob)"><span x-html="icon('stop', 'h-3.5 w-3.5')"></span> Stop</button>
-                <button class="btn btn-sm" x-show="['stopped','blocked','error'].includes(selectedJob.status) && selectedJob.pages_done < selectedJob.pages_total" @click="resumeJob(selectedJob)">Continue</button>
+                <button class="btn btn-sm" x-show="['stopped','blocked','error','needs_you'].includes(selectedJob.status)" @click="resumeJob(selectedJob)"
+                        title="Carry on from the page it stopped at; the rows it already has are kept"><span x-html="icon('play_arrow', 'h-3.5 w-3.5')"></span> Continue</button>
                 <button class="btn btn-sm" x-show="selectedJob.status==='done' && selectedJob.quality?.pages_failed?.length" @click="resumeJob(selectedJob)"
                         :title="(selectedJob.quality?.pages_failed || []).map(f => f.url).join('\n')"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Retry failed pages</button>
                 <button class="btn btn-sm" x-show="selectedJob.scrape_id && !['queued','running'].includes(selectedJob.status)" @click="runAgainFromJob(selectedJob)"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Run again</button>

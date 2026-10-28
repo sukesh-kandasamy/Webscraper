@@ -55,6 +55,48 @@ def renavigate(run_id: int, why: str, app_url: str = "") -> None:
     start(run_id, app_url)
 
 
+CONTINUABLE = ("error", "limit", "stopped", "needs_you")
+
+
+def continue_run(run_id: int, app_url: str = "") -> str:
+    """Carry on a run that stopped (failed, hit a limit, was stopped, or needed you) from where it stopped,
+    instead of planning a new one. Returns "collecting" when its collection job resumes from its last page,
+    "thinking" when the loop carries on with everything it found so far, or "" when it can't continue."""
+    import time
+
+    from ... import db
+    from ...runs import jobs
+    from .. import store
+
+    run = store.get(run_id)
+    if not run or run["status"] not in CONTINUABLE:
+        return ""
+    job = db.get_job(run["job_id"]) if run.get("job_id") else None
+    unfinished = job and (job["status"] in ("needs_you", "stopped", "blocked", "error")
+                          or (job["status"] == "done" and (job.get("quality") or {}).get("pages_failed")))
+    if unfinished and jobs.resume(job["id"]):
+        store.update(run_id, status="collecting", stop_requested=0, finished_at=None, message="Collecting (continued)")
+        store.add_step(run_id, "info", f"Continuing the collection ({job['uid']}) from the page it stopped at; "
+                                       f"the {job['rows']:,} rows it already has are kept.")
+        return "collecting"
+    limits = run["limits"] or {}
+    base = limits.get("base") or {k: limits[k] for k in ("steps", "ai_calls", "minutes") if k in limits}
+    pad = run.get("scratchpad") or {}
+    why = (run.get("message") or run["status"]).strip().rstrip(".")[:200]
+    pad["digest"] = (pad.get("digest", "") + f" The run stopped ({why}). The person asked to continue: carry on "
+                     "from where it stopped with what you found, don't start over.").strip()
+    store.update(run_id, status="queued", stop_requested=0, finished_at=None, message="Continuing", scratchpad=pad,
+                 started_at=time.time(),
+                 limits={**limits, "base": base,
+                         "steps": int(run["steps"] or 0) + int(base.get("steps", 40)),
+                         "ai_calls": int(run["ai_calls"] or 0) + int(base.get("ai_calls", 60)),
+                         "minutes": float(base.get("minutes", 15))})
+    store.add_step(run_id, "info", f"Continuing from step {run['steps']}: the agent keeps its checklist, the pages "
+                                   "it found and its notes, with a fresh step and time budget.")
+    start(run_id, app_url)
+    return "thinking"
+
+
 def running(run_id: int) -> bool:
     t = _threads.get(run_id)
     return bool(t and t.is_alive())

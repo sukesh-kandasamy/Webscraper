@@ -246,6 +246,20 @@ function agentPage() {
       try { this.agentRun = { ...this.agentRun, ...(await api("POST", `/api/agent/runs/${this.agentRun.id}/stop`)), steps_list: this.agentRun.steps_list }; }
       catch (e) { this.showError(e); }
     },
+    // A run that stopped carries on from where it stopped: its collection resumes from the last page, or the
+    // agent's loop continues with its checklist, the pages it found and its notes. "Start over" plans anew.
+    canContinue() { return ["needs_you", "limit", "error", "stopped"].includes(this.agentRun?.status); },
+    async continueAgent() {
+      const r = this.agentRun;
+      if (!r) return;
+      this.busy = "agent-continue";
+      try {
+        this.agentRun = await api("POST", `/api/agent/runs/${r.uid}/continue`);
+        this.loadAgentRuns();
+        this.pollAgent();
+      } catch (e) { this.handleError(e); }
+      finally { this.busy = ""; }
+    },
     async retryAgent() {
       const r = this.agentRun;
       this.agentGoal = r.goal; this.agentSite = r.start_url;
