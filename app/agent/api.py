@@ -139,6 +139,10 @@ def start_run(run_id: str, request: Request, body: LimitsIn | None = None):
         raise HTTPException(409, "This run has already started.")
     if not config.agent_key():
         raise HTTPException(400, f"Agent mode needs an AI key for {config.AGENT_PROVIDER} in .env.")
+    if fetcher.site_policy(fetcher.domain_of(run["start_url"])) == "approval":
+        domain = fetcher.domain_of(run["start_url"])
+        raise HTTPException(409, {"code": "needs_approval", "domain": domain,
+                                  "message": str(fetcher.NeedsApproval(domain))})
     ok, why = guard.check_url(run["start_url"], run["site"])
     if not ok:
         raise HTTPException(403, f"The agent can't start there: {why}")

@@ -28,7 +28,7 @@ from ..agent.routes import RouteBroken
 from ..extraction import extractor, normalize, request_parser
 from ..fetching import fetcher
 from ..security import audit, privacy
-from . import quality
+from . import quality, trust
 
 _stop_flags: dict[int, threading.Event] = {}
 _slots = threading.BoundedSemaphore(config.MAX_CONCURRENT_JOBS)
@@ -150,7 +150,7 @@ class _Run:
         self.q = {"items_seen": 0, "duplicates": 0, "excluded": 0, "failed": [],
                   "details_done": 0, "details_failed": 0, "details_skipped": 0, **job["quality"]}
         for k in ("rows", "pages_ok", "pages_failed", "columns", "warnings", "coverage", "details",
-                  "health", "trimmed"):
+                  "health", "trimmed", "suspect"):
             self.q.pop(k, None)       # report keys from an earlier finish; counters stay
         given = {**self.recipe.get("column_types", {}), **request_parser.column_types(self.request)}
         self.given_types = given
@@ -190,8 +190,10 @@ class _Run:
     # ---- pages -------------------------------------------------------------------------
     def process(self, page: fetcher.Page) -> int:
         """Store the new items of one listing page; returns how many new items it had."""
-        rows = privacy.mask_rows(extractor.extract(page.html, self.recipe, page.final_url), self.keep_fields)
-        rows = self._type_rows(rows)
+        raw = extractor.extract(page.html, self.recipe, page.final_url)
+        checked = trust.check_values(raw, page.html, self.recipe)      # before masking changes any value
+        rows = self._type_rows(privacy.mask_rows(raw, self.keep_fields))
+        trust.merge_checks(self.q.setdefault("value_checks", {}), checked, trust.check_typed(rows, self.types))
         fresh = []
         for r in rows:
             key = self._key(r)
@@ -272,6 +274,8 @@ class _Run:
                 self.q["expected_total"] = quality.stated_total(page.html)
             if page.final_url not in self.done_pages:
                 produced = self.process(page)
+                if not produced:
+                    self._check_empty(page, first=i == 0)
                 db.add_job_page(self.job_id, page.final_url, produced)
                 self.done_pages[page.final_url] = produced
                 self.pages_done += 1
@@ -299,6 +303,8 @@ class _Run:
 
             if not already:
                 produced = self.process(page)
+                if not produced:
+                    self._check_empty(page, first=page_index == 0)
                 db.add_job_page(self.job_id, url, produced)
                 self.done_pages[url] = produced
                 self.pages_done += 1
@@ -319,6 +325,20 @@ class _Run:
             url = nxt
             self._save_progress()
 
+    def _check_empty(self, page: fetcher.Page, first: bool) -> None:
+        """A page that gave no items: a verification or blocked page served as a normal page stops the run
+        (paused for you, or blocked) instead of letting it "succeed"; an empty first page that says it has
+        results is remembered for the quality report."""
+        kind = trust.soft_block(page.html)
+        if kind == "denied":
+            raise fetcher.BlockedError(f"{fetcher.domain_of(page.final_url)} answered with an access-denied page "
+                                       f"at {page.final_url}")
+        if kind:
+            raise fetcher.NeedsHuman(kind, page.final_url)
+        says = quality.stated_total(page.html) if first else None
+        if says:
+            self.q.setdefault("empty_pages", []).append({"url": page.final_url, "says": says})
+
     def retry_failed(self) -> None:
         """Failed pages get one more try at the end of the run (after the polite delay)."""
         failed, self.q["failed"] = self.q["failed"], []
@@ -331,21 +351,24 @@ class _Run:
         """Apply sort / limit, build the quality report and the health check."""
         if (self.request.get("sort") or {}).get("column") or self.request.get("limit"):
             items = db.get_record_pages(self.job_id)
-            order = request_parser.sort_and_limit([r for _, r in items], self.request)
-            pages = {id(r): p for p, r in items}
-            if [id(r) for r in order] != [id(r) for _, r in items]:
-                db.replace_records(self.job_id, [(pages[id(r)], r) for r in order])
+            order = request_parser.sort_and_limit([r for _, r, _ in items], self.request)
+            source = {id(r): (p, at) for p, r, at in items}
+            if [id(r) for r in order] != [id(r) for _, r, _ in items]:
+                db.replace_records(self.job_id, [(source[id(r)][0], r, source[id(r)][1]) for r in order])
             self.q["trimmed"] = self.q.get("trimmed", 0) + len(items) - len(order)
             self.rows_total = len(order)
         rows = db.get_records(self.job_id)
         names = self.names + [n for n in self.types if n not in self.names and not n.endswith(("_currency", "_unit"))]
         report = quality.build(rows, names, self.types, self.q, self.pages_done)
-        if self.job.get("scrape_id"):
-            prev = db.last_finished_job(self.job["scrape_id"], self.job_id)
-            h = quality.health(report, prev["quality"] if prev else None)
+        prev = db.last_finished_job(self.job["scrape_id"], self.job_id) if self.job.get("scrape_id") else None
+        if prev:
+            h = quality.health(report, prev["quality"])
             if h:
                 report["health"] = h
-                report["warnings"] = quality.warnings(report)
+        findings = trust.assess(self.rows_total, self.pages_done, {**self.q, **report}, prev["rows"] if prev else 0)
+        if findings:
+            report["suspect"] = findings
+        report["warnings"] = quality.warnings(report)
         return {**self.q, **report}
 
 
@@ -374,7 +397,10 @@ def _run(job_id: int) -> None:
         issues = run.errors + [f"Could not read {f['url']}: {f['error']}" for f in run.q["failed"]]
         if issues:
             msg += " Issues: " + " | ".join(issues[:3])
-        db.update_job(job_id, status="done" if run.pages_done else "error", message=msg,
+        ok = run.pages_done and run.rows_total
+        if run.pages_done and not run.rows_total and q.get("suspect"):
+            msg = q["suspect"][0]["message"]          # a run without rows didn't succeed: say why
+        db.update_job(job_id, status="done" if ok else "error", message=msg,
                       pages_done=run.pages_done, pages_total=max(run.pages_total, run.pages_done),
                       rows=run.rows_total, finished_at=time.time(), quality=_dumps(q))
     except _Stopped:
@@ -405,6 +431,10 @@ def _run(job_id: int) -> None:
                       f"The site probably changed: re-record the route with the agent. {run.rows_total} rows saved.")
     except fetcher.BudgetExceeded as e:
         saved(status="stopped", message=f"{e} ({run.rows_total} rows saved)", finished_at=time.time())
+    except fetcher.NeedsApproval as e:
+        saved(status="needs_you", paused_url=f"https://{e.domain}/", paused_kind="approval",
+              message=f"{e} Then press Continue. ({run.rows_total} rows saved)")
+        audit.log("job_paused", job_id=job_id, domain=e.domain, kind="approval")
     except fetcher.BlockedError as e:
         saved(status="blocked", message=f"Blocked: {e} ({run.rows_total} rows saved)", finished_at=time.time())
     except Exception as e:  # keep the job record meaningful instead of stuck on "running"
@@ -426,8 +456,10 @@ def collect_page(urls: list[str], recipe: dict, page: fetcher.Page, scrape_id: i
         run.done_pages[page.final_url] = produced
         run.pages_done = 1
         q = run.finish()
-        db.update_job(job_id, status="done", pages_done=1, pages_total=1, rows=run.rows_total,
-                      message=f"Done: {run.rows_total} rows from the page the agent reached.",
+        empty = not run.rows_total
+        db.update_job(job_id, status="error" if empty else "done", pages_done=1, pages_total=1, rows=run.rows_total,
+                      message=(q["suspect"][0]["message"] if empty and q.get("suspect") else
+                               f"Done: {run.rows_total} rows from the page the agent reached."),
                       finished_at=time.time(), quality=_dumps(q))
     except Exception as e:
         db.update_job(job_id, status="error", message=f"{type(e).__name__}: {e}", finished_at=time.time())

@@ -70,6 +70,9 @@ def build(rows: list[dict], names: list[str], types: dict[str, str], counters: d
         "skipped_filters": counters.get("skipped_filters", []),
         "columns": column_stats(rows, names, types),
     }
+    for name, c in (counters.get("value_checks") or {}).items():       # trust.check_values / check_typed
+        if name in report["columns"]:
+            report["columns"][name].update(checked=c["checked"], ungrounded=c["ungrounded"], invalid=c["invalid"])
     if counters.get("health"):
         report["health"] = counters["health"]
     report["warnings"] = warnings(report)
@@ -96,6 +99,14 @@ def warnings(report: dict) -> list[str]:
         out.append(f"{report['details']['failed']} item page(s) could not be read.")
     if report.get("health", {}).get("broken"):
         out.append(report["health"]["message"])
+    for name, c in report["columns"].items():
+        if c.get("ungrounded", 0) >= 3 and c["ungrounded"] > 0.2 * c.get("checked", 0):
+            out.append(f"{name}: {c['ungrounded']} of {c['checked']} values aren't on the page they came from; "
+                       "check the column setup ('Re-detect columns').")
+        if c.get("invalid"):
+            out.append(f"{name}: {c['invalid']} value(s) out of range (e.g. a rating above 10 or a price of 0).")
+    for f in report.get("suspect") or []:
+        out.append(f["message"])
     return out
 
 

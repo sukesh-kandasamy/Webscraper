@@ -98,7 +98,7 @@
 
   <div class="card">
     <div class="card-head"><h2 class="card-title">Sites</h2>
-      <span class="muted">daily limits, pauses and saved logins</span>
+      <span class="muted">approval, daily limits, pauses and saved logins</span>
       <button class="btn-ghost ml-auto" @click="loadSites()"><span x-html="icon('refresh', 'h-3.5 w-3.5')"></span> Refresh</button></div>
     <div class="px-5 py-2">
       <p class="muted py-6 text-center" x-show="!sites.length">No sites yet.</p>
@@ -112,15 +112,23 @@
                       x-text="(s.session?.kind === 'login' ? 'logged in' + (s.session?.account ? ' as ' + s.session.account : '') : 'human check passed') + ' · ' + Math.max(0, Math.round((s.session?.expires_in_hours || 0) / 24)) + ' days left'"></span>
                 <span class="chip chip-gray" x-text="fmt(s.usage_today) + ' of ' + fmt(s.budget) + ' pages today'"></span>
                 <span class="chip chip-red" x-show="s.cooldown_left_min > 0" x-text="'paused ' + s.cooldown_left_min + ' min'"></span>
-                <span class="chip chip-red" x-show="s.settings?.blocked">never scrape</span>
+                <span class="chip" :class="{allowed: 'chip-green', approval: 'chip-amber', blocked: 'chip-red'}[s.policy]"
+                      x-text="{allowed: 'approved', approval: 'needs approval', blocked: 'never scrape'}[s.policy]"></span>
+                <span class="chip chip-gray" x-show="s.review?.terms" x-text="{ok: 'terms checked', restricted: 'terms restrict scraping', not_reviewed: 'terms not reviewed'}[s.review?.terms]"></span>
               </div>
+              <p class="mt-1 text-xs text-slate-500" x-show="s.review?.approved_by || s.review?.note"
+                 x-text="[s.review?.approved_by && s.review?.approved_at ? 'Approved ' + new Date(s.review.approved_at * 1000).toLocaleDateString() + (s.review.approved_by ? ' by ' + s.review.approved_by : '') : '', s.review?.note].filter(Boolean).join(' · ')"></p>
             </div>
             <div class="flex flex-wrap gap-1">
               <button class="btn-ghost" @click="startLogin(s)" :disabled="!status?.browser_available" x-show="advanced"
                       x-text="s.session?.kind === 'login' ? 'Log in again' : 'Log in'"></button>
               <button class="btn-ghost" x-show="s.session" @click="forgetSession(s)">Remove login</button>
               <button class="btn-ghost" x-show="s.cooldown_left_min > 0" @click="clearCooldown(s)">End pause</button>
-              <button class="btn-ghost" @click="toggleBlocked(s)" x-text="s.settings?.blocked ? 'Allow' : 'Never scrape'"></button>
+              <select class="input h-9 w-auto py-1 text-sm" :value="s.policy" @change="setPolicy(s, $event.target.value)" aria-label="Site policy">
+                <option value="allowed">Approved</option><option value="approval">Needs approval</option><option value="blocked">Never scrape</option></select>
+              <select class="input h-9 w-auto py-1 text-sm" :value="s.review?.terms || 'not_reviewed'" @change="setTerms(s, $event.target.value)" aria-label="Terms review">
+                <option value="not_reviewed">Terms not reviewed</option><option value="ok">Terms checked</option><option value="restricted">Terms restrict scraping</option></select>
+              <button class="btn-ghost" @click="editSiteNote(s)">Note</button>
               <button class="btn-ghost hover:!text-rose-600" @click="deleteSiteData(s)">Delete data</button>
             </div>
           </li>

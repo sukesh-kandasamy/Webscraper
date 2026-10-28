@@ -119,6 +119,8 @@ MIGRATIONS = [
     ("scrapes", "route", "ALTER TABLE scrapes ADD COLUMN route TEXT NOT NULL DEFAULT '[]'"),
     # which mode a run belongs to (manual | agent): each mode shows only its own results
     ("jobs", "mode", "ALTER TABLE jobs ADD COLUMN mode TEXT NOT NULL DEFAULT 'manual'"),
+    # when the page a row came from was read (with records.page: where each row came from)
+    ("records", "fetched_at", "ALTER TABLE records ADD COLUMN fetched_at REAL"),
 ]
 MODES = ("manual", "agent")
 
@@ -140,10 +142,41 @@ def init() -> None:
         for (job_id,) in c.execute("SELECT id FROM jobs WHERE public_id IS NULL OR public_id=''").fetchall():
             c.execute("UPDATE jobs SET public_id=? WHERE id=?", (_new_job_uid(c), job_id))
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS jobs_public_id ON jobs(public_id)")
+        _backfill_site_policy(c)
         # Jobs left running by a previous server process are re-queued; jobs.resume_pending()
         # picks them up and continues from the pages they had not fetched yet.
         c.execute("UPDATE jobs SET status='queued', message='Resuming after restart' "
                   "WHERE status='running'")
+
+
+def _backfill_site_policy(c) -> None:
+    """Once, when site approval was added: sites already in use (saved settings or runs) count as allowed,
+    marked "not reviewed", so nothing that worked before stops working."""
+    done = c.execute("SELECT value FROM app_settings WHERE key='site_policy_backfill'").fetchone() \
+        if c.execute("SELECT 1 FROM sqlite_master WHERE name='app_settings'").fetchone() else None
+    if done:
+        return
+    from urllib.parse import urlsplit
+    domains = {r["domain"] for r in c.execute("SELECT domain FROM sites")}
+    for (urls,) in c.execute("SELECT urls FROM jobs").fetchall():
+        for u in json.loads(urls or "[]"):
+            if urlsplit(u).netloc:
+                domains.add(urlsplit(u).netloc.lower())
+    now = time.time()
+    for d in sorted(domains):
+        row = c.execute("SELECT settings FROM sites WHERE domain=?", (d,)).fetchone()
+        settings = json.loads(row["settings"] or "{}") if row else {}
+        if settings.get("policy") or settings.get("blocked"):
+            continue
+        settings.update(policy="allowed", review={"terms": "not_reviewed", "note": "In use before site approval existed",
+                                                  "approved_by": "", "approved_at": None})
+        if row:
+            c.execute("UPDATE sites SET settings=? WHERE domain=?", (json.dumps(settings), d))
+        else:
+            c.execute("INSERT INTO sites(domain, recipe, source, settings, updated_at) VALUES(?,?,?,?,?)",
+                      (d, "{}", "manual", json.dumps(settings), now))
+    if c.execute("SELECT 1 FROM sqlite_master WHERE name='app_settings'").fetchone():
+        c.execute("INSERT OR REPLACE INTO app_settings(key, value) VALUES('site_policy_backfill', ?)", (json.dumps(now),))
 
 
 # ---- app settings --------------------------------------------------------
@@ -421,39 +454,48 @@ def _job_encrypted(c: sqlite3.Connection, job_id: int) -> bool:
     return bool(row and row["encrypted"])
 
 
-def add_records(job_id: int, page: str, rows: list[dict]) -> None:
+def add_records(job_id: int, page: str, rows: list[dict], fetched_at: float | None = None) -> None:
     from .security import vault  # lazy: only needed for logged-in jobs
 
+    at = fetched_at or time.time()
     with tx() as c:
         enc = _job_encrypted(c, job_id)
         c.executemany(
-            "INSERT INTO records(job_id, page, data) VALUES(?,?,?)",
-            [(job_id, page, ("enc:" + vault.encrypt_json(r)) if enc else json.dumps(r, ensure_ascii=False))
+            "INSERT INTO records(job_id, page, data, fetched_at) VALUES(?,?,?,?)",
+            [(job_id, page, ("enc:" + vault.encrypt_json(r)) if enc else json.dumps(r, ensure_ascii=False), at)
              for r in rows],
         )
 
 
-def get_record_pages(job_id: int) -> list[tuple[str, dict]]:
-    """(page, row) for every record of a job, in order."""
+def get_record_pages(job_id: int) -> list[tuple[str, dict, float | None]]:
+    """(page, row, fetched_at) for every record of a job, in order."""
     from .security import vault
 
     with tx() as c:
-        rows = c.execute("SELECT page, data FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
-    return [(r["page"], vault.decrypt_json(r["data"][4:]) if r["data"].startswith("enc:") else json.loads(r["data"]))
-            for r in rows]
+        rows = c.execute("SELECT page, data, fetched_at FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
+    return [(r["page"], vault.decrypt_json(r["data"][4:]) if r["data"].startswith("enc:") else json.loads(r["data"]),
+             r["fetched_at"]) for r in rows]
 
 
-def replace_records(job_id: int, items: list[tuple[str, dict]]) -> None:
-    """Replace all records of a job (after sorting / trimming to the requested limit)."""
+def get_record_sources(job_id: int) -> list[tuple[str, float | None]]:
+    """(page, fetched_at) for every record of a job, in the same order as get_records."""
+    with tx() as c:
+        rows = c.execute("SELECT page, fetched_at FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
+    return [(r["page"], r["fetched_at"]) for r in rows]
+
+
+def replace_records(job_id: int, items: list[tuple]) -> None:
+    """Replace all records of a job (after sorting / trimming to the requested limit). items: (page, row) or
+    (page, row, fetched_at), so where each row came from is kept."""
     from .security import vault
 
     with tx() as c:
         enc = _job_encrypted(c, job_id)
         c.execute("DELETE FROM records WHERE job_id=?", (job_id,))
         c.executemany(
-            "INSERT INTO records(job_id, page, data) VALUES(?,?,?)",
-            [(job_id, page, ("enc:" + vault.encrypt_json(r)) if enc else json.dumps(r, ensure_ascii=False))
-             for page, r in items])
+            "INSERT INTO records(job_id, page, data, fetched_at) VALUES(?,?,?,?)",
+            [(job_id, it[0], ("enc:" + vault.encrypt_json(it[1])) if enc else json.dumps(it[1], ensure_ascii=False),
+              it[2] if len(it) > 2 else None) for it in items])
 
 
 def last_finished_job(scrape_id: int, before_id: int) -> dict | None:
@@ -487,8 +529,10 @@ def _decode_row(data: str) -> dict:
 def get_records_with_ids(job_id: int) -> list[dict]:
     """Every row of a job with its record id and the columns you edited: [{id, row, edited}]."""
     with tx() as c:
-        rows = c.execute("SELECT id, data, edited FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
-    return [{"id": r["id"], "row": _decode_row(r["data"]), "edited": json.loads(r["edited"] or "[]")} for r in rows]
+        rows = c.execute("SELECT id, data, edited, page, fetched_at FROM records WHERE job_id=? ORDER BY id",
+                         (job_id,)).fetchall()
+    return [{"id": r["id"], "row": _decode_row(r["data"]), "edited": json.loads(r["edited"] or "[]"),
+             "page": r["page"], "fetched_at": r["fetched_at"]} for r in rows]
 
 
 def update_record(job_id: int, record_id: int, row: dict, edited: list[str]) -> bool:

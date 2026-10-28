@@ -55,9 +55,11 @@ def check_url(url: str, site: str) -> tuple[bool, str]:
     if not on_site(url, site):
         return False, f"{urlsplit(url).hostname} is not the planned site ({site_domain(site)})."
     domain = fetcher.domain_of(url)
-    settings = fetcher.site_settings(domain)
-    if settings.get("blocked") or fetcher.is_opted_out(urlsplit(url).hostname or ""):
+    policy = fetcher.site_policy(domain)
+    if policy == "blocked":
         return False, f"{domain} is on your never-scrape list."
+    if policy == "approval":
+        return False, str(fetcher.NeedsApproval(domain))
     if fetcher.cooldown_left(domain) > 0:
         return False, f"{domain} is paused (cooling down) after it limited automated visits."
     if config.RESPECT_ROBOTS and not fetcher.robots_allows(url):

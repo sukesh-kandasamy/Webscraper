@@ -5,6 +5,7 @@ function resultsPage() {
     selectedJob: null,
     records: [],
     showPersonal: false,
+    withSource: false,           // exports add the page each row came from and when it was read
     search: "",
     sortKey: "",
     sortAsc: true,
@@ -114,9 +115,16 @@ function resultsPage() {
     exportUrl(fmt) {
       const cols = this.visibleColumns().join(",");
       const name = encodeURIComponent(this.jobTitle(this.selectedJob || {}));
-      return `/api/jobs/${this.selectedJob?.id}/export?fmt=${fmt}&show_personal=${this.showPersonal}&columns=${encodeURIComponent(cols)}&name=${name}`;
+      return `/api/jobs/${this.selectedJob?.id}/export?fmt=${fmt}&show_personal=${this.showPersonal}&columns=${encodeURIComponent(cols)}&name=${name}` +
+             (this.withSource ? "&include_source=true" : "");
     },
 
+    // A run paused because its site needs approval: approve it (with a note), then carry on from where it stopped.
+    async approveAndContinue(j) {
+      let domain = "";
+      try { domain = new URL(j.paused_url || j.urls?.[0]).host; } catch { return; }
+      if (await this.approveSite(domain)) await this.resumeJob(j);
+    },
     async resumeJob(j) {
       try { await api("POST", `/api/jobs/${j.id}/resume`); this.loadJobs(); } catch (e) { this.showError(e); }
     },

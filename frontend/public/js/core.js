@@ -324,7 +324,22 @@ function shell() {
     handleError(e) {
       const d = e.detail || {};
       if (e.status === 409 && d.code === "needs_human") { this.blockedPage = d; this.error = null; return; }
+      if (e.status === 409 && d.code === "needs_approval") { this.error = null; this.approveSite(d.domain, d.message); return; }
       this.showError(e);
+    },
+    // Site policy: nobody has approved collecting from this site yet. Approving records who, when and a note.
+    async approveSite(domain, why = "") {
+      const note = await this.ask({
+        title: `Approve ${domain}?`,
+        message: (why || `${domain} hasn't been approved for scraping yet.`) + " Approving records your name, the time and your " +
+                 "note (for example: which terms you checked, or why the data is needed). You can change it later in Settings → Sites.",
+        input: true, value: "", confirmText: "Approve site" });
+      if (note === false || note === null || note === undefined) return false;
+      try {
+        await api("POST", `/api/sites/${encodeURIComponent(domain)}/approve`, { terms: "ok", note: String(note || "") });
+        this.toast(`${domain} approved. Start it again.`);
+        return true;
+      } catch (e) { this.showError(e); return false; }
     },
 
     // ---------------------------------------------------------------- actions that open another page

@@ -40,6 +40,15 @@ class NeedsHuman(FetchError):
         super().__init__(message or f"The site showed {blockdetect.describe(kind)} at {url}")
 
 
+class NeedsApproval(BlockedError):
+    """Nobody has approved collecting from this site yet (site policy): check its terms, then approve it."""
+
+    def __init__(self, domain: str):
+        self.domain = domain
+        super().__init__(f"{domain} hasn't been approved for scraping yet. Check the site's terms of use, then "
+                         "approve it (you're asked when you start, or in Settings → Sites).")
+
+
 class SessionExpired(NeedsHuman):
     """The saved login no longer works: log in again."""
 
@@ -132,6 +141,39 @@ def is_opted_out(host: str) -> bool:
     return bool(site_settings(host).get("blocked"))
 
 
+POLICIES = ("approval", "allowed", "blocked")
+
+
+def _variants(domain: str) -> list[str]:
+    """www. and the bare domain share one policy (sites redirect between them)."""
+    d = domain.lower()
+    bare = d.removeprefix("www.")
+    return [d, bare] if bare != d else [d, "www." + d]
+
+
+def site_policy(domain: str) -> str:
+    """'blocked', 'allowed' or 'approval' (not reviewed yet) for a site (a domain as domain_of() gives it)."""
+    host = domain.lower().split(":")[0]
+    if is_opted_out(host) or any(site_settings(v).get("blocked") for v in _variants(domain)):
+        return "blocked"
+    for v in _variants(domain):
+        p = site_settings(v).get("policy")
+        if p in POLICIES:
+            return p
+    return config.SITE_POLICY_DEFAULT if config.SITE_POLICY_DEFAULT in POLICIES else "approval"
+
+
+def policy_gate(url: str) -> str:
+    """Our own rules for a site, before any page of it is used, from the network or the cache."""
+    domain = domain_of(url)
+    policy = site_policy(domain)
+    if policy == "blocked":
+        raise BlockedError(f"{domain} is on your do-not-scrape list.")
+    if policy == "approval":
+        raise NeedsApproval(domain)
+    return domain
+
+
 def cooldown_left(domain: str) -> float:
     until = float(site_settings(domain).get("cooldown_until") or 0)
     return max(0.0, until - time.time())
@@ -159,9 +201,7 @@ def _preflight(url: str) -> str:
         netguard.check_url(url)
     except netguard.UnsafeURL as e:
         raise BlockedError(str(e)) from e
-    domain = domain_of(url)
-    if is_opted_out(host_of(url)):
-        raise BlockedError(f"{domain} is on your do-not-scrape list.")
+    domain = policy_gate(url)
     left = cooldown_left(domain)
     if left > 0:
         reason = site_settings(domain).get("cooldown_reason", "")
@@ -286,6 +326,7 @@ def _classify(html: str, status: int, url: str, session: dict | None) -> None:
 
 
 def fetch(url: str, use_cache: bool = True, retries: int = 2) -> Page:
+    policy_gate(url)                  # before the cache too: a blocked site's cached pages aren't used
     session = session_for(url)
     logged_in = bool(session and session.get("kind") == sessions.KIND_LOGIN)
     if use_cache and not session:
@@ -356,6 +397,7 @@ def fetch_rendered(url: str, item_selector: str = "", load_more: str = "", scrol
     """Fetch through headless Chromium. Same rules as fetch()."""
     from . import browser  # lazy: Playwright is optional
 
+    policy_gate(url)
     session = session_for(url)
     logged_in = bool(session and session.get("kind") == sessions.KIND_LOGIN)
     key = f"render:{url}#rounds={max_rounds}"

@@ -49,7 +49,9 @@
                 <p class="mt-1 break-words font-mono text-xs text-slate-400" x-show="advanced" x-text="selectedJob.message"></p>
               </div>
               <div class="flex flex-wrap gap-2">
-                <button class="btn btn-primary btn-sm" x-show="selectedJob.status==='needs_you'" @click="startJobSolve(selectedJob)">Open to solve</button>
+                <button class="btn btn-primary btn-sm" x-show="selectedJob.status==='needs_you' && selectedJob.paused_kind !== 'approval'" @click="startJobSolve(selectedJob)">Open to solve</button>
+                <button class="btn btn-primary btn-sm" x-show="selectedJob.status==='needs_you' && selectedJob.paused_kind === 'approval'" @click="approveAndContinue(selectedJob)">
+                  <span x-html="icon('check', 'h-3.5 w-3.5')"></span> Approve site and continue</button>
                 <button class="btn btn-sm" x-show="['queued','running','needs_you'].includes(selectedJob.status)" @click="stopJob(selectedJob)"><span x-html="icon('stop', 'h-3.5 w-3.5')"></span> Stop</button>
                 <button class="btn btn-sm" x-show="['stopped','blocked','error','needs_you'].includes(selectedJob.status)" @click="resumeJob(selectedJob)"
                         title="Carry on from the page it stopped at; the rows it already has are kept"><span x-html="icon('play_arrow', 'h-3.5 w-3.5')"></span> Continue</button>
@@ -69,6 +71,20 @@
               <div class="flex-1"><span x-text="`The recorded steps stopped working at step ${selectedJob.quality?.route_broken?.step}: ${selectedJob.quality?.route_broken?.reason}. The site probably changed.`"></span>
                 <div class="mt-2"><button class="btn btn-sm" @click="rerecordScrape(selectedJob.scrape_id)" :disabled="!!busy || !selectedJob.scrape_id">
                   <span x-html="icon('sparkles', 'h-3.5 w-3.5')"></span> Re-record with the agent</button></div></div>
+            </div>
+            <!-- the run finished but its data looks wrong (app/runs/trust.py) -->
+            <div class="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+                 x-show="selectedJob.quality?.suspect?.length && !selectedJob.quality?.health?.broken?.length" x-cloak>
+              <span class="mt-0.5 text-rose-500" x-html="icon('warn', 'h-4 w-4')"></span>
+              <div class="flex-1">
+                <div class="font-medium">This data may not be what the site really shows</div>
+                <template x-for="f in selectedJob.quality?.suspect || []" :key="f.code"><p class="mt-1" x-text="f.message"></p></template>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <button class="btn btn-sm" x-show="selectedJob.scrape_id" @click="repairScrape(selectedJob)" :disabled="!!busy || !status?.ai_enabled">
+                    <span x-show="busy==='repair'" class="spinner"></span> Re-detect columns</button>
+                  <a class="btn btn-sm" x-show="selectedJob.urls?.[0]" :href="selectedJob.urls?.[0]" target="_blank" rel="noopener">
+                    <span x-html="icon('open_in_new', 'h-3.5 w-3.5')"></span> Open the page</a>
+                </div></div>
             </div>
             <div class="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
                  x-show="selectedJob.quality?.health?.broken?.length" x-cloak>
@@ -119,7 +135,8 @@
                   <div class="card-head"><h2 class="card-title">Columns</h2><span class="muted">how complete each one is</span></div>
                   <div class="p-3"><div class="table-wrap">
                     <table class="tbl">
-                      <thead><tr><th>Column</th><th>Type</th><th>Filled</th><th>Different values</th><th>Unreadable</th></tr></thead>
+                      <thead><tr><th>Column</th><th>Type</th><th>Filled</th><th>Different values</th><th>Unreadable</th>
+                        <th title="Values checked against the page they came from, and typed values in range">Checked</th></tr></thead>
                       <tbody>
                         <template x-for="[name, c] in Object.entries(selectedJob.quality?.columns || {})" :key="name">
                           <tr>
@@ -131,6 +148,11 @@
                               <span class="tabular-nums text-xs text-slate-500" x-text="Math.round(c.fill * 100) + '%'"></span></div></td>
                             <td class="tabular-nums" x-text="fmt(c.distinct)"></td>
                             <td class="tabular-nums" :class="c.unreadable && 'text-amber-600'" x-text="c.unreadable || '—'"></td>
+                            <td class="text-xs" :title="c.checked ? `${c.checked - (c.ungrounded || 0)} of ${c.checked} values found on their page` : ''">
+                              <span x-show="c.checked && !c.ungrounded && !c.invalid" class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><span x-html="icon('check', 'h-3.5 w-3.5')"></span> on the page</span>
+                              <span x-show="c.ungrounded" class="text-amber-600" x-text="`${c.ungrounded} not on the page`"></span>
+                              <span x-show="c.invalid" class="ml-1 text-rose-600" x-text="`${c.invalid} out of range`"></span>
+                              <span x-show="!c.checked && !c.invalid" class="text-slate-400">—</span></td>
                           </tr>
                         </template>
                       </tbody>
@@ -276,6 +298,8 @@
                 <div class="menu" x-show="open" x-cloak x-transition.opacity>
                   <a class="menu-item" :href="exportUrl('xlsx')" @click="open=false">Excel (.xlsx)</a>
                   <a class="menu-item" :href="exportUrl('csv')" @click="open=false">CSV (.csv)</a>
+                  <label class="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" class="checkbox" x-model="withSource"> Add where each row came from</label>
                   <div class="px-2.5 pb-1 pt-1.5 text-[11px] text-slate-400">Only the columns you show</div>
                 </div>
               </div>
@@ -301,7 +325,7 @@
                   <tbody>
                     <template x-for="(r, i) in pagedRows()" :key="r._id ?? i">
                       <tr><template x-for="c in visibleColumns()" :key="c">
-                        <td class="group/cell" @dblclick="startEdit(r, c)">
+                        <td class="group/cell" @dblclick="startEdit(r, c)" :title="r._page ? 'From ' + r._page + (r._at ? ' · ' + new Date(r._at * 1000).toLocaleString() : '') : ''">
                           <template x-if="isEditing(r, c)">
                             <div class="flex min-w-[15rem] items-start gap-1">
                               <textarea id="cell-edit" x-model="cellEdit.value" rows="2" maxlength="10000" :disabled="cellEdit.saving"

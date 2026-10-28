@@ -151,6 +151,14 @@ class SettingsIn(BaseModel):
     ai_allowed: bool | None = None
     use_session: bool | None = None
     blocked: bool | None = None
+    policy: str | None = Field(default=None, pattern="^(approval|allowed|blocked)$")
+    terms: str | None = Field(default=None, pattern="^(not_reviewed|ok|restricted)$")
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ApproveIn(BaseModel):
+    terms: str = Field(default="ok", pattern="^(not_reviewed|ok|restricted)$")
+    note: str = Field(default="", max_length=500)
 
 
 class WindowIn(BaseModel):
@@ -241,10 +249,27 @@ def _fetch_or_http_error(url: str, recipe: dict | None = None) -> fetcher.Page:
                                   "domain": fetcher.host_of(e.url), "message": str(e)})
     except fetcher.BudgetExceeded as e:
         raise HTTPException(429, str(e))
+    except fetcher.NeedsApproval as e:
+        raise _needs_approval(e.domain)
     except fetcher.BlockedError as e:
         raise HTTPException(403, str(e))
     except fetcher.FetchError as e:
         raise HTTPException(502, logsafe.redact(str(e)))
+
+
+def _needs_approval(domain: str) -> HTTPException:
+    return HTTPException(409, {"code": "needs_approval", "domain": domain,
+                               "message": str(fetcher.NeedsApproval(domain))})
+
+
+def _check_policy(urls: list[str]) -> None:
+    """Before starting a run: every site must be allowed (approval asks first; never-scrape refuses)."""
+    for u in urls:
+        policy = fetcher.site_policy(fetcher.domain_of(u))
+        if policy == "approval":
+            raise _needs_approval(fetcher.domain_of(u))
+        if policy == "blocked":
+            raise HTTPException(403, f"{fetcher.domain_of(u)} is on your do-not-scrape list.")
 
 
 def _normalize_or_http_error(recipe: dict) -> dict:
@@ -599,7 +624,8 @@ def robots_view(url: str):
 def _site_view(domain: str, settings: dict) -> dict:
     session = sessions.info(domain) or (sessions.info(sessions.base_domain(domain))
                                         if sessions.base_domain(domain) != domain else None)
-    return {"domain": domain, "settings": settings,
+    return {"domain": domain, "settings": settings, "policy": fetcher.site_policy(domain),
+            "review": settings.get("review") or {},
             "session": session, "usage_today": db.usage_today(domain),
             "budget": fetcher.daily_budget(domain, bool(session and session["kind"] == "login")),
             "cooldown_left_min": round(fetcher.cooldown_left(domain) / 60, 1)}
@@ -643,13 +669,53 @@ def get_site_settings(domain: str):
 def put_site_settings(domain: str, body: SettingsIn):
     patch = body.model_dump(exclude_unset=True)
     current = db.get_site_settings(domain)
+    terms, note = patch.pop("terms", None), patch.pop("note", None)
+    if "policy" in patch:                         # the never-scrape switch and the policy say the same thing
+        patch["blocked"] = patch["policy"] == "blocked"
+    elif "blocked" in patch:
+        patch["policy"] = "blocked" if patch["blocked"] else "allowed"
+    if terms is not None or note is not None or patch.get("policy") == "allowed":
+        review = dict(current.get("review") or {})
+        if terms is not None:
+            review["terms"] = terms
+        if note is not None:
+            review["note"] = note
+        if patch.get("policy") == "allowed" and current.get("policy") != "allowed":
+            review.update(approved_by=_who(), approved_at=time.time())
+        patch["review"] = review
     lo = patch.get("min_delay", current.get("min_delay"))
     hi = patch.get("max_delay", current.get("max_delay"))
     if lo is not None and hi is not None and lo > hi:
         raise HTTPException(400, "min_delay must not be larger than max_delay")
     settings = fetcher.update_settings(domain, patch)
     audit.log("settings_changed", domain=domain, changed=sorted(patch))
+    if "policy" in patch:
+        audit.log("policy_changed", domain=domain, policy=patch["policy"],
+                  terms=(patch.get("review") or {}).get("terms", ""), note=(note or "")[:300])
     return settings
+
+
+def _who() -> str:
+    """Who approved a site: the person signed in to this PC (the app has no accounts)."""
+    import getpass
+    try:
+        return getpass.getuser()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+@app.post("/api/sites/{domain}/approve")
+def approve_site(domain: str, body: ApproveIn):
+    """Allow collecting from a site, recording who approved it, when, the terms review and a note."""
+    domain = domain.strip().lower()
+    if not domain or "/" in domain:
+        raise HTTPException(400, "Give a site such as example.com")
+    if fetcher.site_policy(domain) == "blocked":
+        raise HTTPException(409, f"{domain} is on your do-not-scrape list; allow it in Settings → Sites first.")
+    review = {"terms": body.terms, "note": body.note.strip(), "approved_by": _who(), "approved_at": time.time()}
+    fetcher.update_settings(domain, {"policy": "allowed", "blocked": False, "review": review})
+    audit.log("site_approved", domain=domain, terms=body.terms, note=body.note.strip()[:300])
+    return _site_view(domain, db.get_site_settings(domain))
 
 
 @app.delete("/api/sites/{domain}/cooldown")
@@ -782,6 +848,7 @@ def finish_site_solve(domain: str, body: FinishIn):
 def _start_run(urls: list[str], recipe: dict, max_pages: int, personal_fields: list[str],
                personal_purpose: str, scrape_id: int | None = None) -> int:
     """Validate and start a crawl job (shared by /api/jobs and saved scrapes)."""
+    _check_policy(urls)
     logged_in = any((s := sessions.for_host(fetcher.host_of(u))) and s.get("kind") == sessions.KIND_LOGIN
                     for u in urls)
     if config.RESPECT_ROBOTS:
@@ -795,6 +862,8 @@ def _start_run(urls: list[str], recipe: dict, max_pages: int, personal_fields: l
         if len(personal_purpose.strip()) < 10:
             raise HTTPException(400, "Collecting personal data needs a purpose (at least 10 characters).")
         personal = {"fields": keep, "purpose": personal_purpose.strip(), "confirmed_at": time.time()}
+        audit.log("personal_data_purpose", domain=fetcher.domain_of(urls[0]), fields=keep,
+                  purpose=personal["purpose"][:300])
     return jobs.start(urls, recipe, max_pages, logged_in=logged_in, personal=personal, scrape_id=scrape_id)
 
 
@@ -827,7 +896,11 @@ def friendly_progress(job: dict) -> str:
             extra += f" {len(q['pages_failed'])} page(s) could not be read."
         elif "Issues" in job["message"]:
             extra += " Some pages had problems."
+        if q.get("suspect"):
+            return f"Finished, but it looks wrong: {q['suspect'][0]['message']}"
         return f"Finished: {rows} rows from {done} page(s)." + extra
+    if s == "needs_you" and job.get("paused_kind") == "approval":
+        return "This site needs approval before it is scraped. Approve it, then press Continue."
     if s == "needs_you":
         return ("The site wants you to log in again before continuing." if job.get("paused_kind") == "login"
                 else "The site asked for a human check. Open it, solve it, and the scrape continues.")
@@ -1092,7 +1165,8 @@ def _visible_records(job: dict, show_personal: bool) -> list[dict]:
 def _row_view(job: dict, item: dict, show_personal: bool) -> dict:
     """A row as the Results table shows it, with its record id and the columns you edited."""
     keep = tuple(job["personal"].get("fields", [])) if show_personal else ()
-    return {**privacy.mask_rows([item["row"]], keep)[0], "_id": item["id"], "_edited": item["edited"]}
+    return {**privacy.mask_rows([item["row"]], keep)[0], "_id": item["id"], "_edited": item["edited"],
+            "_page": item.get("page") or "", "_at": item.get("fetched_at")}
 
 
 @app.get("/api/jobs/{job_id}/records")
@@ -1140,7 +1214,7 @@ def edit_record(job_id: str, record_id: int, body: CellIn):
 
 @app.get("/api/jobs/{job_id}/export")
 def export_job(job_id: str, fmt: str = "csv", show_personal: bool = False, columns: str = "",
-               name: str = ""):
+               name: str = "", include_source: bool = False):
     job = _job_or_404(job_id)
     job_id = job["id"]
     if fmt not in ("csv", "xlsx"):
@@ -1149,6 +1223,12 @@ def export_job(job_id: str, fmt: str = "csv", show_personal: bool = False, colum
     wanted = [c for c in columns.split(",") if c]
     if wanted:
         records = [{c: r.get(c, "") for c in wanted} for r in records]
+    if include_source:                       # where each row came from: the page and when it was read
+        sources = db.get_record_sources(job_id)
+        if len(sources) == len(records):
+            records = [{**r, "source_page": page or "",
+                        "collected_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(at)) if at else ""}
+                       for r, (page, at) in zip(records, sources)]
     audit.log("export", job_id=job_id, job=job["uid"], fmt=fmt, rows=len(records),
               personal=bool(show_personal and job["personal"].get("fields")))
     if fmt == "xlsx":

@@ -87,6 +87,22 @@ function settingsPage() {
       try { await api("PUT", `/api/sites/${site.domain}/settings`, { blocked: !site.settings?.blocked }); this.loadSites(); }
       catch (e) { this.showError(e); }
     },
+    // Site policy (approved / needs approval / never scrape), the terms review and a note: recorded in the activity log.
+    async setPolicy(site, policy) {
+      try { await api("PUT", `/api/sites/${site.domain}/settings`, { policy }); this.loadSites(); }
+      catch (e) { this.showError(e); this.loadSites(); }
+    },
+    async setTerms(site, terms) {
+      try { await api("PUT", `/api/sites/${site.domain}/settings`, { terms }); this.loadSites(); }
+      catch (e) { this.showError(e); this.loadSites(); }
+    },
+    async editSiteNote(site) {
+      const note = await this.promptDialog(`Note for ${site.domain}`, "Which terms you checked, why the data is needed, or limits to respect.",
+                                           site.review?.note || "", "Save note");
+      if (note === null) return;
+      try { await api("PUT", `/api/sites/${site.domain}/settings`, { note }); this.loadSites(); }
+      catch (e) { this.showError(e); }
+    },
     async deleteSiteData(site) {
       if (!await this.confirmDialog(`Delete all data for ${site.domain}?`, "Runs, results, cached pages and the saved login for this site are removed. This can't be undone.")) return;
       try {

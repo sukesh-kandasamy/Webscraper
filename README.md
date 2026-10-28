@@ -205,7 +205,13 @@ firewalls.
   check appears within 10 minutes the job stops and the site cools down for an hour.
 - **Personal data** (phone numbers, emails) is masked by default, in what is stored, shown and sent
   to the AI. To collect a field unmasked, tick it before starting the job and say why.
-- **Activity log** lists every fetch, export, login and settings change.
+- **Activity log** lists every fetch, export, login and settings change, every site approval and policy
+  change, and the purpose given for collecting personal data.
+- **Site approval.** A site nobody has reviewed yet needs approval before its first scrape: starting one
+  asks you to check the site's terms and approve it (with a note). *Settings → Sites* shows each site's
+  policy (Needs approval / Allowed / Never scrape), its terms review and who approved it. Never-scrape sites
+  are refused even from the page cache. Sites you used before this existed were marked allowed ("terms not
+  reviewed").
 
 Details: [docs/SECURITY.md](docs/SECURITY.md). Check everything with `python scripts/check.py`.
 
@@ -251,8 +257,16 @@ it stopped without duplicating rows.
 
 Each page's rows are typed (`₹ 1,62,499` → 162499 plus `price_currency` INR; `2.5 Lakh` → 250000;
 `4.5 out of 5` → 4.5; `2d ago` → a date), de-duplicated by the item's link, filtered by your request,
-completed from item pages when that is on, and stored. At the end the request's sort and limit are
-applied and the quality report is saved with the run.
+completed from item pages when that is on, and stored with the page it came from and when it was read
+(*Add where each row came from* in the download menu adds both). At the end the request's sort and limit
+are applied and the quality report is saved with the run.
+
+A run doesn't count as done unless it collected rows. A page that gives nothing is checked for a
+verification or "access denied" page of any size: a check pauses the job as *needs you*, a refusal stops
+it. A run with no rows ends as an error that says why (for example "the page says there are 120 results,
+but nothing could be collected"); a run with rows that still looks wrong (pages that gave nothing, rows down
+70 % on the last run) shows a red banner. Each column's values are checked against the page they came from,
+and the Quality tab's *Checked* column shows how many weren't there or were out of range.
 
 Pages that carry their data as JSON (schema.org JSON-LD, `__NEXT_DATA__`, `window.__INITIAL_STATE__`)
 are read from it when it is cleaner than the HTML; item pages often have a JSON-LD Product / JobPosting
@@ -332,6 +346,7 @@ overrides the provider and model settings below. Keys always stay in
 | `SCRAPER_AGENT_MAX_STEPS` / `_MAX_MINUTES` / `_MAX_AI_CALLS` | 40 / 15 / 60 | Default limits per agent run |
 | `SCRAPER_DATA_DIR` | `data/` | Where the database, logins, logs and screenshots live (e.g. a separate folder for a test copy of the app) |
 | `SCRAPER_AGENT_SHOW_BROWSER` | 1 | The agent's browser sub-tasks open in a visible window (some sites, e.g. booking.com, send hidden browsers a different flow); `0` hides it |
+| `SCRAPER_SITE_POLICY_DEFAULT` | `approval` | What a site nobody has reviewed gets: `approval` (ask first), `allowed` or `blocked` |
 
 ## What's next
 
@@ -342,8 +357,10 @@ overrides the provider and model settings below. Keys always stay in
 output, recipe auto-repair, scheduled re-runs with price history, a point-and-click field picker.
 - Complete data and the describe-what-you-need prompt: [05-data.md](docs/plans/05-data.md) (built).
 - Agent mode with browser-use: [06-agent.md](docs/plans/06-agent.md) (phases 1–3 built).
-- The ReAct agent (prompt → data): [08-react-agent.md](docs/plans/08-react-agent.md) (phase 1 built; next:
-  the browser as a tool and questions to you).
+- The ReAct agent (prompt → data): [08-react-agent.md](docs/plans/08-react-agent.md) (all four phases built).
+- Trustworthy data, collected the right way: [09-trustworthy-data.md](docs/plans/09-trustworthy-data.md)
+  (phase 1 built: no false success, value checks, site approval, where each row came from; next: official
+  data first, schedules and alerts).
 
 ## Ground rules built in
 

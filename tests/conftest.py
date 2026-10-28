@@ -12,6 +12,8 @@ def _isolated_data(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", data)
     monkeypatch.setattr(config, "DB_PATH", data / "test.db")
     monkeypatch.setattr(config, "SESSIONS_DIR", data / "sessions")
+    # Tests use made-up sites (books.test, a local server); the approval step has its own tests.
+    monkeypatch.setattr(config, "SITE_POLICY_DEFAULT", "allowed")
     fetcher._settings_cache.clear()
     sessions._mem.clear()
     yield
