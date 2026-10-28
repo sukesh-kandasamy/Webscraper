@@ -36,14 +36,17 @@ SUGGESTIONS = "(text) => {" + _HELPERS + r"""
   const sel = '[role=option],[role=listbox] li,[role=listbox] a,[class*=suggest] li,[class*=Suggest] li,' +
     '[class*=autocomplete] li,[class*=Autocomplete] li,[class*=typeahead] li,[class*=autosuggest] li,' +
     '[id*=suggest] li,[id*=autocomplete] li,[data-testid*=suggest],[data-testid*=autocomplete] li,ul.ui-autocomplete li';
-  const t = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  // Compare words only ("Goa, India" = "Goa India"), and among equal matches prefer the shortest option, so
+  // "Goa India" wins over extras like "Goa, India · Search with AI".
+  const norm = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const t = norm(text);
   const items = [...document.querySelectorAll(sel)].filter(e => vis(e) && !off(e) && (e.innerText || '').trim()
                                                          && !e.closest('nav,footer'));
   const leaf = items.filter(e => !items.some(o => o !== e && e.contains(o)));
   if (!leaf.length) return {count: 0};
-  const score = e => { const s = (e.innerText || '').toLowerCase().replace(/\s+/g, ' ').trim();
-    return s === t ? 3 : s.startsWith(t) ? 2 : s.includes(t) ? 1 : 0; };
-  leaf.sort((a, b) => score(b) - score(a));
+  const score = e => { const s = norm(e.innerText);
+    return s === t ? 3 : s.startsWith(t) ? 2 : (s.includes(t) || t.split(' ').every(w => s.includes(w))) ? 1 : 0; };
+  leaf.sort((a, b) => score(b) - score(a) || norm(a.innerText).length - norm(b.innerText).length);
   if (score(leaf[0]) === 0 && leaf.length > 1)
     return {count: leaf.length, options: leaf.slice(0, 5).map(e => e.innerText.trim().slice(0, 60))};
   return {count: leaf.length, pick: mark(leaf[0])};
@@ -165,6 +168,14 @@ class Skills:
             value = d.isoformat() + ("T00:00" if kind == "datetime-local" else "")
             err = await self._type(browser_session, index, el, value[:7] if kind == "month" else value)
             return ("", err) if err else (f"Set the date field to {d.isoformat()}.", "")
+        page = await browser_session.get_current_page()
+        words = [str(d.day), [MONTHS[d.month - 1], MONTHS[d.month - 1][:3]], str(d.year)]
+        # The calendar may be open already (check-out right after check-in, or opened by the site itself);
+        # clicking its opener again would close it, so pick a visible day first.
+        found = await _js(page, CALENDAR_DAY, d.isoformat(), words)
+        if found.get("day"):
+            err = await self._click(browser_session, page, found["day"])
+            return ("", err) if err else (f"Picked {d.strftime('%d %b %Y')} in the date picker.", "")
         why = self.check("click", el, "")
         if why:
             return "", why
@@ -172,8 +183,6 @@ class Skills:
         if getattr(res, "error", ""):
             return "", f"Could not open the date picker: {res.error}"
         await self.record(browser_session, "click", el, {}, "")
-        page = await browser_session.get_current_page()
-        words = [str(d.day), [MONTHS[d.month - 1], MONTHS[d.month - 1][:3]], str(d.year)]
         for _ in range(MAX_MONTH_CLICKS + 1):
             await asyncio.sleep(0.6)
             found = await _js(page, CALENDAR_DAY, d.isoformat(), words)

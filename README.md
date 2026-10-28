@@ -116,6 +116,8 @@ and availability. All pages."* Naming a site is optional.
 
 The agent stays on the chosen site, follows robots.txt, and only searches, filters and reads. It may open
 only addresses the site itself showed (links, search results, next pages): invented addresses are refused.
+Every page and link the agent sees gets a short ID (P1, P2, …) that its AI uses instead of copying long
+addresses; a copy that got cut off still counts as the address it came from.
 The app checks every page and action and refuses buying, contacting, applying, posting, signing up, logging
 in and typing personal data. Human checks (CAPTCHAs) are never solved: the run stops as *Needs you*;
 **Open to solve** lets you solve it yourself, then **Try again**. Each run has limits for steps, minutes and
@@ -327,9 +329,9 @@ overrides the provider and model settings below. Keys always stay in
 | `SCRAPER_AGENT_PROMPT_CHARS` | 3000 on Groq, else 7000 | Max characters of one page summary shown to the agent's AI |
 | `SCRAPER_AGENT_PROVIDER` / `SCRAPER_AGENT_MODEL` | `anthropic` + `claude-sonnet-5-5` if `ANTHROPIC_API_KEY` is set, else `openai` + `SCRAPER_OPENAI_MODEL` if `OPENAI_API_KEY` is set, else `groq` + gpt-oss-120b | The AI that drives the browser |
 | `SCRAPER_AGENT_FALLBACK_PROVIDER` / `SCRAPER_AGENT_FALLBACK_MODEL` | none | Backup AI for the agent: takes over when its own AI hits a rate or daily limit, runs out of credit or refuses the key (also in Settings → AI models) |
-| `SCRAPER_AGENT_MAX_STEPS` / `_MAX_MINUTES` / `_MAX_AI_CALLS` | 40 / 10 / 60 | Default limits per agent run |
+| `SCRAPER_AGENT_MAX_STEPS` / `_MAX_MINUTES` / `_MAX_AI_CALLS` | 40 / 15 / 60 | Default limits per agent run |
 | `SCRAPER_DATA_DIR` | `data/` | Where the database, logins, logs and screenshots live (e.g. a separate folder for a test copy of the app) |
-| `SCRAPER_AGENT_SHOW_BROWSER` | 0 | `1` shows the agent's browser window |
+| `SCRAPER_AGENT_SHOW_BROWSER` | 1 | The agent's browser sub-tasks open in a visible window (some sites, e.g. booking.com, send hidden browsers a different flow); `0` hides it |
 
 ## What's next
 

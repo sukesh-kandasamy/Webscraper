@@ -75,7 +75,7 @@ def _env(app_url: str) -> dict:
         "AGENT_VISION": "1" if config.agent_vision() else "0",
         **_fallback_env(),
         "AGENT_BROWSER": installed_browser(),
-        "AGENT_SHOW_BROWSER": os.getenv("SCRAPER_AGENT_SHOW_BROWSER", "0"),
+        "AGENT_SHOW_BROWSER": "1" if config.AGENT_SHOW_BROWSER else "0",
         "ANONYMIZED_TELEMETRY": "false",
         "BROWSER_USE_CLOUD_SYNC": "false",
         "BROWSER_USE_CONFIG_DIR": str(config.DATA_DIR / "browseruse"),

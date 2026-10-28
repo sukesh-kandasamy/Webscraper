@@ -13,7 +13,7 @@ function agentPage() {
     agentRun: null,              // the run on screen (with its steps)
     agentRuns: [],
     agentNewCol: "",
-    agentLimits: { steps: 40, minutes: 10, ai_calls: 60 },
+    agentLimits: { steps: 40, minutes: 15, ai_calls: 60 },
     agentTimer: null,
     agentNow: Date.now(),        // ticks 4 times a second while a run is on screen
     agentExamples: AGENT_EXAMPLES,

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from ... import config
 from ...extraction import recipe_builder
-from .. import llm_errors, store
+from .. import llm_errors, planner, store
 from . import memory, prompts
 
 RECENT_FULL = {"groq": 4}             # steps shown in full in the prompt (others as one-line digests)
@@ -47,7 +47,7 @@ def contract(ctx) -> str:
     else:
         head, steps = "SUGGESTED ROUTE (a hint, not a script):", ctx.plan.get("navigation", [])
     route = "\n".join(f"  {i}. {s}" for i, s in enumerate(steps, 1))
-    out = (f"GOAL: {ctx.goal}\nSITE: {ctx.site}   START PAGE: {ctx.start_url}\n"
+    out = (f"TODAY: {planner.today()}\nGOAL: {ctx.goal}\nSITE: {ctx.site}   START PAGE: {ctx.start_url}\n"
            f"CHECKLIST:\n" + ("\n".join(checks) or "  (none)") +
            f"\nCOLUMNS WANTED: {cols or 'the important details of each item'}\n"
            f"PAGES TO COLLECT: {ctx.plan.get('pages', 3)} · item pages: {ctx.plan.get('item_pages', 'auto')}\n"
@@ -140,6 +140,14 @@ def _parse(raw: dict) -> Step:
     return Step(str(raw.get("thought") or "").strip()[:400], tool, args, done)
 
 
+def _waiting(ctx):
+    """Tells the timeline the AI is waiting out a rate limit, so a quiet minute doesn't look like a hang."""
+    def say(seconds: float) -> None:
+        name = llm_errors.PROVIDERS.get(ctx.provider, ctx.provider)
+        store.add_step(ctx.run_id, "info", f"Waiting {round(seconds)}s for {name}'s per-minute limit, then carrying on.")
+    return say
+
+
 def _no_answer(e: Exception) -> bool:
     """A timeout or a dropped connection (httpx / SDK class names), as opposed to an error answer."""
     return any(w in type(e).__name__ for w in ("Timeout", "Connect", "Network", "RemoteProtocol"))
@@ -152,7 +160,7 @@ def decide(ctx) -> Step:
         try:
             raw, tokens = recipe_builder.ask_structured(prompts.SYSTEM, [{"role": "user", "content": prompt(ctx)}],
                                                        prompts.step_schema(), "agent_step", ctx.provider, ctx.model,
-                                                       timeout=AI_TIMEOUT_S)
+                                                       timeout=AI_TIMEOUT_S, on_wait=_waiting(ctx))
             store.bump(ctx.run_id, ai_calls=1, tokens=tokens)
             ctx.ai_calls += 1
             return _parse(raw)
@@ -167,6 +175,12 @@ def decide(ctx) -> Step:
         except recipe_builder.RecipeBuildError as e:
             store.bump(ctx.run_id, ai_calls=1)
             ctx.ai_calls += 1
+            if "rate-limited" in str(e):      # the request layer gave up on a long wait: a limit, not bad answers
+                name = llm_errors.PROVIDERS.get(ctx.provider, ctx.provider)
+                _provider_problem(ctx, {"kind": "daily_limit", "fatal": True, "wait_s": 0,
+                                        "message": f"{name} is rate-limited for longer than the agent waits: "
+                                                   f"{str(e).split(': ', 1)[-1]}"})
+                continue
             if attempt >= 2:
                 raise BrainError("error", f"The AI's answers could not be used: {e}")
             continue
@@ -185,19 +199,27 @@ def decide(ctx) -> Step:
             if not p:
                 raise BrainError("error", f"The AI request failed: {type(e).__name__}: {text[:200]}")
             if p["kind"] == "rate_limit" and not p["fatal"] and p["wait_s"] and attempt < 2:
+                _waiting(ctx)(min(p["wait_s"], llm_errors.MAX_WAIT_S))
                 time.sleep(min(p["wait_s"], llm_errors.MAX_WAIT_S) + 1)
                 continue
-            backup = config.agent_fallback()
-            if backup and not ctx.using_backup and p["kind"] in ("daily_limit", "quota", "auth", "rate_limit", "server"):
-                ctx.provider, ctx.model, ctx.using_backup = backup["provider"], backup["model"], True
-                store.add_step(ctx.run_id, "warn", f"{p['message']} Switched to the backup AI: "
-                               f"{llm_errors.PROVIDERS.get(backup['provider'], backup['provider'])} · {backup['model']}.")
+            if _provider_problem(ctx, p) or attempt < 2:
+                time.sleep(0 if ctx.using_backup else 2)
                 continue
-            if p["fatal"]:
-                prefix = "The backup AI failed too: " if ctx.using_backup else ""
-                raise BrainError("limit" if p["kind"] == "daily_limit" else "error",
-                                 prefix + p["message"] + llm_errors.advice(bool(backup)))
-            if attempt >= 2:
-                raise BrainError("error", p["message"])
-            time.sleep(2)
+            raise BrainError("error", p["message"])
     raise BrainError("error", "The AI did not answer.")
+
+
+def _provider_problem(ctx, p: dict) -> bool:
+    """A provider problem the AI can't get past by itself: switch to the backup AI (True: try again), end the
+    run when it's fatal, or False for a passing problem the caller may retry."""
+    backup = config.agent_fallback()
+    if backup and not ctx.using_backup and p["kind"] in ("daily_limit", "quota", "auth", "rate_limit", "server"):
+        ctx.provider, ctx.model, ctx.using_backup = backup["provider"], backup["model"], True
+        store.add_step(ctx.run_id, "warn", f"{p['message']} Switched to the backup AI: "
+                       f"{llm_errors.PROVIDERS.get(backup['provider'], backup['provider'])} · {backup['model']}.")
+        return True
+    if p["fatal"]:
+        prefix = "The backup AI failed too: " if ctx.using_backup else ""
+        raise BrainError("limit" if p["kind"] == "daily_limit" else "error",
+                         prefix + p["message"] + llm_errors.advice(bool(backup)))
+    return False

@@ -65,6 +65,27 @@ def test_guard_allows_navigation_clicks(text):
     assert guard.check_click({"tag": "button", "text": text})[0]
 
 
+@pytest.mark.parametrize("el", [
+    {"tag": "button", "text": "", "attributes": {"aria-label": "Dismiss sign in information."}},   # booking.com, two spellings
+    {"tag": "button", "text": "", "attributes": {"aria-label": "Dismiss sign-in info."}},
+    {"tag": "button", "text": "×", "attributes": {"aria-label": "Close sign-up offer"}},
+    {"tag": "button", "text": "No thanks", "attributes": {"title": "Subscribe to our newsletter"}},
+])
+def test_guard_allows_closing_account_popups(el):
+    assert guard.check_click(el)[0]
+
+
+@pytest.mark.parametrize("el", [
+    {"tag": "button", "text": "Sign in or register"},
+    {"tag": "a", "text": "Sign-in"},
+    {"tag": "button", "text": "Log-in"},
+    {"tag": "button", "text": "Close and pay now"},                  # a dismiss word doesn't excuse paying
+    {"tag": "button", "text": "Not now, confirm booking"},
+])
+def test_guard_still_refuses_account_and_risky_buttons(el):
+    assert not guard.check_click(el)[0]
+
+
 def test_guard_refuses_personal_fields():
     assert not guard.check_input({"attributes": {"type": "password"}}, "x")[0]
     assert not guard.check_input({"attributes": {"type": "text", "name": "mobile_number"}}, "98")[0]
@@ -171,7 +192,7 @@ def test_worker_routes_guard_a_browse_task(client):
     job = client.get("/api/agent/worker/next", headers=w).json()
     assert job["kind"] == "browse" and job["id"] == run["id"] and job["task_id"] == task
     assert job["task"] == "open the Mystery category" and job["limits"]["steps"] == 15 and job["counters"]["tokens"] == 100
-    assert client.get("/api/agent/worker/next", headers=w).json() == {}           # one task, claimed once
+    assert client.get("/api/agent/worker/next", headers=w).json() == {"close": []}           # one task, claimed once
 
     refused = client.post(f"/api/agent/worker/runs/{run['id']}/check", headers=w,
                           json={"action": "click", "element": {"tag": "button", "text": "Add to cart"}}).json()
@@ -218,7 +239,7 @@ def test_stop_and_limits_for_a_browse_task(client):
 
     other = _thinking(client)                                     # a task whose run stopped waiting is dropped
     stale = store.create_browse_task(other["id"], "click", PUBLIC + "/", {}, {})
-    assert client.get("/api/agent/worker/next", headers=w).json() == {}
+    assert client.get("/api/agent/worker/next", headers=w).json() == {"close": []}
     assert store.get_browse_task(stale)["status"] == "failed"
     assert client.post(f"/api/agent/worker/runs/{other['id']}/arrived", headers=w,
                        json={"url": PUBLIC + "/", "html": LIST}).status_code == 409

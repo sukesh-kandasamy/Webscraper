@@ -91,11 +91,19 @@ class Context:
         return ticked
 
 
-def _arg_text(tool: str, args: dict) -> str:
+def _url_text(ctx, value) -> str:
+    """A page ID or address as the timeline and the AI's history show it: "P3 = site.com/path?short=params"."""
+    full = tools._resolve(ctx, str(value)) if ctx else str(value)
+    if not full.startswith("http"):
+        return str(value)
+    return f"{tools.page_id(ctx, full)} = {tools.display(full, 120)}" if ctx else tools.display(full, 120)
+
+
+def _arg_text(tool: str, args: dict, ctx=None) -> str:
     bits = []
     for k in ("url", "pattern", "form", "pages", "outcome", "task", "question"):
         if args.get(k) not in (None, "", 0):
-            bits.append(f"{k}={args[k]}" if k != "url" else str(args[k]))
+            bits.append(_url_text(ctx, args[k]) if k == "url" else f"{k}={args[k]}")
     for k in ("params", "fields"):
         if args.get(k):
             bits.append(k + "=" + ",".join(f"{p.get('name')}={p.get('value')}" for p in args[k]))
@@ -174,8 +182,9 @@ def run(run_id: int, app_url: str = "", resumed: bool = False) -> None:
         store.add_step(run_id, "thought", step.thought or "(no thought)", detail={"checklist_done": step.checklist_done})
         if ticked:
             store.add_step(run_id, "info", "Checklist: " + "; ".join(ticked))
-        arg = _arg_text(step.tool, step.args)
-        store.add_step(run_id, "action", f"{step.tool} {arg}".strip(), url=str(step.args.get("url") or ""),
+        arg = _arg_text(step.tool, step.args, ctx)
+        url = tools._resolve(ctx, str(step.args["url"])) if step.args.get("url") else ""
+        store.add_step(run_id, "action", f"{step.tool} {arg}".strip(), url=url if url.startswith("http") else "",
                        detail={"tool": step.tool, "args": step.args})
         obs = tools.run_tool(step.tool, step.args, ctx)
         text = logsafe.redact(obs.text)

@@ -19,8 +19,12 @@ RISKY_CLICK = re.compile(
     r"book now|book a|reserve|apply now|easy apply|quick apply|apply (for|to) |enquir|inquir|contact|call now|"
     r"call (seller|owner|agent|us)|whatsapp|chat (with|now)|message|request (a )?call|callback|get best price|"
     r"get (a )?quote|view (phone|number|contact)|show (phone|number|contact)|post (a |your |free )?(ad|property|job|"
-    r"review|comment)|write a review|sign ?up|register|subscribe|log ?in|sign ?in|log ?out|sign ?out|delete|"
-    r"unsubscribe|report|share|download|upload|confirm|donate)\b", re.I)
+    r"review|comment)|write a review|sign[ -]?up|register|subscribe|log[ -]?in|sign[ -]?in|log[ -]?out|sign[ -]?out|"
+    r"delete|unsubscribe|report|share|download|upload|confirm|donate)\b", re.I)
+# Closing a pop-up ("Dismiss sign-in info", "×", "No thanks") is fine even when it names the account offer it
+# closes; only these account words are excused that way, never buying, sending or deleting.
+DISMISS = re.compile(r"(^|[\s(])(dismiss|close|no,? thanks|not now|maybe later|×|✕|✖)(?=$|[\s.,!)])", re.I)
+ACCOUNT_OFFER = re.compile(r"sign[ -]?(in|up)|log[ -]?in|register|subscribe", re.I)
 # Fields the agent must never type into.
 PERSONAL_FIELD = re.compile(r"password|passwd|e-?mail|phone|mobile|tel\b|otp|card|cvv|cvc|expiry|pin\b|aadhaar|"
                             r"\bpan\b|ssn|iban|account.?number|full.?name|first.?name|last.?name|address", re.I)
@@ -70,6 +74,9 @@ def _element_words(el: dict) -> str:
 def check_click(el: dict) -> tuple[bool, str]:
     words = _element_words(el)
     m = RISKY_CLICK.search(words)
+    if m and DISMISS.search(words) and all(ACCOUNT_OFFER.fullmatch(x.group(0).strip())
+                                           for x in RISKY_CLICK.finditer(words)):
+        m = None                          # the close button of a sign-in / newsletter pop-up
     if m:
         return False, (f"Clicking “{words[:60]}” could act on the site ({m.group(0).strip()}); the agent only "
                        "searches, filters and reads.")

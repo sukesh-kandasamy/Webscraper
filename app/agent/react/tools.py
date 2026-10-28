@@ -3,10 +3,12 @@ on the planned site, allowed by robots.txt and your never-scrape list; form fiel
 personal-data checks as the browser agent's typing. A refusal is an observation the AI reads, not a crash.
 """
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
+from ... import config
 from ...fetching import blockdetect, fetcher
 from ...security import audit, sessions
 from .. import guard, handoff, planner, runner, store
@@ -32,9 +34,69 @@ def _norm(url: str) -> str:
     return (url or "").strip().split("#")[0]
 
 
+def _host(netloc: str) -> str:
+    return netloc.lower().removeprefix("www.")
+
+
 def _base(url: str) -> str:
     p = urlsplit(url)
-    return urlunsplit((p.scheme, p.netloc.lower(), p.path or "/", "", ""))
+    return urlunsplit((p.scheme, _host(p.netloc), p.path or "/", "", ""))
+
+
+def _key(url: str) -> str:
+    """One address however the site writes it: www. or not, http or https, a trailing slash or not."""
+    p = urlsplit(_norm(url))
+    return urlunsplit(("", _host(p.netloc), p.path.rstrip("/") or "/", p.query, ""))
+
+
+PAGE_ID = re.compile(r"^\[?(P\d+)\]?$", re.I)
+CURRENT = ("current", "current page", "this page", "here")
+
+
+def page_id(ctx, url: str) -> str:
+    """A short name ("P3") for an address the agent has seen. Long addresses (booking.com's are 500+
+    characters of tracking parameters) get mangled when an AI copies them; the ID never does."""
+    ids = ctx.facts.setdefault("page_ids", {})
+    for pid, u in ids.items():
+        if _key(u) == _key(url):
+            return pid
+    pid = f"P{len(ids) + 1}"
+    ids[pid] = _norm(url)
+    return pid
+
+
+def display(url: str, limit: int = 160) -> str:
+    """An address as the AI reads it: host, path and the short parameters (long tracking values left out)."""
+    p = urlsplit(_norm(url))
+    params = [f"{k}={v}" for k, v in parse_qsl(p.query, keep_blank_values=True) if len(v) <= 30][:12]
+    text = p.netloc.removeprefix("www.") + (p.path or "/") + ("?" + "&".join(params) if params else "")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _resolve(ctx, url: str) -> str:
+    """A page ID ("P3"), "current" or nothing means a page the agent already has: its exact address."""
+    s = (url or "").strip()
+    if not s or s.lower() in CURRENT:
+        return ctx.facts.get("last_urls", [ctx.start_url])[-1]
+    m = PAGE_ID.match(s)
+    if m:
+        return ctx.facts.get("page_ids", {}).get(m.group(1).upper(), m.group(1).upper())
+    return s
+
+
+def _match_seen(url: str, seen: list[str]) -> str:
+    """The seen address this is a copy of, when the AI cut it off or left some of its parameters out (the
+    seen address is used, never the AI's version). "" when it matches none: then it's invented."""
+    key, base = _key(url), _base(url)
+    mine = set(parse_qsl(urlsplit(_norm(url)).query, keep_blank_values=True))
+    hits = []
+    for u in seen:
+        if _base(u) != base:
+            continue
+        theirs = set(parse_qsl(urlsplit(u).query, keep_blank_values=True))
+        if (len(key) >= 40 and _key(u).startswith(key)) or (mine and mine <= theirs):
+            hits.append(u)
+    return hits[-1] if hits else ""            # the most recently seen, e.g. the page the browser just reached
 
 
 def _with_params(url: str, params: list[dict]) -> str:
@@ -50,12 +112,17 @@ def _with_params(url: str, params: list[dict]) -> str:
 def allow_url(url: str, ctx, params: list[dict] | None = None) -> tuple[bool, str, str]:
     """(ok, reason, final url). The site-address rule: only addresses the site showed, or a seen address
     with its own query parameters edited; then the usual guard (site, robots, cooldown, opt-out)."""
-    url = _norm(url)
-    if not url:
-        return False, "Give the address to open.", ""
+    url = _norm(_resolve(ctx, url))
+    if PAGE_ID.match(url):
+        known = ", ".join(ctx.facts.get("page_ids", {})) or "none yet"
+        return False, f"There is no page {url}. Pages so far: {known}.", ""
     if not url.startswith(("http://", "https://")):
         url = urljoin(ctx.start_url, url)
     seen = ctx.facts.setdefault("seen_urls", [])
+    keys = {_key(u) for u in seen} | {_key(ctx.start_url)}
+    if _key(url) not in keys:
+        url = _match_seen(url, seen) or url
+    edited = False
     if params:
         base = _base(url)
         known = [u for u in seen if _base(u) == base]
@@ -73,11 +140,11 @@ def allow_url(url: str, ctx, params: list[dict] | None = None) -> tuple[bool, st
             return False, (f"The site never used the parameter(s) {', '.join(bad)} on this address; only parameters the "
                            f"site itself showed can be changed ({', '.join(sorted(allowed_names)) or 'none'}). "
                            "Use the search form instead."), ""
-        url = _with_params(url, params)
-    if url not in seen and url != _norm(ctx.start_url) and url.rstrip("/") != _norm(ctx.start_url).rstrip("/"):
+        url, edited = _with_params(url, params), True      # checked above: only the site's own parameters
+    if not edited and _key(url) not in keys:
         return False, ("The site never showed this address. Open only the start page, links from a page summary "
                        "(find_links), search results (search) or a next page (next_page)."), ""
-    if url in ctx.facts.get("empty_urls", []):
+    if _key(url) in {_key(u) for u in ctx.facts.get("empty_urls", [])}:
         n = ctx.facts.get("empty_at", {}).get(url, "?")
         return False, f"That address showed no items at step {n}. Try another way.", ""
     ok, why = guard.check_url(url, ctx.site)
@@ -137,13 +204,21 @@ def _remember(ctx, page, facts: dict) -> None:
     ctx.summaries[page.final_url] = facts
 
 
+def _labelled(ctx, page, text: str) -> str:
+    """The summary's first line names the page by its ID and a short form of its address."""
+    pid = page_id(ctx, page.final_url or page.url)
+    head, _, rest = text.partition("\n")
+    head = re.sub(r"^PAGE \S+", f"PAGE {pid} = {display(page.final_url or page.url)}", head, count=1)
+    return f"{head}  (use {pid} as the url for this page)\n{rest}"
+
+
 def _open(ctx, url: str) -> Observation:
     page, bad = _fetch(ctx, url)
     if bad:
         return bad
     text, facts = summary.page_summary(page, ctx.goal, ctx.musts(), ctx.column_names(), ctx.budget)
     _remember(ctx, page, facts)
-    return Observation(text, data={"url": page.final_url, "items": facts["items"]})
+    return Observation(_labelled(ctx, page, text), data={"url": page.final_url, "items": facts["items"]})
 
 
 # ---- the tools --------------------------------------------------------------------------------
@@ -172,8 +247,8 @@ def find_links(args: dict, ctx) -> Observation:
             seen.append(u)
     if not found:
         return Observation(f"No links matching \"{pattern}\" on {url}.", ok=False)
-    return Observation(f"Links matching \"{pattern}\" on {summary.short(url)}:\n" +
-                       "\n".join(f'  "{t}" → {u}' for t, u in found))
+    return Observation(f"Links matching \"{pattern}\" on {page_id(ctx, url)} ({display(url, 80)}):\n" +
+                       "\n".join(f'  "{t}" → {page_id(ctx, u)} = {display(u, 100)}' for t, u in found))
 
 
 def search(args: dict, ctx) -> Observation:
@@ -247,6 +322,12 @@ def check_results(args: dict, ctx) -> Observation:
     lines.append("Next page: " + (", ".join(f'"{l}"' for l, _ in facts["next"][:2]) if facts["next"] else "none seen") + ".")
     if cols:
         lines.append("Wanted column words seen in the items: " + (", ".join(seen_cols) or "none yet (the app's AI maps columns when collecting)") + ".")
+    app_side = [c["text"] for c in ctx.checklist if c["kind"] == "app"]
+    if app_side:
+        lines.append("After collecting, the app itself applies: " + "; ".join(app_side) + ". Do NOT sort, filter or "
+                     "limit for these on the site: when the must items are true, collect this page.")
+    pid = page_id(ctx, page.final_url or url)
+    lines.append(f"To collect it: collect with url {pid}.")
     return Observation("\n".join(lines), data={"is_list": True, "items": best["count"]})
 
 
@@ -288,7 +369,9 @@ def browse(args: dict, ctx) -> Observation:
     run = store.get(ctx.run_id)
     task_id = store.create_browse_task(ctx.run_id, planner.browse_task_text(ctx.plan, task, url), url, limits,
                                        {"steps": run["steps"], "ai_calls": run["ai_calls"], "tokens": run["tokens"]})
-    store.add_step(ctx.run_id, "info", f"Browser sub-task: {task}", url=url)
+    store.add_step(ctx.run_id, "info", f"Browser sub-task: {task}" +
+                   (" (a browser window opens on your screen; you can watch it work)" if config.AGENT_SHOW_BROWSER else ""),
+                   url=url)
     try:
         runner.ensure(ctx.app_url or runner.last_app_url)
     except RuntimeError as e:
@@ -320,7 +403,8 @@ def browse(args: dict, ctx) -> Observation:
         ctx.pages[_norm(final)] = page
         text, facts = summary.page_summary(page, ctx.goal, ctx.musts(), ctx.column_names(), ctx.budget)
         _remember(ctx, page, facts)
-        return Observation(f"The browser did it ({t['note'] or 'sub-task done'}) and is on this page:\n{text}",
+        return Observation(f"The browser did it ({t['note'] or 'sub-task done'}) and is on this page:\n"
+                           f"{_labelled(ctx, page, text)}",
                            data={"url": final, "items": facts["items"]})
     if t["status"] == "needs_you":
         return Observation(t["message"], ok=False, end=("needs_you", t["message"]))

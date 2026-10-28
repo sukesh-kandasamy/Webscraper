@@ -32,7 +32,8 @@ def test_done_run_is_remembered_and_used_next_time(site, monkeypatch):
     _books_run(monkeypatch)
     [entry] = memory.recall(HOME)
     assert entry["results_url"] == CAT and entry["goal"].startswith("Mystery books")
-    assert entry["how"][0].startswith("open_page https://books.test/") and entry["how"][-1].startswith("collect")
+    assert entry["how"][0].startswith("open_page books.test/") and entry["how"][-1].startswith("collect")
+    assert not any(" = " in h for h in entry["how"])              # no page IDs: they mean nothing in a later run
     assert entry["list_selector"] == "li.c" and entry["needs_browser"] is False
 
     run_id = make_run()
@@ -165,6 +166,66 @@ def test_a_timed_out_brain_call_is_tried_once_more(site, monkeypatch):
     assert store.get(ctx.run_id)["ai_calls"] == 2
 
 
+def test_www_and_bare_domain_are_one_address(site):
+    """booking.com redirects to www.booking.com: reopening either spelling of a seen address is allowed."""
+    ctx = ctx_for(make_run())
+    assert tools.allow_url("https://www.books.test/", ctx)[0]                 # the start page, with www.
+    ctx.facts["seen_urls"].append("https://www.books.test/index.en-gb.html")    # its redirect, as the site showed it
+    ok, why, url = tools.allow_url("https://books.test/index.en-gb.html", ctx)
+    assert ok, why
+    assert not tools.allow_url("https://books.test/made-up.html", ctx)[0]
+    ctx.facts.setdefault("empty_urls", []).append("https://books.test/index.en-gb.html")
+    assert "showed no items" in tools.allow_url("https://www.books.test/index.en-gb.html/", ctx)[1]
+
+
+def test_rate_limit_waits_show_on_the_timeline(site, monkeypatch):
+    class RateLimited(Exception):
+        status_code = 429
+    calls = []
+
+    def groq(messages, schema, system, name, model):
+        calls.append(model)
+        if len(calls) == 1:
+            raise RateLimited("Rate limit reached for model on tokens per minute (TPM): Limit 8000, Used 7900. "
+                              "Please try again in 7.5s.")
+        return '{"thought": "go", "checklist_done": [], "tool": "open_page", "url": "https://books.test/", ' \
+               '"pattern": "", "params": [], "fields": [], "form": 0, "pages": 0, "task": "", "question": "", ' \
+               '"note": "", "summary": "", "outcome": "ok"}'
+    monkeypatch.setitem(recipe_builder._ASK, "groq", groq)
+    monkeypatch.setattr(recipe_builder.time, "sleep", lambda s: None)
+    ctx = ctx_for(make_run())
+    assert brain.decide(ctx).tool == "open_page" and len(calls) == 2
+    assert any(s["text"].startswith("Waiting 8s for Groq's per-minute limit") for s in store.steps(ctx.run_id))
+
+
+def test_a_long_rate_limit_switches_to_the_backup_or_ends_as_limit(site, monkeypatch):
+    """The request layer gives up on waits over its maximum ("rate-limited ... about 3 minutes"): that is a
+    limit (backup AI, or status limit), not "answers could not be used"."""
+    from app import config
+    long_wait = recipe_builder.RecipeBuildError("The AI provider is rate-limited: it asks to wait about 3 minutes "
+                                                "before the next request. Your plan's limit may be used up for now.")
+    ok = ({"thought": "go", "checklist_done": [], "tool": "open_page", "url": HOME, "pattern": "", "params": [],
+           "fields": [], "form": 0, "pages": 0, "task": "", "question": "", "note": "", "summary": "", "outcome": "ok"}, 30)
+
+    def ask(system, messages, schema, name, provider=None, model=None, **kw):
+        if provider == "groq":
+            raise long_wait
+        return ok
+    monkeypatch.setattr(recipe_builder, "ask_structured", ask)
+    monkeypatch.setattr(config, "agent_fallback", lambda: {"provider": "openai", "model": "gpt-5-mini"})
+    ctx = ctx_for(make_run())
+    assert brain.decide(ctx).tool == "open_page" and ctx.provider == "openai"
+    assert any("rate-limited for longer than the agent waits" in s["text"] and "Switched to the backup AI" in s["text"]
+               for s in store.steps(ctx.run_id))
+    monkeypatch.setattr(config, "agent_fallback", lambda: None)
+    ctx = ctx_for(make_run())
+    try:
+        brain.decide(ctx)
+        raise AssertionError("no error")
+    except brain.BrainError as e:
+        assert e.status == "limit" and "about 3 minutes" in str(e)
+
+
 # ---- Continue: a stopped run carries on where it stopped, it doesn't start over -------------------
 
 def test_a_stopped_run_continues_where_it_stopped(client, monkeypatch):
@@ -214,3 +275,12 @@ def test_continue_resumes_the_collection_job_and_refuses_finished_runs(client, m
     done = make_run()
     store.update(done, status="done")
     assert client.post(f"/api/agent/runs/{store.get(done)['uid']}/continue").status_code == 409
+
+
+def test_a_stopped_runs_browser_stays_open_for_a_while():
+    from app.agent import api
+    now = time.time()
+    assert api._close_browser(None) and api._close_browser({"status": "done", "finished_at": now})
+    assert not api._close_browser({"status": "thinking", "finished_at": None})
+    assert not api._close_browser({"status": "error", "finished_at": now - 60})               # Continue can reuse it
+    assert api._close_browser({"status": "limit", "finished_at": now - api.KEEP_BROWSER_S - 1})

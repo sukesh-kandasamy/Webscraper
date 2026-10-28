@@ -15,6 +15,7 @@ request as row filters, so nothing is lost if the site has no such filter.
 
 When the goal names no site, suggest_sites() asks the AI for 1-3 real sites to choose from.
 """
+import datetime as dt
 import re
 from urllib.parse import urlsplit
 
@@ -22,7 +23,7 @@ from .. import config
 from ..extraction import recipe_builder, request_parser
 from ..fetching import fetcher
 from ..security import netguard
-from . import guard
+from . import browse_text, guard
 
 MAX_GOAL_CHARS = 2000
 MAX_NAV_STEPS = 12
@@ -52,7 +53,8 @@ Return:
   "auto" if unsure.
 - must: the conditions that change WHICH results the site shows and so must be true on the results page \
   before collecting: the search term, place, dates, category, type of listing. Short, one per line, e.g. \
-  "destination: Goa", "check-in 25 Nov 2026, check-out 28 Nov 2026", "category: Mystery". Not prices, \
+  "destination: Goa", "check-in 2026-11-25, check-out 2026-11-28", "category: Mystery". Write dates in full \
+  (YYYY-MM-DD); a date without a year is the next one after today. Not prices, \
   ratings, sorting or how many: the app applies those to the rows afterwards. Never restate what the site \
   or page already is (on an "Oscar winning films" page, "oscar winner: true" is not a condition; neither is \
   "awards contains Oscar"). 0-8 items.
@@ -208,6 +210,11 @@ def clean_plan(raw: dict, goal: str, site: str) -> dict:
             "summary": request.get("summary", ""), "question": request.get("question", "")}
 
 
+def today() -> str:
+    """So "Nov 5" becomes a full date (the next one from today); the planner and the agent both get it."""
+    return dt.date.today().strftime("%Y-%m-%d (%A)")
+
+
 def make_plan(goal: str, site: str, pages: int | None = None) -> dict:
     goal = (goal or "").strip()[:MAX_GOAL_CHARS]
     if not goal:
@@ -216,7 +223,8 @@ def make_plan(goal: str, site: str, pages: int | None = None) -> dict:
     if not config.ai_enabled():
         raise PlanError(f"Agent mode needs an AI key. Add {config.ai_key_name()} to .env.")
     raw = recipe_builder.ask_json(
-        SYSTEM, f"Website: {start}\nWhat the person wants:\n\"\"\"\n{goal}\n\"\"\"", _schema(), "agent_plan")
+        SYSTEM, f"Today: {today()}\nWebsite: {start}\nWhat the person wants:\n\"\"\"\n{goal}\n\"\"\"", _schema(),
+        "agent_plan")
     plan = clean_plan(raw, goal, site)
     if pages:
         plan["pages"] = max(1, min(int(pages), 50))
@@ -224,18 +232,6 @@ def make_plan(goal: str, site: str, pages: int | None = None) -> dict:
 
 
 def browse_task_text(plan: dict, task: str, url: str) -> str:
-    """What browser-use gets for one sub-task of the ReAct loop: do this one thing on the page, then hand
-    the page back (results_reached or done with success=true both end the sub-task on the current page)."""
-    site = guard.site_domain(plan["start_url"])
-    return f"""You are on {url} on {site}. Your sub-task: {task}
-
-Rules:
-- Stay on {site}. Never log in, sign up, contact anyone, buy, apply, post, or type personal information. Some \
-actions are refused by the app; if one is refused, choose another way.
-- Close or decline cookie / newsletter / app pop-ups (choose "reject" or "necessary only" when offered).
-- If the site shows a CAPTCHA or "verify you are human" page, stop and call done with success=false and \
-the text "HUMAN CHECK".
-- When the sub-task is done (the page shows what was asked for), call results_reached with a one-line \
-note of what you did; the app reads the page you are on. Do not collect data yourself.
-- If the sub-task can't be done within a few tries, call done with success=false and say what you see."""
+    """What browser-use gets for one sub-task of the ReAct loop (browse_text.py, shared with the live test)."""
+    return browse_text.task_text(guard.site_domain(plan["start_url"]), url, task)
 

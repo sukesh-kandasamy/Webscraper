@@ -9,6 +9,7 @@ site showed, so the agent may open it again; the usual guard still checks it.
     forget(url)            drop the site's memory
     prompt_lines(entries)  the hint as prompt lines
 """
+import re
 import time
 
 from ... import db
@@ -16,6 +17,7 @@ from ...fetching import fetcher
 from ...security import logsafe
 from .. import guard
 
+PAGE_REF = re.compile(r"\bP\d+ = ")
 MAX_ENTRIES = 3
 MAX_HOW = 6
 KEPT_TOOLS = ("open_page", "search", "browse", "next_page", "collect")
@@ -50,7 +52,8 @@ def remember(run: dict) -> dict | None:
     if run.get("scrape_id"):
         scrape = db.get_scrape(run["scrape_id"]) or {}
         selector = (scrape.get("recipe") or {}).get("item_selector", "")
-    how = [logsafe.redact(f"{h['tool']} {h.get('arg', '')}".strip())[:180] for h in hist][-MAX_HOW:]
+    # Page IDs ("P3 = site.com/…") only mean something inside one run: keep the address alone.
+    how = [logsafe.redact(PAGE_REF.sub("", f"{h['tool']} {h.get('arg', '')}").strip())[:180] for h in hist][-MAX_HOW:]
     entry = {"goal": logsafe.redact(run["goal"])[:160], "results_url": run["final_url"].split("#")[0],
              "how": how, "list_selector": selector[:120],
              "needs_browser": any(h["tool"] == "browse" for h in hist),

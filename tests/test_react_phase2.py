@@ -23,7 +23,7 @@ def _installed(monkeypatch):
 def _claim(client):
     for _ in range(200):
         job = client.get("/api/agent/worker/next", headers=_worker()).json()
-        if job:
+        if job.get("id"):                     # an answer without a job still lists browsers to close
             return job
         time.sleep(0.05)
     raise AssertionError("no browse task was queued")
@@ -61,7 +61,7 @@ def test_browse_round_trip_through_the_worker_routes(client, monkeypatch):
     assert any("Refused" in t for t in texts) and "Clicked Mystery" in texts
     assert v["steps"] >= 3 and v["ai_calls"] >= 4                 # the worker's counters carried on
     assert db.get_scrape(v["scrape_id"])["mode"] == "agent"
-    assert client.get("/api/agent/worker/next", headers=_worker()).json() == {}
+    assert client.get("/api/agent/worker/next", headers=_worker()).json() == {"close": []}
 
 
 def test_browse_failure_and_timeout_are_observations(client, monkeypatch):
@@ -173,7 +173,7 @@ def test_brain_timeout_switches_to_the_backup_or_ends_plainly(site, monkeypatch)
            "fields": [], "form": 0, "pages": 0, "task": "", "question": "", "note": "", "summary": "", "outcome": "ok"}, 50)
     calls = []
 
-    def ask(system, messages, schema, name, provider=None, model=None, timeout=None):
+    def ask(system, messages, schema, name, provider=None, model=None, timeout=None, on_wait=None):
         calls.append(model)
         if model != "backup-model":
             raise ReadTimeout("The read operation timed out")

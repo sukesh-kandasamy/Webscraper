@@ -46,6 +46,10 @@ def decide(run: dict, job: dict, recipe: dict) -> list[dict]:
                                                f"({rb.get('reason', '')})"}]
     if job["status"] != "done":
         return []
+    # Only the agent's own page could be collected (the address alone shows something else): every fix
+    # re-runs the collection from the address, which would replace good rows with the wrong page's.
+    if (recipe.get("agent") or {}).get("page_only"):
+        return []
 
     # Requested columns that came out missing or mostly empty: item pages usually have them.
     names = {f["name"] for f in recipe["fields"]}
@@ -60,7 +64,10 @@ def decide(run: dict, job: dict, recipe: dict) -> list[dict]:
 
     cov, expected = q.get("coverage"), q.get("expected_total")
     seen, pages = q.get("items_seen", 0), job["pages_done"]
-    if cov is not None and cov < LOW_COVERAGE and expected:
+    # "Top 15" means 15 rows: the site listing thousands more is no reason to collect more pages.
+    limit = int(plan["request"].get("limit") or 0)
+    enough = bool(limit) and job["rows"] >= limit
+    if cov is not None and cov < LOW_COVERAGE and expected and not enough:
         if pages >= job["max_pages"] and job["max_pages"] < MAX_PAGES and "more_pages" not in tried:
             per_page = max(1, seen / max(pages, 1))
             need = min(MAX_PAGES, max(job["max_pages"] * 2, math.ceil(expected / per_page) + 1))
@@ -165,9 +172,14 @@ def _check(run_id: int) -> None:
         return finish(run)
     if run["stop_requested"]:
         return finish(run)
+    if _kept_better(run, job, scrape):
+        return finish(store.get(run_id))
     fixes = decide(run, job, scrape["recipe"])
     if not fixes:
-        _log(run_id, "info", "Checked the results: nothing to fix." if job["status"] == "done"
+        page_only = (scrape["recipe"].get("agent") or {}).get("page_only")
+        _log(run_id, "info", "Checked the results: only the agent's own page could be collected, so the app "
+                             "doesn't collect it again to fix it." if page_only and job["status"] == "done" else
+             "Checked the results: nothing to fix." if job["status"] == "done"
              else "Checked the results: nothing the agent can fix.")
         return finish(run)
     if run.get("fix_rounds", 0) >= MAX_ROUNDS:
@@ -201,6 +213,10 @@ def _check(run_id: int) -> None:
             reason = logsafe.redact(str(e))[:300]
             applied.append({"kind": fix["kind"], "why": fix["why"], "result": f"not possible: {reason}"})
             _log(run_id, "warn", f"Couldn't fix it: {reason}.")
+    if changed:
+        for f in applied[len(run.get("fixes", [])):]:
+            f["previous_job"] = job["id"]
+        applied[len(run.get("fixes", []))]["previous_setup"] = {"recipe": scrape["recipe"], "max_pages": scrape["max_pages"]}
     store.update(run_id, fixes=applied, fix_rounds=run.get("fix_rounds", 0) + 1)
     if not changed:
         return finish(store.get(run_id))
@@ -211,6 +227,47 @@ def _check(run_id: int) -> None:
     store.update(run_id, job_id=new_job, status="collecting", message="Collecting again with the fixes")
     _log(run_id, "info", "Collecting again with the fixes (pages already read come from the cache)…",
          previous_job=job["id"], job=new_job)
+
+
+def _worse(new: dict, old: dict) -> list[str]:
+    """Why the new job is worse than the old one ([] when it isn't): fewer rows, or columns that were
+    filled now mostly empty."""
+    why = []
+    if old["rows"] and new["rows"] < old["rows"] * 0.8:
+        why.append(f"{new['rows']} rows instead of {old['rows']}")
+    qn, qo = new.get("quality") or {}, old.get("quality") or {}
+    emptied = [c for c in (qo.get("columns") or {}) if _fill(qo, c) >= 0.8 and _fill(qn, c) < 0.5]
+    if emptied:
+        why.append(f"{', '.join(emptied)} came out empty")
+    return why
+
+
+def _kept_better(run: dict, job: dict, scrape: dict) -> bool:
+    """After a fix's re-collection: if it came out worse than the job before the fix, put that job (and the
+    saved scrape's setup) back. True when it did, so no further fixes are tried."""
+    fixes = run.get("fixes") or []
+    last = fixes[-1] if fixes else {}
+    prev_id = last.get("previous_job")
+    if not prev_id or last.get("compared") or prev_id == job["id"]:
+        return False
+    for f in fixes:
+        if f.get("previous_job") == prev_id:
+            f["compared"] = True
+    old = db.get_job(prev_id)
+    why = _worse(job, old) if old and old["status"] == "done" else []
+    if not why:
+        store.update(run["id"], fixes=fixes)
+        return False
+    setup = next((f["previous_setup"] for f in fixes if f.get("previous_job") == prev_id and f.get("previous_setup")), None)
+    if setup:
+        db.update_scrape(scrape["id"], recipe=setup["recipe"], max_pages=setup["max_pages"])
+    for f in fixes:
+        if f.get("previous_job") == prev_id:
+            f["result"] = "undone: it made the results worse"
+    store.update(run["id"], job_id=prev_id, fixes=fixes)
+    _log(run["id"], "warn", f"The fix made the results worse ({'; '.join(why)}), so the collection before it is "
+                            f"kept ({old.get('public_id') or old['id']}).", kept_job=prev_id, worse_job=job["id"])
+    return True
 
 
 def finish(run: dict) -> None:
@@ -227,7 +284,7 @@ def finish(run: dict) -> None:
         bits.append(f"{q['excluded']:,} didn't match your conditions")
     if (q.get("details") or {}).get("done"):
         bits.append(f"{q['details']['done']} item pages read")
-    fixed = [f for f in run.get("fixes", []) if not str(f.get("result", "")).startswith("not possible")]
+    fixed = [f for f in run.get("fixes", []) if not str(f.get("result", "")).startswith(("not possible", "undone"))]
     if fixed:
         bits.append(f"{len(fixed)} fix{'es' if len(fixed) > 1 else ''} made")
     bits.append(f"the agent used {run['steps']} steps and {run['ai_calls']} AI calls")

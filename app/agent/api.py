@@ -279,19 +279,35 @@ def _worker_job(run: dict, start_url: str) -> dict:
             "storage_state": session["state"] if session and use else None}
 
 
+KEEP_BROWSER_S = 30 * 60        # a run that can Continue keeps its window this long, to carry on in place
+
+
+def _close_browser(run: dict | None) -> bool:
+    """A job's browser closes when the job is done, or a while after it stopped in a way it can continue from."""
+    if not run or run["status"] == "done":
+        return True
+    if run["status"] not in store.FINISHED:
+        return False
+    return time.time() - float(run.get("finished_at") or 0) > KEEP_BROWSER_S
+
+
 @worker.get("/next")
-def next_run():
-    """The worker's next job: the oldest browse sub-task of a ReAct run, or {} when there is none."""
+def next_run(open: str = ""):
+    """The worker's next job: the oldest browse sub-task of a ReAct run, or none. `open` lists the runs whose
+    browser the worker keeps open; "close" names those whose job has finished (each job keeps one browser
+    window from its first sub-task until it ends)."""
     runner.seen()
+    ids = [int(x) for x in open.split(",") if x.strip().isdigit()]
+    close = [i for i in ids if _close_browser(store.get(i))]
     task = store.claim_browse_task()
     if not task:
-        return {}
+        return {"close": close}
     run = store.get(task["run_id"])
     if not run or run["status"] != "browsing":
         store.finish_browse_task(task["id"], "failed", message="The run was no longer waiting for the browser.")
-        return {}
+        return {"close": close}
     return {**_worker_job(run, task["start_url"]), "kind": "browse", "task_id": task["id"], "task": task["task"],
-            "limits": {**run["limits"], **task["limits"]}, "counters": task["counters_base"]}
+            "limits": {**run["limits"], **task["limits"]}, "counters": task["counters_base"], "close": close}
 
 
 class CheckIn(BaseModel):

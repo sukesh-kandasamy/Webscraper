@@ -13,6 +13,7 @@ the app without any AI call, from HTML with personal data already redacted.
     headings: h1 "Mystery"
 """
 import re
+from collections import defaultdict
 from urllib.parse import urljoin, urlsplit
 
 from ...extraction import extractor, recipe_builder, structured
@@ -49,38 +50,83 @@ def _text(node) -> str:
     return extractor.clean_text(node.text(separator=" ")) if node is not None else ""
 
 
+def _fields(nodes, outline=None) -> list[str]:
+    if not outline and nodes:
+        try:
+            outline = recipe_builder.merged_outline(nodes)
+        except Exception:
+            outline = []
+    fields = []
+    for e in (outline or [])[:8]:
+        attrs = [k for k, _ in (e.get("attrs") or []) if k in ("href", "src", "title", "class", "datetime", "content")]
+        fields.append(e["path"] + (f"[{attrs[0]}]" if attrs else ""))
+    return fields
+
+
+def testid_lists(tree) -> list[dict]:
+    """Records marked by the site itself: 4+ blocks sharing a data-testid ("property-card" x 25 on
+    booking.com), with real text and links. Sites that obfuscate their class names still label these."""
+    groups: dict[str, list] = defaultdict(list)
+    for n in tree.css("[data-testid]"):
+        groups[n.attributes.get("data-testid") or ""].append(n)
+    good = {}
+    for tid, nodes in groups.items():
+        if not tid or len(nodes) < 4 or _MENU.search(tid):
+            continue
+        texts = [_text(n) for n in nodes]
+        if sum(len(t) for t in texts) / len(texts) < 40:
+            continue
+        if sum(1 for n in nodes if n.css_first("a[href]")) < len(nodes) / 2:
+            continue
+        good[tid] = nodes
+    out = []
+    for tid, nodes in good.items():
+        # keep the outermost group: a card's own labelled parts (title, price) are not the records
+        parent, inner = nodes[0].parent, False
+        while parent is not None and parent.tag not in ("body", "html"):
+            if (parent.attributes.get("data-testid") or "") in good and parent.attributes.get("data-testid") != tid:
+                inner = True
+                break
+            parent = parent.parent
+        if inner:
+            continue
+        samples = [privacy.mask_text(_text(n))[:90] for n in nodes[:2]]
+        rich = any(re.search(r"\d|[£$€₹]", s) for s in samples)
+        out.append({"selector": f'[data-testid="{tid}"]', "count": len(nodes), "samples": samples,
+                    "fields": _fields(nodes[:4]), "menu": False, "score": len(nodes) * 3 * (1.5 if rich else 1)})
+    return out
+
+
 def lists(html: str) -> list[dict]:
     """Repeated blocks that look like records: [{selector, count, samples, fields, score}]."""
     out = []
+    tree = extractor.parse_html(html)
+    try:
+        out = testid_lists(tree)
+    except Exception:
+        out = []
     try:
         cands = recipe_builder.find_candidates(html)
     except Exception:
-        return out
-    tree = extractor.parse_html(html)
+        cands = []
     for c in cands:
         counts = c.get("page_counts") or []
         selector = counts[-1][0] if counts else c["selector_hint"]
         count = max([n for _, n in counts] + [c["count"]])
+        generic = count > 2 * c["count"]      # a utility class used all over the page (booking.com's), not the
+        if generic:                           # records: count the repeated siblings themselves
+            count = c["count"]
         try:
             nodes = tree.css(selector)[:4] if selector else []
         except Exception:
             nodes = []
         samples = [privacy.mask_text(_text(n))[:90] for n in nodes[:2]]
-        fields = []
-        outline = c.get("outline")
-        if not outline and nodes:
-            try:
-                outline = recipe_builder.merged_outline(nodes)
-            except Exception:
-                outline = []
-        for e in (outline or [])[:8]:
-            attrs = [k for k, _ in (e.get("attrs") or []) if k in ("href", "src", "title", "class", "datetime", "content")]
-            fields.append(e["path"] + (f"[{attrs[0]}]" if attrs else ""))
+        fields = _fields(nodes, c.get("outline"))
         # Records beat menus: a site's navigation also repeats, but it has no prices or numbers and sits in
         # nav / menu / header / footer containers.
         menu = bool(_MENU.search(c["selector_hint"] + " " + selector))
         rich = any(re.search(r"\d|[£$€₹]", s) for s in samples)
-        score = count * (0.15 if menu else 1) * (1.5 if rich else 1)
+        score = count * (0.15 if menu else 1) * (1.5 if rich else 1) * (0.5 if generic else 1)
         out.append({"selector": selector, "count": count, "samples": samples, "fields": fields, "menu": menu, "score": score})
     out.sort(key=lambda d: -d["score"])
     return out[:3]

@@ -18,6 +18,7 @@ import io
 import os
 import sys
 import time
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -32,7 +33,7 @@ BROWSER_START_PAGES = ["edge://newtab", "edge://new-tab-page"]
 KEEP_ATTRS = ("id", "name", "type", "role", "aria-label", "placeholder", "title", "href", "value", "class",
               "data-testid", "autocomplete", "alt")
 
-from browser_use import Agent, BrowserProfile, Tools                      # noqa: E402
+from browser_use import Agent, BrowserProfile, BrowserSession, Tools                      # noqa: E402
 from browser_use.agent.views import ActionResult                          # noqa: E402
 
 import llm_errors                                                         # noqa: E402
@@ -96,6 +97,10 @@ def track(llm, run: "Run", role: str) -> None:
                 if not p:
                     raise
                 if attempt == 1 and p["kind"] == "rate_limit" and not p["fatal"] and p["wait_s"]:
+                    # Say so: a minute of silence on the timeline looks like a hang.
+                    post(f"/api/agent/worker/runs/{run.id}/step", kind="info",
+                         text=f"Waiting {round(p['wait_s'])}s for {llm_errors.PROVIDERS.get(provider, provider)}'s "
+                              "per-minute limit, then carrying on.", **run.counters())
                     await asyncio.sleep(p["wait_s"] + 1)
                     continue
                 run.problem = p["message"]
@@ -296,6 +301,50 @@ async def page_html(browser_session) -> str:
         return ""
 
 
+# One browser per job (agent run): its sub-tasks share the window, so a destination typed or a date picked
+# in one sub-task is still there in the next. It closes when the app says the job has finished.
+BROWSERS: dict[int, BrowserSession] = {}
+LOOP = asyncio.new_event_loop()        # one event loop for the worker's life: the browsers belong to it
+
+
+def same_page(a: str, b: str) -> bool:
+    """Same site and path, www. or not, whatever the query (the page's own parameters change as you use it)."""
+    pa, pb = urlsplit(a), urlsplit(b)
+    host = lambda p: p.netloc.lower().removeprefix("www.")
+    return host(pa) == host(pb) and (pa.path.rstrip("/") or "/") == (pb.path.rstrip("/") or "/")
+
+
+async def browser_for(job: dict) -> tuple[BrowserSession, bool]:
+    """(the job's browser, True when it was just opened). A browser closed by hand is opened again."""
+    session = BROWSERS.get(job["id"])
+    if session is not None:
+        try:
+            await session.get_current_page_url()
+            return session, False
+        except Exception:
+            await close_browser(job["id"])
+    show = os.environ.get("AGENT_SHOW_BROWSER") == "1"
+    profile = BrowserProfile(headless=not show, executable_path=os.environ.get("AGENT_BROWSER") or None,
+                             allowed_domains=job["allowed_domains"] + BROWSER_START_PAGES, storage_state=job.get("storage_state"),
+                             block_ip_addresses=True, keep_alive=True, window_size={"width": 1280, "height": 900})
+    session = BrowserSession(browser_profile=profile)
+    await session.start()
+    BROWSERS[job["id"]] = session
+    log(f"run {job['id']}: opened its browser")
+    return session, True
+
+
+async def close_browser(run_id: int) -> None:
+    session = BROWSERS.pop(run_id, None)
+    if session is None:
+        return
+    try:
+        await session.kill()
+    except Exception:
+        pass
+    log(f"run {run_id}: closed its browser (the job has finished)")
+
+
 async def execute(job: dict) -> None:
     run = Run(job)
     limits = job["limits"]
@@ -306,10 +355,16 @@ async def execute(job: dict) -> None:
         track(backup, run, "AGENT_FALLBACK")
     run.has_backup = backup is not None
 
-    show = os.environ.get("AGENT_SHOW_BROWSER") == "1"
-    profile = BrowserProfile(headless=not show, executable_path=os.environ.get("AGENT_BROWSER") or None,
-                             allowed_domains=job["allowed_domains"] + BROWSER_START_PAGES, storage_state=job.get("storage_state"),
-                             block_ip_addresses=True, keep_alive=False, window_size={"width": 1280, "height": 900})
+    session, fresh = await browser_for(job)
+    run.browser_session = session
+    # A later sub-task of the same job carries on in the same window: only navigate when it's for another page.
+    here = ""
+    if not fresh:
+        try:
+            here = await session.get_current_page_url()
+        except Exception:
+            here = ""
+    start = [] if here and same_page(here, job["start_url"]) else [{"navigate": {"url": job["start_url"], "new_tab": False}}]
     tools = GuardedTools(run)
     vision = os.environ.get("AGENT_VISION") == "1"
 
@@ -328,13 +383,13 @@ async def execute(job: dict) -> None:
         return bool(run.stop_reason) or run.arrived
 
     agent = Agent(
-        task=job["task"], llm=llm, browser_profile=profile, tools=tools,
+        task=job["task"], llm=llm, browser_session=session, tools=tools,
         use_vision=vision, use_judge=False, enable_planning=False, calculate_cost=False,
         flash_mode=not vision, use_thinking=vision, max_actions_per_step=3, max_failures=3,
         # fewer tokens per call: only the latest steps in full, and a shorter element list without screenshots
         max_history_items=8, max_clickable_elements_length=9000 if not vision else 30000,
         fallback_llm=backup,
-        initial_actions=[{"navigate": {"url": job["start_url"], "new_tab": False}}],
+        initial_actions=start or None,
         register_new_step_callback=on_step, register_should_stop_callback=should_stop,
         llm_timeout=90, step_timeout=150,
     )
@@ -360,7 +415,7 @@ async def execute(job: dict) -> None:
         run.stop_message = run.stop_message or f"The agent failed: {type(e).__name__}: {str(e)[:300]}"
     finally:
         try:
-            await agent.close()
+            await agent.close()            # the job's browser stays open (keep_alive): closed when the job ends
         except Exception:
             pass
     if run.arrived:
@@ -387,28 +442,36 @@ async def execute(job: dict) -> None:
 def main() -> None:
     log(f"agent worker started (python {sys.version.split()[0]}, provider {os.environ.get('AGENT_PROVIDER')})")
     idle_since = time.time()
-    while True:
-        try:
-            job = client.get("/api/agent/worker/next").json()
-        except Exception as e:
-            log(f"app unreachable: {e}")
-            if time.time() - idle_since > 120:
-                return
-            time.sleep(3)
-            continue
-        if not job.get("id"):
-            if time.time() - idle_since > IDLE_EXIT_S:
-                log("idle, exiting")
-                return
-            time.sleep(2)
-            continue
-        log(f"run {job['id']}: starting on {job['start_url']}")
-        try:
-            asyncio.run(execute(job))
-        except Exception as e:
-            post(f"/api/agent/worker/runs/{job['id']}/finish", status="error",
-                 message=f"The agent crashed: {type(e).__name__}: {str(e)[:300]}")
-        idle_since = time.time()
+    try:
+        while True:
+            try:
+                # The app also says which of our open browsers belong to jobs that have finished.
+                job = client.get("/api/agent/worker/next", params={"open": ",".join(map(str, BROWSERS))}).json()
+            except Exception as e:
+                log(f"app unreachable: {e}")
+                if time.time() - idle_since > 120:
+                    return
+                time.sleep(3)
+                continue
+            for run_id in job.get("close") or []:
+                LOOP.run_until_complete(close_browser(int(run_id)))
+            if not job.get("id"):
+                # Stay while a job's browser is open (it may be waiting for your answer); exit when idle.
+                if not BROWSERS and time.time() - idle_since > IDLE_EXIT_S:
+                    log("idle, exiting")
+                    return
+                time.sleep(2)
+                continue
+            log(f"run {job['id']}: starting on {job['start_url']}")
+            try:
+                LOOP.run_until_complete(execute(job))
+            except Exception as e:
+                post(f"/api/agent/worker/runs/{job['id']}/finish", status="error",
+                     message=f"The agent crashed: {type(e).__name__}: {str(e)[:300]}")
+            idle_since = time.time()
+    finally:
+        for run_id in list(BROWSERS):
+            LOOP.run_until_complete(close_browser(run_id))
 
 
 if __name__ == "__main__":

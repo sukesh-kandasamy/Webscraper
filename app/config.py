@@ -113,8 +113,11 @@ AGENT_MODEL = os.getenv("SCRAPER_AGENT_MODEL", {"anthropic": "claude-sonnet-5-5"
 # Backup AI for the agent: used when its own AI hits a rate or daily limit, has no credit or refuses the key.
 AGENT_FALLBACK_PROVIDER = os.getenv("SCRAPER_AGENT_FALLBACK_PROVIDER", "").lower()
 AGENT_FALLBACK_MODEL = os.getenv("SCRAPER_AGENT_FALLBACK_MODEL", "")
+# The agent's browser opens as a normal visible window: some sites (booking.com) send headless browsers a
+# different flow. "0" hides it; the app never disguises a hidden browser.
+AGENT_SHOW_BROWSER = os.getenv("SCRAPER_AGENT_SHOW_BROWSER", "1") != "0"
 AGENT_MAX_STEPS = int(os.getenv("SCRAPER_AGENT_MAX_STEPS", "40"))
-AGENT_MAX_MINUTES = float(os.getenv("SCRAPER_AGENT_MAX_MINUTES", "10"))
+AGENT_MAX_MINUTES = float(os.getenv("SCRAPER_AGENT_MAX_MINUTES", "15"))   # a browser step on a big site takes 4-6 min
 AGENT_MAX_AI_CALLS = int(os.getenv("SCRAPER_AGENT_MAX_AI_CALLS", "60"))
 AGENT_SHOTS_DIR = DATA_DIR / "agent_shots"
 

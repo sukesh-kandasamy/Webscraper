@@ -114,7 +114,10 @@ def _handoff(run_id: int, url: str, html: str, note: str) -> None:
 
     name = (request.get("summary") or run["goal"])[:110]
     pages = int(plan.get("pages") or 3) if (by_url or replay) else 1
-    recipe = {**recipe, "agent": {"goal": run["goal"], "plan": plan, "run_id": run_id, "start_url": run["start_url"]}}
+    # page_only: neither the address nor the recorded steps bring this page back, so later fixes can't
+    # collect it again (or more pages of it) without the agent.
+    recipe = {**recipe, "agent": {"goal": run["goal"], "plan": plan, "run_id": run_id, "start_url": run["start_url"],
+                                  "page_only": not (by_url or replay)}}
     if replay:
         recipe["route"] = route
     urls = [run["start_url"]] if replay else [url]

@@ -36,7 +36,16 @@ class RecipeBuildError(Exception):
 
 # ---- page summarising ----------------------------------------------------
 
+_TESTID = re.compile(r"^[A-Za-z][\w-]{1,40}$")
+
+
 def _sig(node: LexborNode) -> str:
+    # A data-testid label ("property-card", "title", "price-and-discounted-price") is the site's own name for
+    # the element and stays the same across visits, unlike generated class names (booking.com's
+    # "a297f43545"). Per-item ids ("item-48213") are not labels.
+    tid = (node.attributes.get("data-testid") or "").strip()
+    if tid and _TESTID.match(tid) and not re.search(r"\d{3,}", tid):
+        return f'{node.tag}[data-testid="{tid}"]'
     classes = (node.attributes.get("class") or "").split()
     # Hashed CSS-in-JS classes (sc-a1b2c3, css-1x2y3z) change between deploys, so skip them.
     stable = [c for c in classes
@@ -115,7 +124,7 @@ def _rel_path(el: LexborNode, item: LexborNode, depth: int = 3) -> str:
             pos = next((i for i, c in enumerate(cells, 1) if c.mem_id == cur.mem_id), 0)
             if pos:
                 sig += f":nth-child({pos})"
-        if cur is el or "." in sig or cur.tag in _SEMANTIC_TAGS:
+        if cur is el or "." in sig or "[data-testid" in sig or cur.tag in _SEMANTIC_TAGS:
             parts.append(sig)
         if len(parts) >= depth:
             break
@@ -239,7 +248,7 @@ def _page_counts(tree: LexborHTMLParser, node: LexborNode) -> list[tuple[str, in
     out, cur = [], node
     for _ in range(3):
         sig = _sig(cur)
-        if "." in sig:
+        if "." in sig or "[data-testid" in sig:
             try:
                 out.append((sig, len(tree.css(sig))))
             except Exception:
@@ -250,7 +259,7 @@ def _page_counts(tree: LexborHTMLParser, node: LexborNode) -> list[tuple[str, in
         if len(kids) > 1:
             # Still report the first child: often the real card inside a styling wrapper.
             first = _sig(kids[0])
-            if "." in first and not out:
+            if ("." in first or "[data-testid" in first) and not out:
                 out.append((first, len(tree.css(first))))
             break
         cur = kids[0]
@@ -304,8 +313,10 @@ Rules:
 - item_selector must match exactly one element per record (product/listing card).
 - Field selectors are relative to the item element. Use "" to mean the item itself.
 - attr is "text" for visible text, or an attribute name (href, src, title, ...). Links: use href.
-- Prefer stable, meaningful class names. Never use hashed classes like "sc-c6d82cff-0" or "css-1x2y3z", \
-and avoid :nth-child unless there is no alternative.
+- Prefer [data-testid="…"] labels when the outline shows them (they don't change between visits), then \
+stable, meaningful class names. Avoid chains of generated class names like "a297f43545" or "fff1944c52". \
+Never use hashed classes like "sc-c6d82cff-0" or "css-1x2y3z", and avoid :nth-child unless there is no \
+alternative.
 - regex is optional (Python syntax, case-insensitive). Write it as it would appear in a Python raw string: one backslash, e.g. ([\\d,.]+), not double backslashes. If it has a group, group 1 is kept. Use it to \
 split values like "Price: 150 INR/Piece" into price "150" and unit "Piece".
 - kind "kv" reads spec lists made of label/value pairs: label_selector and value_selector match the \
@@ -459,6 +470,9 @@ def _with_retries(call, *args):
                 raise RecipeBuildError(
                     f"The AI provider is rate-limited: it asks to wait {wait} before the next request. "
                     "Your plan's limit may be used up for now.") from e
+            on_wait = getattr(_usage, "on_wait", None)
+            if on_wait and delay >= 5:
+                on_wait(delay)                 # e.g. the agent's timeline: "Waiting 40s for Groq's limit"
             time.sleep(delay)
             waited += delay
 
@@ -596,18 +610,18 @@ def ask_json(system: str, prompt: str, schema: dict, name: str) -> dict:
 
 def ask_structured(system: str, messages: list[dict], schema: dict, name: str,
                    provider: str | None = None, model: str | None = None,
-                   timeout: float | None = None) -> tuple[dict, int]:
+                   timeout: float | None = None, on_wait=None) -> tuple[dict, int]:
     """A structured AI call with a whole conversation, on a chosen provider and model (the ReAct agent's
     brain uses the agent's AI, not the scrape-building one). Returns (answer, tokens used).
     Raises RecipeBuildError when the answer can't be used; provider errors pass through."""
     ask = _ASK.get(provider or config.AI_PROVIDER, _ask_claude)
-    _usage.last, _usage.timeout = 0, timeout
+    _usage.last, _usage.timeout, _usage.on_wait = 0, timeout, on_wait
     try:
         text = _with_retries(ask, messages, schema, system, name, model or "")
     except _Refused:
         raise RecipeBuildError("The AI model declined this request.")
     finally:
-        _usage.timeout = None
+        _usage.timeout = _usage.on_wait = None
     try:
         return json.loads(text), last_tokens()
     except json.JSONDecodeError as e:
